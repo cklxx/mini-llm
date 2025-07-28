@@ -270,8 +270,7 @@ python -m torch.distributed.launch --nproc_per_node=4 scripts/train.py
 
 ### 核心文档
 - [Mac优化指南](README_MAC_OPTIMIZED.md) - Mac设备训练完整指南
-- [开发路线图](docs/DEVELOPMENT_ROADMAP.md) - 项目规划和进展
-- [训练总结](docs/TRAINING_SUMMARY.md) - 训练经验和最佳实践
+- [开发笔记](CLAUDE.md) - 项目开发过程与思考记录
 
 ### 技术手册
 - [数学基础与理论框架](docs/MiniGPT训练深度解析小册/第01章-数学基础与理论框架/)
@@ -280,10 +279,9 @@ python -m torch.distributed.launch --nproc_per_node=4 scripts/train.py
 - [监督微调深度解析](docs/MiniGPT训练深度解析小册/第04章-监督微调深度解析/)
 - [强化学习人类反馈](docs/MiniGPT训练深度解析小册/第05章-强化学习人类反馈/)
 
-### 实践指南
-- [后训练验证指标与工具](docs/后训练验证指标与工具.md)
-- [大模型后训练学习路径](docs/大模型后训练学习路径与验证指南.md)
-- [实践项目与验证方案](docs/实践项目与验证方案.md)
+### 项目指南
+- [项目结构说明](PROJECT_STRUCTURE.md) - 项目文件组织和模块说明
+- [快速开始指南](quick_start.py) - 一键启动Mac优化训练
 
 ## 🔍 性能对比
 
