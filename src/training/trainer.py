@@ -32,22 +32,39 @@ class LanguageModelingDataset(Dataset):
             # 编码文本
             token_ids = self.tokenizer.encode(text, add_special_tokens=True)
             
+            # 确保至少有2个token用于语言模型训练 (input和target)
+            if len(token_ids) < 2:
+                # 如果tokens太少，使用填充使其至少有2个token
+                token_ids = [self.tokenizer.bos_id, self.tokenizer.eos_id]
+            
             # 截断或填充到固定长度
             if len(token_ids) > self.max_length:
                 token_ids = token_ids[:self.max_length]
             else:
-                token_ids.extend([self.tokenizer.pad_id] * (self.max_length - len(token_ids)))
+                # 确保填充后长度至少为2
+                needed_padding = max(0, self.max_length - len(token_ids))
+                token_ids.extend([self.tokenizer.pad_id] * needed_padding)
+            
+            # 再次确保长度正确
+            if len(token_ids) < 2:
+                token_ids = [self.tokenizer.bos_id, self.tokenizer.eos_id] + [self.tokenizer.pad_id] * (self.max_length - 2)
             
             result = torch.tensor(token_ids, dtype=torch.long)
             return result
             
         except Exception as e:
             print(f"❌ 处理数据项 {idx} 时发生错误: {e}")
-            print(f"❌ 错误文本长度: {len(text)}")
-            print(f"❌ 错误文本预览: {text[:200]}...")
+            print(f"❌ 错误文本长度: {len(text) if 'text' in locals() else 'unknown'}")
+            if 'text' in locals():
+                print(f"❌ 错误文本预览: {text[:200]}...")
+            if 'token_ids' in locals():
+                print(f"❌ Token IDs 长度: {len(token_ids)}")
+                print(f"❌ Token IDs: {token_ids[:10]}...")
             import traceback
             traceback.print_exc()
-            raise e
+            # 返回一个安全的默认值而不是抛出异常
+            default_tokens = [self.tokenizer.bos_id, self.tokenizer.eos_id] + [self.tokenizer.pad_id] * (self.max_length - 2)
+            return torch.tensor(default_tokens, dtype=torch.long)
 
 
 class ConversationDataset(Dataset):
