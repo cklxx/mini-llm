@@ -66,7 +66,7 @@ class MultiHeadAttention(nn.Module):
         # 现在形状为: (batch_size, n_heads, seq_len, d_k)
         
         # 3. 计算注意力
-        attention_output = self.scaled_dot_product_attention(Q, K, V, mask)
+        attention_output = F.scaled_dot_product_attention(Q, K, V, mask)
         # 形状: (batch_size, n_heads, seq_len, d_k)
         
         # 4. 拼接多头结果
@@ -77,48 +77,34 @@ class MultiHeadAttention(nn.Module):
         output = self.w_o(attention_output)
         
         return output
-    
-    def scaled_dot_product_attention(self, Q: torch.Tensor, K: torch.Tensor, 
-                                   V: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """缩放点积注意力"""
-        # 计算注意力分数: Q @ K^T / √d_k
-        scores = torch.matmul(Q, K.transpose(-2, -1)) / self.scale
-        # 形状: (batch_size, n_heads, seq_len, seq_len)
+
+class SwiGLUFeedForward(nn.Module):
+    """
+    这是一个实现了 SwiGLU 的标准前馈网络层。
+    """
+    def __init__(self, dim: int, hidden_dim: int, dropout: float = 0.1):
+        super().__init__()
+        # 通常 hidden_dim 是 dim 的倍数，例如 4 * dim
+        # SwiGLU 论文建议使用 2/3 的倍数，如 8/3 * dim
         
-        # 应用掩码（如果有）
-        if mask is not None:
-            # 扩展mask维度以匹配scores
-            if mask.dim() == 3:  # (batch_size, seq_len, seq_len)
-                mask = mask.unsqueeze(1)  # (batch_size, 1, seq_len, seq_len)
-            scores = scores.masked_fill(mask == 0, -1e9)
+        self.w_gate = nn.Linear(dim, hidden_dim, bias=False) # 对应公式中的 W
+        self.w_up = nn.Linear(dim, hidden_dim, bias=False)   # 对应公式中的 V
+        self.w_down = nn.Linear(hidden_dim, dim, bias=False) # 最后输出的线性层
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # 1. 计算门和数据通路
+        gate = self.w_gate(x)  # xW
+        up = self.w_up(x)      # xV
         
-        # 计算注意力权重
-        attention_weights = F.softmax(scores, dim=-1)
-        attention_weights = self.dropout(attention_weights)
+        # 2. 应用 Swish 激活函数到门上，并执行逐元素相乘
+        # F.silu 是 PyTorch 中 Swish (或 SiLU) 函数的官方实现
+        gated_output = F.silu(gate) * up # Swish(xW) ⊙ (xV)
         
-        # 应用注意力权重到V
-        output = torch.matmul(attention_weights, V)
+        # 3. 通过最后一个线性层，将维度映射回原始维度
+        output = self.w_down(self.dropout(gated_output))
         
         return output
-
-
-class PositionwiseFeedForward(nn.Module):
-    """位置前馈网络
-    
-    FFN(x) = ReLU(xW1 + b1)W2 + b2
-    
-    先升维再降维，增加模型的表达能力
-    """
-    
-    def __init__(self, d_model: int, d_ff: int, dropout: float = 0.1):
-        super().__init__()
-        self.w_1 = nn.Linear(d_model, d_ff)
-        self.w_2 = nn.Linear(d_ff, d_model)
-        self.dropout = nn.Dropout(dropout)
-        
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (batch_size, seq_len, d_model)
-        return self.w_2(self.dropout(F.relu(self.w_1(x))))
 
 
 class PositionalEncoding(nn.Module):
@@ -171,11 +157,11 @@ class TransformerBlock(nn.Module):
         super().__init__()
         
         self.attention = MultiHeadAttention(d_model, n_heads, dropout)
-        self.feed_forward = PositionwiseFeedForward(d_model, d_ff, dropout)
+        self.feed_forward = SwiGLUFeedForward(d_model, d_ff, dropout)
         
         # 层归一化
-        self.norm1 = nn.LayerNorm(d_model)
-        self.norm2 = nn.LayerNorm(d_model)
+        self.norm1 = nn.RMSNorm(d_model)
+        self.norm2 = nn.RMSNorm(d_model)
         
         self.dropout = nn.Dropout(dropout)
     
