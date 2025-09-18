@@ -3,11 +3,11 @@
 <div align="center">
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://python.org)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.4+-red.svg)](https://pytorch.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Mac Optimized](https://img.shields.io/badge/Mac-Optimized-silver.svg)](README_MAC_OPTIMIZED.md)
+[![GPU Optimized](https://img.shields.io/badge/GPU-Optimized-green.svg)](#gpu优化)
 
-**完整的大语言模型训练框架，支持预训练、监督微调(SFT)、DPO和RLHF全流程**
+**完整的大语言模型训练框架，支持预训练、监督微调(SFT)、DPO和RLHF全流程，针对NVIDIA GPU和Apple Silicon优化**
 
 [📚 技术手册](docs/MiniGPT训练深度解析小册/) •
 [🚀 快速开始](#-快速开始) •
@@ -24,16 +24,23 @@
 - **DPO训练**: 直接偏好优化，无需奖励模型
 - **RLHF流程**: 基于人类反馈的强化学习
 
-### 🍎 Mac优化支持
-- **资源自适应**: 自动检测Mac硬件配置
-- **内存优化**: 超小模型配置，避免系统卡死
-- **快速验证**: 200条数据10分钟验证智能效果
-- **一键启动**: 简化的Mac优化训练脚本
+### 🚀 GPU自动优化
+- **智能设备检测**: 自动检测NVIDIA GPU、Apple Silicon MPS或CPU
+- **动态配置调整**: 根据GPU显存自动调整批量大小和梯度累积
+- **PyTorch 2.4优化**: 启用TensorFloat-32、Flash Attention、模型编译等优化
+- **混合精度训练**: 支持FP16/BF16混合精度训练，提升性能和节省显存
 
 ### 🏗️ 模块化架构
 - **可扩展设计**: 清晰的模块划分，易于扩展
 - **配置驱动**: 灵活的配置系统支持多种训练场景
 - **完整工具链**: 数据处理、训练、推理、评估一体化
+- **现代架构**: 支持SwiGLU、GELU、MoE等业界主流技术
+
+### 🤖 现代AI技术
+- **RMSNorm优化**: 替代LayerNorm，减少计算量提升训练效率
+- **SwiGLU激活函数**: 现代大模型标准激活函数，替代传统ReLU
+- **先进架构组件**: 支持Transformer、多头注意力、位置编码等
+- **高效训练技术**: 梯度检查点、梯度累积、学习率调度等
 
 ### 📚 深度技术手册
 - **完整知识体系**: 8章技术手册覆盖从数学基础到工程实践
@@ -119,9 +126,10 @@
 ### 环境要求
 
 - **Python**: 3.11+
-- **PyTorch**: 2.0+
+- **PyTorch**: 2.4+
 - **系统**: macOS/Linux/Windows
-- **内存**: 最低4GB，推荐8GB+
+- **显卡**: NVIDIA GPU (推荐) / Apple Silicon / CPU
+- **内存**: 最低4GB，推荐8GB+ (GPU显存根据模型大小调整)
 
 ### 方式一：使用UV（推荐）
 
@@ -131,7 +139,7 @@ git clone https://github.com/your-repo/minigpt-training.git
 cd minigpt-training
 
 # 一键设置UV环境
-./setup_uv.sh
+uv sync
 
 # 激活环境
 source .venv/bin/activate
@@ -140,51 +148,175 @@ source .venv/bin/activate
 ### 方式二：传统pip安装
 
 ```bash
-# 安装依赖
-pip install torch numpy matplotlib tqdm psutil
-
-# 或使用pyproject.toml
+# 安装依赖 (PyTorch 2.4 + NVIDIA GPU优化)
 pip install -e .
+
+# 手动安装PyTorch (CUDA版本)
+pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu121
+
+# 或安装CPU版本
+pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cpu
+```
+
+### GPU优化库安装 (可选)
+
+```bash
+# Flash Attention (NVIDIA GPU)
+pip install flash-attn>=2.6.0
+
+# XFormers (内存优化)
+pip install xformers>=0.0.27
+
+# DeepSpeed (分布式训练)
+pip install deepspeed>=0.14.0
 ```
 
 ## 🚀 快速开始
 
-### Mac用户（推荐）
+### 1️⃣ 环境测试
 
 ```bash
-# 一键启动Mac优化训练
-python quick_start.py
+# 测试GPU配置和模型创建
+python -c "
+from config.training_config import get_config
+from src.model.transformer import create_model
+
+config = get_config('tiny')
+model = create_model(vocab_size=config.vocab_size, model_size='tiny')
+print('✅ 环境配置正常，可以开始训练！')
+"
 ```
 
-这将打开交互式菜单，支持：
-- **Tiny模型**: 13K参数，10-20分钟训练
-- **Small模型**: 66K参数，30-45分钟训练
-- **配置测试**: 验证环境和配置
-
-### 标准训练流程
+### 2️⃣ 快速训练测试
 
 ```bash
-# 1. 预训练
-python scripts/train.py --stage pretrain --config config/training_config.py
-
-# 2. 监督微调
-python scripts/train.py --stage sft --config config/training_config.py
-
-# 3. DPO训练
-python scripts/train.py --stage dpo --config config/training_config.py
-
-# 4. 推理测试
-python scripts/generate.py --model checkpoints/sft_model.pt
+# 运行完整的训练和推理测试
+python test_training.py   # 训练测试
+python test_inference.py  # 推理测试
 ```
 
-### 使用优化配置
+### 3️⃣ 标准训练流程
+
+#### 训练分词器和模型
 
 ```bash
-# 使用Mac优化配置
-python scripts/train_optimized.py --config tiny
+# 方法1: 使用训练脚本
+python scripts/train.py --mode sft --config small --retrain-tokenizer
 
-# 自定义资源限制
-python scripts/train_optimized.py --config small --max-cpu 60 --max-memory 70
+# 方法2: 分步训练
+# 1) 训练分词器
+python scripts/train_tokenizer.py --vocab_size 10000 --data_path data/dataset/minimind_dataset/sft_mini_512.jsonl
+
+# 2) 训练模型
+python scripts/train.py --mode sft --config small
+```
+
+#### 监督微调 (SFT)
+
+```bash
+# 使用tiny配置快速验证
+python scripts/train.py --mode sft --config tiny
+
+# 使用small配置标准训练
+python scripts/train.py --mode sft --config small
+
+# 使用medium配置 (需要较大显存)
+python scripts/train.py --mode sft --config medium
+
+# 从检查点恢复训练
+python scripts/train.py --mode sft --config small --resume checkpoints/checkpoint.pt
+```
+
+#### 预训练
+
+```bash
+# 预训练模型
+python scripts/train.py --mode pretrain --config small
+
+# 使用大数据集预训练
+python scripts/train.py --mode pretrain --config medium --data_path data/dataset/minimind_dataset/pretrain_hq.jsonl
+```
+
+### 4️⃣ 推理和生成
+
+#### 交互式对话
+
+```bash
+# 启动聊天模式
+python scripts/generate.py \
+    --model-path checkpoints/best_model.pt \
+    --tokenizer-path checkpoints/tokenizer.pkl \
+    --mode chat
+
+# 示例对话:
+# 用户: 你好
+# 助手: 你好！有什么我可以帮助您的吗？
+```
+
+#### 单次推理
+
+```bash
+# 单个问题推理
+python scripts/generate.py \
+    --model-path checkpoints/best_model.pt \
+    --tokenizer-path checkpoints/tokenizer.pkl \
+    --mode single \
+    --prompt "请介绍一下人工智能的发展历史"
+```
+
+#### 批量测试
+
+```bash
+# 批量测试生成质量
+python scripts/generate.py \
+    --model-path checkpoints/best_model.pt \
+    --tokenizer-path checkpoints/tokenizer.pkl \
+    --mode batch \
+    --output results.jsonl
+```
+
+### 5️⃣ GPU优化配置
+
+系统会自动检测您的硬件并优化配置：
+
+```bash
+# 自动检测并显示优化信息
+python -c "
+from config.training_config import get_config
+config = get_config('small')  # 会显示GPU信息和优化配置
+"
+```
+
+#### 不同GPU的推荐配置
+
+| GPU型号 | 显存 | 推荐配置 | 批量大小 |
+|---------|------|----------|----------|
+| RTX 3090/4090 | 24GB | medium/large | 16-32 |
+| RTX 3080/4080 | 16GB | small/medium | 8-16 |
+| RTX 3060Ti/4060Ti | 12GB | tiny/small | 4-8 |
+| Apple M1/M2 Pro | 统一内存 | tiny/small | 4-16 |
+| CPU | 系统内存 | tiny | 2-4 |
+
+### 6️⃣ 自定义配置
+
+```bash
+# 创建自定义配置
+python -c "
+from src.model.config import MiniGPTConfig
+from src.model.transformer import create_model
+
+config = MiniGPTConfig(
+    vocab_size=32000,
+    hidden_size=768,
+    num_hidden_layers=12,
+    num_attention_heads=12,
+    intermediate_size=3072,
+    max_position_embeddings=2048
+)
+
+model = create_model(config=config)
+print(f'自定义模型参数量: {model.get_num_params():,}')
+"
 ```
 
 ## 🔄 训练流程
@@ -236,6 +368,9 @@ minigpt-training/
 | 模块 | 功能 | 主要文件 |
 |------|------|----------|
 | `src.model` | Transformer模型实现 | `transformer.py` |
+| `src.model` | 现代激活函数 | `activation_functions.py` |
+| `src.model` | 现代优化器 | `optimizers.py` |
+| `src.model` | MoE架构 | `moe.py` |
 | `src.training` | 训练流程控制 | `trainer.py` |
 | `src.data` | 数据加载和处理 | `dataset_loader.py` |
 | `src.tokenizer` | BPE分词器 | `bpe_tokenizer.py` |
@@ -286,6 +421,64 @@ sft_config = {
 
 ## 🚀 高级功能
 
+### 现代激活函数
+
+```python
+# 选择激活函数
+from src.model.activation_functions import get_feedforward_layer
+
+# SwiGLU前馈网络（推荐）
+feed_forward = get_feedforward_layer(d_model=512, hidden_dim=2048, feedforward_type="swiglu")
+
+# GEGLU前馈网络
+feed_forward = get_feedforward_layer(d_model=512, hidden_dim=2048, feedforward_type="geglu")
+
+# 标准前馈网络 + 现代激活函数
+feed_forward = get_feedforward_layer(d_model=512, hidden_dim=2048, feedforward_type="standard", activation="gelu")
+```
+
+### 现代优化器
+
+```python
+from src.model.optimizers import get_optimizer
+
+# Lion优化器（推荐）
+optimizer = get_optimizer("lion", model.parameters(), lr=1e-4, weight_decay=0.01)
+
+# Sophia优化器（大模型训练推荐）
+optimizer = get_optimizer("sophia", model.parameters(), lr=1e-4, weight_decay=0.1)
+
+# Schedule-Free AdamW
+optimizer = get_optimizer("adamw_schedule_free", model.parameters(), lr=1e-3)
+```
+
+### MoE架构
+
+```python
+from src.model.moe import create_moe_model
+
+# 创建MoE模型
+model = create_moe_model(
+    vocab_size=10000,
+    d_model=512,
+    n_layers=6,
+    num_experts=8,      # 专家数量
+    top_k=2,           # 激活的专家数量
+    moe_type="sparse", # 稀疏MoE或共享专家MoE
+)
+
+# 使用MoE Transformer块
+from src.model.moe import MoETransformerBlock
+moe_block = MoETransformerBlock(
+    d_model=512,
+    n_heads=8,
+    d_ff=2048,
+    num_experts=8,
+    top_k=2,
+    moe_type="sparse"
+)
+```
+
 ### LoRA微调
 
 ```python
@@ -309,6 +502,27 @@ config.optimization.use_fp16 = True
 python -m torch.distributed.launch --nproc_per_node=4 scripts/train.py
 ```
 
+### 数据集概览
+
+本项目包含完整的minimind数据集，位于 `data/dataset/minimind_dataset/` 目录：
+
+| 文件名 | 大小 | 用途 | 描述 |
+|--------|------|------|------|
+| `pretrain_hq.jsonl` | 1.6GB | 预训练 | 高质量中文预训练数据 |
+| `sft_mini_512.jsonl` | 1.1GB | SFT训练 | 精选SFT对话数据（推荐） |
+| `sft_512.jsonl` | 7.0GB | SFT训练 | 完整SFT数据集（字符长度<512） |
+| `sft_1024.jsonl` | 5.2GB | SFT训练 | Qwen2.5蒸馏对话数据（字符长度<1024） |
+| `sft_2048.jsonl` | 8.3GB | SFT训练 | 扩展Qwen2.5对话数据（字符长度<2048） |
+| `dpo.jsonl` | 867MB | DPO训练 | RLHF偏好数据 |
+| `r1_mix_1024.jsonl` | 351MB | 推理训练 | DeepSeek-R1蒸馏推理数据 |
+| `lora_medical.jsonl` | 33MB | 领域微调 | 医学领域Q&A数据 |
+| `lora_identity.jsonl` | 22KB | 身份训练 | 自我认知数据 |
+
+#### 快速开始推荐
+- **快速验证**: `pretrain_minimal.jsonl` + `pretrain_test.jsonl`
+- **标准训练**: `pretrain_hq.jsonl` + `sft_mini_512.jsonl`
+- **完整训练**: 使用所有数据文件（~20GB，4B tokens）
+
 ### 自定义数据集
 
 ```jsonl
@@ -316,7 +530,10 @@ python -m torch.distributed.launch --nproc_per_node=4 scripts/train.py
 {"text": "这是一段用于预训练的文本..."}
 
 # SFT数据格式
-{"instruction": "问题", "input": "输入", "output": "回答"}
+{"conversations": [
+    {"role": "user", "content": "问题"},
+    {"role": "assistant", "content": "回答"}
+]}
 
 # DPO数据格式
 {"prompt": "提示", "chosen": "更好的回答", "rejected": "较差的回答"}
@@ -331,12 +548,30 @@ python -m torch.distributed.launch --nproc_per_node=4 scripts/train.py
 
 ## 🔍 性能对比
 
+### 标准Transformer模型
+
 | 配置 | 参数量 | 内存需求 | 训练时间 | 推荐用途 |
 |------|--------|----------|----------|----------|
 | Tiny | ~13K | ~0.2MB | 10-20分钟 | 快速验证/Mac优化 |
 | Small | ~66K | ~0.8MB | 30-45分钟 | 学习研究/小规模实验 |
 | Medium | ~2.5M | ~30MB | 2-4小时 | 中等规模训练 |
 | Large | ~25M | ~300MB | 数小时 | 完整模型训练 |
+
+### MoE模型
+
+| 配置 | 总参数量 | 激活参数量 | 专家数量 | 内存需求 | 推荐用途 |
+|------|----------|------------|----------|----------|----------|
+| MoE-Small | ~200K | ~50K | 8 | ~2MB | MoE架构验证 |
+| MoE-Medium | ~10M | ~2.5M | 16 | ~120MB | 中型MoE训练 |
+| MoE-Large | ~100M | ~25M | 32 | ~1.2GB | 大型MoE训练 |
+
+### 优化器性能对比
+
+| 优化器 | 内存开销 | 收敛速度 | 推荐场景 |
+|--------|----------|----------|----------|
+| AdamW | 2x参数量 | 标准 | 通用训练 |
+| Lion | 1x参数量 | 快速 | 资源受限环境 |
+| Sophia | 2x参数量 | 超快 | 大模型预训练 |
 
 ## 🧪 测试和评估
 

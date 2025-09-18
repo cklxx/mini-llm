@@ -1,0 +1,11 @@
+{
+  "config": {
+    "vocab_size": 1500,
+    "tokenizer_type": "bpe",
+    "max_samples": 150000
+  },
+  "data_path": "test_data_cache.jsonl",
+  "data_hash": "6bbc5a5ba91e",
+  "created_at": 1758123820.045774,
+  "version": "1.0"
+}

@@ -15,6 +15,7 @@ sys.path.append(os.path.join(project_root, 'src'))
 
 from model.transformer import create_model
 from tokenizer.bpe_tokenizer import BPETokenizer, train_tokenizer_from_data
+from tokenizer.tokenizer_manager import get_tokenizer
 from data.dataset_loader import create_data_loader, DatasetConfig
 from training.trainer import create_trainer, LanguageModelingDataset, ConversationDataset
 from config.training_config import TrainingConfig, get_small_config, get_tiny_config
@@ -36,30 +37,27 @@ def setup_device():
 
 
 def train_or_load_tokenizer(config: TrainingConfig, force_retrain: bool = False):
-    """训练或加载分词器"""
+    """使用智能tokenizer管理系统训练或加载分词器"""
+    print("🔧 Using smart tokenizer management system...")
+
+    # 选择训练数据
+    data_path = os.path.join(config.data.data_dir, config.data.train_files[0])
+
+    # 使用智能tokenizer管理器
+    tokenizer = get_tokenizer(
+        data_path=data_path,
+        vocab_size=config.tokenizer.vocab_size,
+        tokenizer_type="bpe",
+        force_retrain=force_retrain,
+        cache_dir=os.path.join(config.output_dir, "tokenizers")
+    )
+
+    # 为了向后兼容，同时保存到原来的位置
     tokenizer_path = os.path.join(config.output_dir, "tokenizer.pkl")
-    
-    if os.path.exists(tokenizer_path) and not force_retrain:
-        print(f"加载已有分词器: {tokenizer_path}")
-        tokenizer = BPETokenizer(vocab_size=config.tokenizer.vocab_size)
-        tokenizer.load(tokenizer_path)
-    else:
-        print("训练新的分词器...")
-        
-        # 选择训练数据
-        data_path = os.path.join(config.data.data_dir, config.data.train_files[0])
-        
-        # 训练分词器
-        tokenizer = train_tokenizer_from_data(
-            data_path=data_path,
-            vocab_size=config.tokenizer.vocab_size
-        )
-        
-        # 保存分词器
-        os.makedirs(config.output_dir, exist_ok=True)
-        tokenizer.save(tokenizer_path)
-        print(f"分词器已保存到: {tokenizer_path}")
-    
+    os.makedirs(config.output_dir, exist_ok=True)
+    tokenizer.save(tokenizer_path)
+    print(f"📁 Tokenizer also saved to: {tokenizer_path}")
+
     return tokenizer
 
 

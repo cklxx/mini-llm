@@ -1,0 +1,52 @@
+{
+  "device": "mps",
+  "model_params": 10392848,
+  "training_results": {
+    "基础配置": {
+      "samples_per_sec": 21.03344838771078,
+      "elapsed_time": 15.213862895965576,
+      "memory_used_mb": -142.609375,
+      "final_loss": 8.633111000061035
+    },
+    "混合精度": {
+      "samples_per_sec": 20.844650014778022,
+      "elapsed_time": 15.351660966873169,
+      "memory_used_mb": -21.09375,
+      "final_loss": 8.643686294555664
+    },
+    "梯度累积": {
+      "samples_per_sec": 20.183460263061015,
+      "elapsed_time": 15.854565858840942,
+      "memory_used_mb": 6.96875,
+      "final_loss": 8.764634132385254
+    }
+  },
+  "inference_results": {
+    "1": {
+      "samples_per_sec": 88.47600267644768,
+      "tokens_per_sec": 45299.71337034121,
+      "latency_ms": 11.302499771118164
+    },
+    "4": {
+      "samples_per_sec": 87.60928173324301,
+      "tokens_per_sec": 44855.95224742042,
+      "latency_ms": 45.65726280212402
+    },
+    "8": {
+      "samples_per_sec": 88.93776270944926,
+      "tokens_per_sec": 45536.13450723802,
+      "latency_ms": 89.95054244995117
+    },
+    "16": {
+      "samples_per_sec": 90.53687345561258,
+      "tokens_per_sec": 46354.87920927364,
+      "latency_ms": 176.72357559204102
+    },
+    "32": {
+      "samples_per_sec": 90.80643746405518,
+      "tokens_per_sec": 46492.89598159625,
+      "latency_ms": 352.39792346954346
+    }
+  },
+  "timestamp": 1758157869.405718
+}

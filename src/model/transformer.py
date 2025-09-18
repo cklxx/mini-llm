@@ -8,6 +8,31 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional, Tuple
+from .config import MiniGPTConfig
+
+
+class RMSNorm(nn.Module):
+    """Root Mean Square Layer Normalization
+
+    RMSNorm 比传统的 LayerNorm 更简单高效，去除了均值中心化操作，
+    只保留方差归一化，计算公式为：
+
+    y = x / sqrt(mean(x^2) + eps) * g
+
+    其中 g 是可学习的缩放参数
+    """
+
+    def __init__(self, hidden_size: int, eps: float = 1e-6):
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(hidden_size))
+        self.variance_epsilon = eps
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        input_dtype = hidden_states.dtype
+        hidden_states = hidden_states.to(torch.float32)
+        variance = hidden_states.pow(2).mean(-1, keepdim=True)
+        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+        return self.weight * hidden_states.to(input_dtype)
 
 
 class MultiHeadAttention(nn.Module):
@@ -160,8 +185,8 @@ class TransformerBlock(nn.Module):
         self.feed_forward = SwiGLUFeedForward(d_model, d_ff, dropout)
         
         # 层归一化
-        self.norm1 = nn.RMSNorm(d_model)
-        self.norm2 = nn.RMSNorm(d_model)
+        self.norm1 = RMSNorm(d_model)
+        self.norm2 = RMSNorm(d_model)
         
         self.dropout = nn.Dropout(dropout)
     
@@ -179,36 +204,36 @@ class TransformerBlock(nn.Module):
 
 class MiniGPT(nn.Module):
     """小型GPT模型
-    
+
     基于Transformer Decoder的自回归语言模型
     """
-    
-    def __init__(self, vocab_size: int, d_model: int = 512, n_heads: int = 8, 
-                 n_layers: int = 6, d_ff: int = 2048, max_len: int = 1024, 
-                 dropout: float = 0.1):
+
+    def __init__(self, config: MiniGPTConfig):
         super().__init__()
-        
-        self.vocab_size = vocab_size
-        self.d_model = d_model
-        self.max_len = max_len
+
+        self.config = config
+        self.vocab_size = config.vocab_size
+        self.d_model = config.hidden_size
+        self.max_len = config.max_position_embeddings
         
         # 词嵌入层
-        self.token_embedding = nn.Embedding(vocab_size, d_model)
-        
+        self.token_embedding = nn.Embedding(config.vocab_size, config.hidden_size)
+
         # 位置编码
-        self.positional_encoding = PositionalEncoding(d_model, max_len)
-        
+        self.positional_encoding = PositionalEncoding(config.hidden_size, config.max_position_embeddings)
+
         # Transformer层
         self.transformer_blocks = nn.ModuleList([
-            TransformerBlock(d_model, n_heads, d_ff, dropout)
-            for _ in range(n_layers)
+            TransformerBlock(config.hidden_size, config.num_attention_heads,
+                           config.intermediate_size, config.dropout)
+            for _ in range(config.num_hidden_layers)
         ])
-        
+
         # 输出层
-        self.layer_norm = nn.LayerNorm(d_model)
-        self.lm_head = nn.Linear(d_model, vocab_size)
-        
-        self.dropout = nn.Dropout(dropout)
+        self.layer_norm = RMSNorm(config.hidden_size, config.rms_norm_eps)
+        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size)
+
+        self.dropout = nn.Dropout(config.dropout)
         
         # 初始化参数
         self.init_weights()
@@ -222,9 +247,10 @@ class MiniGPT(nn.Module):
                     nn.init.zeros_(module.bias)
             elif isinstance(module, nn.Embedding):
                 nn.init.normal_(module.weight, mean=0.0, std=0.02)
-            elif isinstance(module, nn.LayerNorm):
+            elif isinstance(module, (nn.LayerNorm, RMSNorm)):
                 nn.init.ones_(module.weight)
-                nn.init.zeros_(module.bias)
+                if hasattr(module, 'bias') and module.bias is not None:
+                    nn.init.zeros_(module.bias)
     
     def create_causal_mask(self, seq_len: int) -> torch.Tensor:
         """创建因果掩码（下三角矩阵）
@@ -270,19 +296,23 @@ class MiniGPT(nn.Module):
         
         return logits
     
-    def generate(self, input_ids: torch.Tensor, max_length: int = 100, 
-                 temperature: float = 1.0, top_k: int = 50) -> torch.Tensor:
+    def generate(self, input_ids: torch.Tensor, max_length: int = None,
+                 temperature: float = None, top_k: int = None) -> torch.Tensor:
         """文本生成
-        
+
         Args:
             input_ids: (batch_size, seq_len) 输入token序列
-            max_length: 最大生成长度
-            temperature: 采样温度，越高越随机
-            top_k: top-k采样，只从概率最高的k个token中采样
-            
+            max_length: 最大生成长度，默认使用config中的值
+            temperature: 采样温度，越高越随机，默认使用config中的值
+            top_k: top-k采样，只从概率最高的k个token中采样，默认使用config中的值
+
         Returns:
             生成的token序列
         """
+        # 使用配置中的默认值
+        max_length = max_length or self.config.max_generate_length
+        temperature = temperature or self.config.temperature
+        top_k = top_k or self.config.top_k
         self.eval()
         
         with torch.no_grad():
@@ -307,7 +337,7 @@ class MiniGPT(nn.Module):
                 input_ids = torch.cat([input_ids, next_token], dim=1)
                 
                 # 如果生成了结束符，停止生成
-                if next_token.item() == 3:  # 假设3是EOS token
+                if next_token.item() == self.config.eos_token_id:
                     break
         
         return input_ids
@@ -317,42 +347,26 @@ class MiniGPT(nn.Module):
         return sum(p.numel() for p in self.parameters())
 
 
-def create_model(vocab_size: int, model_size: str = "small") -> MiniGPT:
+def create_model(vocab_size: int = None, model_size: str = "small", config: MiniGPTConfig = None) -> MiniGPT:
     """创建不同大小的模型"""
-    
-    configs = {
-        "tiny": {
-            "d_model": 128,
-            "n_heads": 2,
-            "n_layers": 4,
-            "d_ff": 512
-        },
-        "small": {
-            "d_model": 512,
-            "n_heads": 8,
-            "n_layers": 6,
-            "d_ff": 2048
-        },
-        "medium": {
-            "d_model": 640,
-            "n_heads": 10,
-            "n_layers": 10,
-            "d_ff": 2560
-        }
-    }
-    
-    config = configs.get(model_size, configs["small"])
-    
-    model = MiniGPT(
-        vocab_size=vocab_size,
-        d_model=config["d_model"],
-        n_heads=config["n_heads"],
-        n_layers=config["n_layers"],
-        d_ff=config["d_ff"]
-    )
-    
+
+    if config is not None:
+        # 如果提供了配置，直接使用
+        model_config = config
+        if vocab_size is not None:
+            model_config.vocab_size = vocab_size
+    else:
+        # 使用预定义配置
+        from .config import get_config
+        model_config = get_config(model_size)
+        if vocab_size is not None:
+            model_config.vocab_size = vocab_size
+
+    model = MiniGPT(model_config)
+
     print(f"创建 {model_size} 模型，参数量: {model.get_num_params():,}")
-    
+    print(f"配置详情: hidden_size={model_config.hidden_size}, layers={model_config.num_hidden_layers}, heads={model_config.num_attention_heads}")
+
     return model
 
 
