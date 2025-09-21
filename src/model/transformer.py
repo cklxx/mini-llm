@@ -9,6 +9,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional, Tuple
 from .config import MiniGPTConfig
+from .rope import RotaryPositionEmbedding, apply_rotary_pos_emb
+from .gqa import GroupedQueryAttention, OptimizedMultiHeadAttention
 
 
 class RMSNorm(nn.Module):
@@ -36,71 +38,71 @@ class RMSNorm(nn.Module):
 
 
 class MultiHeadAttention(nn.Module):
-    """多头注意力机制
-    
+    """多头注意力机制（兼容性保留）
+
     注意力机制的核心公式：
     Attention(Q, K, V) = softmax(QK^T / √d_k)V
-    
+
     多头注意力将输入投影到多个子空间，分别计算注意力，然后拼接
     """
-    
+
     def __init__(self, d_model: int, n_heads: int, dropout: float = 0.1):
         super().__init__()
         assert d_model % n_heads == 0, "d_model必须能被n_heads整除"
-        
+
         self.d_model = d_model
         self.n_heads = n_heads
         self.d_k = d_model // n_heads  # 每个头的维度
-        
+
         # 线性投影层：将输入投影为Q, K, V
         self.w_q = nn.Linear(d_model, d_model)
         self.w_k = nn.Linear(d_model, d_model)
         self.w_v = nn.Linear(d_model, d_model)
-        
+
         # 输出投影层
         self.w_o = nn.Linear(d_model, d_model)
-        
+
         self.dropout = nn.Dropout(dropout)
         self.scale = math.sqrt(self.d_k)
-    
-    def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, 
+
+    def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor,
                 mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         前向传播
-        
+
         Args:
             query: (batch_size, seq_len, d_model)
             key: (batch_size, seq_len, d_model)
             value: (batch_size, seq_len, d_model)
             mask: (batch_size, seq_len, seq_len) 或 None
-            
+
         Returns:
             output: (batch_size, seq_len, d_model)
         """
         batch_size, seq_len, d_model = query.size()
-        
+
         # 1. 线性投影得到Q, K, V
         Q = self.w_q(query)  # (batch_size, seq_len, d_model)
         K = self.w_k(key)    # (batch_size, seq_len, d_model)
         V = self.w_v(value)  # (batch_size, seq_len, d_model)
-        
+
         # 2. 重塑为多头格式
         Q = Q.reshape(batch_size, seq_len, self.n_heads, self.d_k).transpose(1, 2)
         K = K.reshape(batch_size, seq_len, self.n_heads, self.d_k).transpose(1, 2)
         V = V.reshape(batch_size, seq_len, self.n_heads, self.d_k).transpose(1, 2)
         # 现在形状为: (batch_size, n_heads, seq_len, d_k)
-        
+
         # 3. 计算注意力
         attention_output = F.scaled_dot_product_attention(Q, K, V, mask)
         # 形状: (batch_size, n_heads, seq_len, d_k)
-        
+
         # 4. 拼接多头结果
         attention_output = attention_output.transpose(1, 2).contiguous()
         attention_output = attention_output.reshape(batch_size, seq_len, d_model)
-        
+
         # 5. 输出投影
         output = self.w_o(attention_output)
-        
+
         return output
 
 class SwiGLUFeedForward(nn.Module):
@@ -133,34 +135,36 @@ class SwiGLUFeedForward(nn.Module):
 
 
 class PositionalEncoding(nn.Module):
-    """位置编码
-    
+    """传统位置编码（兼容性保留）
+
     为序列中的每个位置添加位置信息
     使用正弦和余弦函数生成位置编码
-    
+
     PE(pos, 2i) = sin(pos / 10000^(2i/d_model))
     PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))
+
+    注意：新模型建议使用RoPE位置编码以获得更好的长序列外推能力
     """
-    
+
     def __init__(self, d_model: int, max_len: int = 5000):
         super().__init__()
-        
+
         # 创建位置编码矩阵
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        
+
         # 计算除数项
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * 
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() *
                            (-math.log(10000.0) / d_model))
-        
+
         # 计算正弦和余弦
         pe[:, 0::2] = torch.sin(position * div_term)  # 偶数位置
         pe[:, 1::2] = torch.cos(position * div_term)  # 奇数位置
-        
+
         # 添加批次维度并注册为buffer
         pe = pe.unsqueeze(0).transpose(0, 1)
         self.register_buffer('pe', pe)
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
@@ -173,32 +177,82 @@ class PositionalEncoding(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    """Transformer块
-    
-    包含多头注意力和前馈网络，以及残差连接和层归一化
+    """优化的Transformer块
+
+    包含优化的注意力机制和前馈网络，支持：
+    - RoPE位置编码
+    - Grouped-Query Attention
+    - SwiGLU激活函数
+    - RMSNorm归一化
     """
-    
-    def __init__(self, d_model: int, n_heads: int, d_ff: int, dropout: float = 0.1):
+
+    def __init__(self, config: MiniGPTConfig):
         super().__init__()
-        
-        self.attention = MultiHeadAttention(d_model, n_heads, dropout)
-        self.feed_forward = SwiGLUFeedForward(d_model, d_ff, dropout)
-        
+
+        self.config = config
+
+        # 选择注意力机制类型
+        if hasattr(config, 'use_gqa') and config.use_gqa:
+            self.attention = GroupedQueryAttention(
+                d_model=config.hidden_size,
+                num_heads=config.num_attention_heads,
+                num_key_value_heads=getattr(config, 'num_key_value_heads', None),
+                dropout=config.attention_dropout,
+                use_rope=getattr(config, 'use_rope', True),
+                max_position_embeddings=config.max_position_embeddings,
+                rope_base=getattr(config, 'rope_theta', 10000.0)
+            )
+        else:
+            # 兼容传统注意力
+            self.attention = MultiHeadAttention(
+                config.hidden_size,
+                config.num_attention_heads,
+                config.attention_dropout
+            )
+
+        self.feed_forward = SwiGLUFeedForward(
+            config.hidden_size,
+            config.intermediate_size,
+            config.dropout
+        )
+
         # 层归一化
-        self.norm1 = RMSNorm(d_model)
-        self.norm2 = RMSNorm(d_model)
-        
-        self.dropout = nn.Dropout(dropout)
-    
-    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        # 多头注意力 + 残差连接 + 层归一化
-        attn_output = self.attention(x, x, x, mask)
-        x = self.norm1(x + self.dropout(attn_output))
-        
-        # 前馈网络 + 残差连接 + 层归一化
-        ff_output = self.feed_forward(x)
-        x = self.norm2(x + self.dropout(ff_output))
-        
+        self.norm1 = RMSNorm(config.hidden_size, config.rms_norm_eps)
+        self.norm2 = RMSNorm(config.hidden_size, config.rms_norm_eps)
+
+        self.dropout = nn.Dropout(config.dropout)
+
+    def forward(self,
+                x: torch.Tensor,
+                mask: Optional[torch.Tensor] = None,
+                position_ids: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """
+        Args:
+            x: (batch_size, seq_len, hidden_size)
+            mask: 注意力掩码
+            position_ids: 位置ID
+        """
+        # Pre-norm架构：先归一化再计算
+        normalized_x = self.norm1(x)
+
+        # 多头注意力
+        if hasattr(self.config, 'use_gqa') and self.config.use_gqa:
+            attn_output, _ = self.attention(
+                hidden_states=normalized_x,
+                attention_mask=mask,
+                position_ids=position_ids
+            )
+        else:
+            attn_output = self.attention(normalized_x, normalized_x, normalized_x, mask)
+
+        # 残差连接
+        x = x + self.dropout(attn_output)
+
+        # 前馈网络
+        normalized_x = self.norm2(x)
+        ff_output = self.feed_forward(normalized_x)
+        x = x + self.dropout(ff_output)
+
         return x
 
 
@@ -215,26 +269,32 @@ class MiniGPT(nn.Module):
         self.vocab_size = config.vocab_size
         self.d_model = config.hidden_size
         self.max_len = config.max_position_embeddings
-        
+
         # 词嵌入层
         self.token_embedding = nn.Embedding(config.vocab_size, config.hidden_size)
 
-        # 位置编码
-        self.positional_encoding = PositionalEncoding(config.hidden_size, config.max_position_embeddings)
+        # 位置编码（根据配置选择）
+        self.use_rope = getattr(config, 'use_rope', True)
+        if not self.use_rope:
+            self.positional_encoding = PositionalEncoding(config.hidden_size, config.max_position_embeddings)
 
         # Transformer层
         self.transformer_blocks = nn.ModuleList([
-            TransformerBlock(config.hidden_size, config.num_attention_heads,
-                           config.intermediate_size, config.dropout)
+            TransformerBlock(config)
             for _ in range(config.num_hidden_layers)
         ])
 
         # 输出层
         self.layer_norm = RMSNorm(config.hidden_size, config.rms_norm_eps)
-        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size)
+
+        # 嵌入权重共享（可选）
+        if getattr(config, 'tie_word_embeddings', False):
+            self.lm_head = None  # 将在forward中使用token_embedding的权重
+        else:
+            self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
         self.dropout = nn.Dropout(config.dropout)
-        
+
         # 初始化参数
         self.init_weights()
     
@@ -260,40 +320,53 @@ class MiniGPT(nn.Module):
         mask = torch.tril(torch.ones(seq_len, seq_len))
         return mask  # 1表示可见，0表示掩码
     
-    def forward(self, input_ids: torch.Tensor, 
-                attention_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(self,
+                input_ids: torch.Tensor,
+                attention_mask: Optional[torch.Tensor] = None,
+                position_ids: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         前向传播
-        
+
         Args:
             input_ids: (batch_size, seq_len) token ID序列
             attention_mask: (batch_size, seq_len) 可选的注意力掩码
-            
+            position_ids: (batch_size, seq_len) 位置ID，用于RoPE
+
         Returns:
             logits: (batch_size, seq_len, vocab_size) 预测概率
         """
         batch_size, seq_len = input_ids.size()
-        
+
         # 1. 词嵌入
         x = self.token_embedding(input_ids)  # (batch_size, seq_len, d_model)
-        
-        # 2. 位置编码
-        x = self.positional_encoding(x)
+
+        # 2. 位置编码（仅在不使用RoPE时）
+        if not self.use_rope:
+            x = self.positional_encoding(x)
+
         x = self.dropout(x)
-        
+
         # 3. 创建因果掩码
         causal_mask = self.create_causal_mask(seq_len).to(input_ids.device)
-        
-        # 4. 通过Transformer块
+
+        # 4. 生成position_ids（如果未提供）
+        if position_ids is None and self.use_rope:
+            position_ids = torch.arange(seq_len, device=input_ids.device).unsqueeze(0).expand(batch_size, -1)
+
+        # 5. 通过Transformer块
         for transformer_block in self.transformer_blocks:
-            x = transformer_block(x, causal_mask)
-        
-        # 5. 层归一化
+            x = transformer_block(x, causal_mask, position_ids)
+
+        # 6. 层归一化
         x = self.layer_norm(x)
-        
-        # 6. 输出投影
-        logits = self.lm_head(x)  # (batch_size, seq_len, vocab_size)
-        
+
+        # 7. 输出投影（支持权重共享）
+        if self.lm_head is not None:
+            logits = self.lm_head(x)
+        else:
+            # 使用嵌入权重共享
+            logits = F.linear(x, self.token_embedding.weight)
+
         return logits
     
     def generate(self, input_ids: torch.Tensor, max_length: int = None,

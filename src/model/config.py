@@ -28,11 +28,18 @@ class MiniGPTConfig:
 
         # 位置编码
         rope_theta: float = 10000.0,  # RoPE theta参数
-        use_rope: bool = False,  # 是否使用RoPE位置编码
+        use_rope: bool = True,  # 是否使用RoPE位置编码（推荐）
 
         # 训练参数
         dropout: float = 0.1,
         attention_dropout: float = 0.1,
+
+        # 注意力机制优化
+        use_gqa: bool = True,  # 是否使用分组查询注意力
+        num_key_value_heads: Optional[int] = None,  # KV头数量（默认为num_attention_heads//4）
+
+        # 权重共享
+        tie_word_embeddings: bool = True,  # 是否共享输入输出嵌入权重
 
         # 特殊token
         bos_token_id: int = 1,
@@ -122,6 +129,11 @@ class MiniGPTConfig:
             assert self.n_routed_experts >= self.num_experts_per_tok, \
                 "n_routed_experts 必须大于等于 num_experts_per_tok"
 
+        if hasattr(self, 'use_gqa') and self.use_gqa:
+            if self.num_key_value_heads is not None:
+                assert self.num_attention_heads % self.num_key_value_heads == 0, \
+                    f"num_attention_heads ({self.num_attention_heads}) 必须能被 num_key_value_heads ({self.num_key_value_heads}) 整除"
+
     @property
     def head_dim(self) -> int:
         """每个注意力头的维度"""
@@ -141,67 +153,97 @@ class MiniGPTConfig:
 
 
 def get_tiny_config() -> MiniGPTConfig:
-    """获取tiny模型配置 (~1M参数)"""
+    """获取tiny模型配置 (~1M参数)
+    采用深而窄的架构设计，提升参数效率
+    """
     return MiniGPTConfig(
         vocab_size=10000,
         hidden_size=128,
-        num_hidden_layers=4,
-        num_attention_heads=2,
-        intermediate_size=512,
-        max_position_embeddings=256,
-        dropout=0.1
+        num_hidden_layers=8,  # 增加深度
+        num_attention_heads=4,
+        num_key_value_heads=1,  # GQA优化
+        intermediate_size=384,  # 调整FFN大小
+        max_position_embeddings=512,
+        dropout=0.1,
+        use_rope=True,
+        use_gqa=True,
+        tie_word_embeddings=True
     )
 
 
 def get_small_config() -> MiniGPTConfig:
-    """获取small模型配置 (~25M参数)"""
+    """获取small模型配置 (~25M参数)
+    优化的深而窄架构 + 现代化技术栈
+    """
     return MiniGPTConfig(
         vocab_size=10000,
-        hidden_size=512,
-        num_hidden_layers=6,
-        num_attention_heads=8,
-        intermediate_size=2048,
-        max_position_embeddings=512,
-        dropout=0.1
+        hidden_size=384,  # 稍微减小宽度
+        num_hidden_layers=12,  # 增加深度
+        num_attention_heads=12,
+        num_key_value_heads=3,  # GQA优化
+        intermediate_size=1536,  # 调整FFN大小
+        max_position_embeddings=1024,
+        dropout=0.1,
+        use_rope=True,
+        use_gqa=True,
+        tie_word_embeddings=True
     )
 
 
 def get_medium_config() -> MiniGPTConfig:
-    """获取medium模型配置 (~100M参数)"""
+    """获取medium模型配置 (~100M参数)
+    深度优化的架构设计
+    """
     return MiniGPTConfig(
         vocab_size=10000,
-        hidden_size=768,
-        num_hidden_layers=12,
-        num_attention_heads=12,
-        intermediate_size=3072,
-        max_position_embeddings=1024,
-        dropout=0.1
+        hidden_size=512,  # 优化宽度
+        num_hidden_layers=18,  # 增加深度
+        num_attention_heads=16,
+        num_key_value_heads=4,  # GQA优化
+        intermediate_size=2048,
+        max_position_embeddings=2048,
+        dropout=0.1,
+        use_rope=True,
+        use_gqa=True,
+        tie_word_embeddings=True
     )
 
 
 def get_large_config() -> MiniGPTConfig:
-    """获取large模型配置 (~350M参数)"""
+    """获取large模型配置 (~350M参数)
+    全面优化的现代架构
+    """
     return MiniGPTConfig(
         vocab_size=32000,
-        hidden_size=1024,
-        num_hidden_layers=24,
-        num_attention_heads=16,
-        intermediate_size=4096,
-        max_position_embeddings=2048,
-        dropout=0.1
+        hidden_size=768,  # 优化宽度
+        num_hidden_layers=32,  # 显著增加深度
+        num_attention_heads=24,
+        num_key_value_heads=6,  # GQA优化
+        intermediate_size=3072,
+        max_position_embeddings=4096,
+        dropout=0.1,
+        use_rope=True,
+        use_gqa=True,
+        tie_word_embeddings=True
     )
 
 
 def get_moe_config() -> MiniGPTConfig:
-    """获取MOE模型配置"""
+    """获取MOE模型配置
+    结合现代架构优化的专家混合模型
+    """
     return MiniGPTConfig(
         vocab_size=10000,
-        hidden_size=512,
-        num_hidden_layers=6,
-        num_attention_heads=8,
-        intermediate_size=2048,
-        max_position_embeddings=512,
+        hidden_size=384,
+        num_hidden_layers=12,  # 深度优化
+        num_attention_heads=12,
+        num_key_value_heads=3,  # GQA优化
+        intermediate_size=1536,
+        max_position_embeddings=1024,
         dropout=0.1,
+        use_rope=True,
+        use_gqa=True,
+        tie_word_embeddings=True,
         use_moe=True,
         num_experts_per_tok=2,
         n_routed_experts=4,
@@ -238,30 +280,51 @@ if __name__ == "__main__":
         print(f"  hidden_size: {config.hidden_size}")
         print(f"  num_layers: {config.num_hidden_layers}")
         print(f"  num_heads: {config.num_attention_heads}")
+        if hasattr(config, 'num_key_value_heads') and config.num_key_value_heads:
+            print(f"  KV heads: {config.num_key_value_heads} (GQA)")
         print(f"  vocab_size: {config.vocab_size}")
+        print(f"  使用RoPE: {getattr(config, 'use_rope', False)}")
+        print(f"  使用GQA: {getattr(config, 'use_gqa', False)}")
+        print(f"  权重共享: {getattr(config, 'tie_word_embeddings', False)}")
         if config.use_moe:
             print(f"  MOE专家数: {config.n_routed_experts}")
 
 
 def estimate_params(config: MiniGPTConfig) -> int:
-    """估算模型参数量"""
+    """估算模型参数量（考虑GQA和权重共享优化）"""
     # 词嵌入
     embedding_params = config.vocab_size * config.hidden_size
 
-    # Transformer层
-    # 注意力: 4 * hidden_size^2 (Q, K, V, O projections)
-    # 前馈: 2 * hidden_size * intermediate_size
-    # RMSNorm: 2 * hidden_size (每层两个norm)
-    layer_params = (
-        4 * config.hidden_size * config.hidden_size +  # 注意力
-        2 * config.hidden_size * config.intermediate_size +  # 前馈
-        2 * config.hidden_size  # RMSNorm
-    )
+    # Transformer层参数计算
+    if getattr(config, 'use_gqa', False) and getattr(config, 'num_key_value_heads', None):
+        # GQA情况下的注意力参数
+        q_params = config.hidden_size * config.hidden_size  # Q投影
+        kv_params = 2 * config.hidden_size * (config.hidden_size * config.num_key_value_heads // config.num_attention_heads)  # K,V投影
+        o_params = config.hidden_size * config.hidden_size  # O投影
+        attention_params = q_params + kv_params + o_params
+    else:
+        # 传统MHA参数
+        attention_params = 4 * config.hidden_size * config.hidden_size  # Q, K, V, O projections
 
+    # 前馈网络: SwiGLU需要3个线性层
+    ffn_params = 3 * config.hidden_size * config.intermediate_size
+
+    # RMSNorm: 每层两个norm
+    norm_params = 2 * config.hidden_size
+
+    layer_params = attention_params + ffn_params + norm_params
     transformer_params = config.num_hidden_layers * layer_params
 
     # 输出层
-    output_params = config.hidden_size + config.vocab_size * config.hidden_size  # norm + lm_head
+    output_norm_params = config.hidden_size  # 最终norm层
+
+    # 输出投影（考虑权重共享）
+    if getattr(config, 'tie_word_embeddings', False):
+        output_projection_params = 0  # 共享嵌入权重
+    else:
+        output_projection_params = config.vocab_size * config.hidden_size
+
+    output_params = output_norm_params + output_projection_params
 
     total_params = embedding_params + transformer_params + output_params
 

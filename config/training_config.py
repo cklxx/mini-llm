@@ -92,6 +92,11 @@ class BaseConfig:
         self.sft_data_path = os.path.join(self.data_dir, "sft_mini_512.jsonl")
         self.dpo_data_path = os.path.join(self.data_dir, "dpo.jsonl")
 
+        # 身份认同和能力增强数据集路径
+        self.alex_identity_data_path = os.path.join(self.data_dir, "alex_identity.jsonl")
+        self.ultra_think_data_path = os.path.join(self.data_dir, "ultra_think.jsonl")
+        self.lora_identity_data_path = os.path.join(self.data_dir, "lora_identity.jsonl")
+
         # NVIDIA GPU 优化设置
         self.mixed_precision = self.device == "cuda"
         self.compile_model = self.device == "cuda"  # PyTorch 2.4 编译优化

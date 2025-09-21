@@ -191,8 +191,12 @@ print('✅ 环境配置正常，可以开始训练！')
 
 ```bash
 # 运行完整的训练和推理测试
-python test_training.py   # 训练测试
-python test_inference.py  # 推理测试
+python scripts/tests/run_all_tests.py  # 运行所有测试
+
+# 或者单独运行特定测试
+python scripts/tests/test_training_inference.py   # 训练和推理测试
+python scripts/tests/test_architecture.py         # 架构组件测试
+python scripts/tests/test_code_structure.py       # 代码结构验证
 ```
 
 ### 3️⃣ 标准训练流程
