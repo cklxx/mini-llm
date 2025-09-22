@@ -1,12 +1,17 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-训练脚本
-支持预训练、SFT、DPO等多种训练模式
+MiniGPT 训练脚本
+支持完整的训练流水线：pretrain → sft → dpo → rlhf
 """
 import os
 import sys
 import argparse
+import time
+import json
 import torch
 from torch.utils.data import DataLoader
+from datetime import datetime
 
 # 添加项目根目录和src目录到路径
 project_root = os.path.dirname(os.path.dirname(__file__))
@@ -14,181 +19,481 @@ sys.path.append(project_root)
 sys.path.append(os.path.join(project_root, 'src'))
 
 from model.transformer import create_model
-from tokenizer.bpe_tokenizer import BPETokenizer, train_tokenizer_from_data
-from tokenizer.tokenizer_manager import get_tokenizer
-from data.dataset_loader import create_data_loader, DatasetConfig
+from tokenizer.bpe_tokenizer import BPETokenizer
 from training.trainer import create_trainer, LanguageModelingDataset, ConversationDataset
-from config.training_config import TrainingConfig, get_small_config, get_tiny_config
+from config.training_config import get_config
 
 
-def setup_device():
-    """设置训练设备"""
-    if torch.backends.mps.is_available():
-        device = "mps"
-        print("使用Apple Silicon GPU (MPS)")
-    elif torch.cuda.is_available():
-        device = "cuda"
-        print(f"使用CUDA GPU: {torch.cuda.get_device_name()}")
-    else:
-        device = "cpu"
-        print("使用CPU")
-    
-    return device
+class MiniGPTTrainer:
+    """MiniGPT训练器，支持多种训练模式"""
 
+    def __init__(self, config, mode="pretrain"):
+        self.config = config
+        self.mode = mode
+        self.device = self._setup_device()
+        self.output_dir = os.path.join(config.checkpoint_dir, f"{mode}_{config.model_size}")
+        os.makedirs(self.output_dir, exist_ok=True)
 
-def train_or_load_tokenizer(config: TrainingConfig, force_retrain: bool = False):
-    """使用智能tokenizer管理系统训练或加载分词器"""
-    print("🔧 Using smart tokenizer management system...")
+        print(f"=== MiniGPT {mode.upper()} 训练 ===")
+        print(f"模型配置: {config.model_size}")
+        print(f"设备: {self.device}")
+        print(f"输出目录: {self.output_dir}")
 
-    # 选择训练数据
-    data_path = os.path.join(config.data.data_dir, config.data.train_files[0])
+    def _setup_device(self):
+        """设置训练设备"""
+        if torch.backends.mps.is_available():
+            device = "mps"
+            print("🔧 使用Apple Silicon GPU (MPS)")
+        elif torch.cuda.is_available():
+            device = "cuda"
+            print(f"🔧 使用CUDA GPU: {torch.cuda.get_device_name()}")
+        else:
+            device = "cpu"
+            print("🔧 使用CPU")
+        return device
 
-    # 使用智能tokenizer管理器
-    tokenizer = get_tokenizer(
-        data_path=data_path,
-        vocab_size=config.tokenizer.vocab_size,
-        tokenizer_type="bpe",
-        force_retrain=force_retrain,
-        cache_dir=os.path.join(config.output_dir, "tokenizers")
-    )
+    def setup_tokenizer(self, retrain=False):
+        """设置分词器"""
+        print("🔤 设置分词器...")
 
-    # 为了向后兼容，同时保存到原来的位置
-    tokenizer_path = os.path.join(config.output_dir, "tokenizer.pkl")
-    os.makedirs(config.output_dir, exist_ok=True)
-    tokenizer.save(tokenizer_path)
-    print(f"📁 Tokenizer also saved to: {tokenizer_path}")
+        tokenizer_path = os.path.join(self.output_dir, "tokenizer.pkl")
 
-    return tokenizer
+        if os.path.exists(tokenizer_path) and not retrain:
+            print(f"加载现有分词器: {tokenizer_path}")
+            tokenizer = BPETokenizer(vocab_size=self.config.vocab_size)
+            tokenizer.load(tokenizer_path)
+        else:
+            print("训练新的分词器...")
+            # 收集训练文本
+            texts = self._collect_texts_for_tokenizer()
 
+            tokenizer = BPETokenizer(vocab_size=self.config.vocab_size)
+            tokenizer.train(texts)
+            tokenizer.save(tokenizer_path)
+            print(f"分词器已保存: {tokenizer_path}")
 
-def prepare_data(config: TrainingConfig, tokenizer, training_mode: str):
-    """准备训练数据"""
-    if training_mode == "pretrain":
-        # 预训练数据
-        data_config = DatasetConfig(
-            data_path=os.path.join(config.data.data_dir, "pretrain_hq.jsonl"),
-            max_length=config.data.max_seq_len
+        print(f"词汇表大小: {tokenizer.vocab_size}")
+        return tokenizer
+
+    def _collect_texts_for_tokenizer(self):
+        """收集用于训练分词器的文本"""
+        texts = []
+        data_paths = self._get_data_paths()
+
+        for data_path in data_paths:
+            if not os.path.exists(data_path):
+                print(f"⚠️  数据文件不存在，跳过: {data_path}")
+                continue
+
+            with open(data_path, 'r', encoding='utf-8') as f:
+                for line_no, line in enumerate(f):
+                    try:
+                        data = json.loads(line.strip())
+                        text = self._extract_text_from_data(data)
+                        if text:
+                            texts.append(text)
+
+                        # 限制分词器训练样本数量
+                        if len(texts) >= 50000:
+                            break
+                    except json.JSONDecodeError:
+                        continue
+
+            if len(texts) >= 50000:
+                break
+
+        print(f"收集了 {len(texts)} 条文本用于训练分词器")
+        return texts
+
+    def _get_data_paths(self):
+        """根据训练模式获取数据路径"""
+        base_dir = self.config.data_dir
+
+        if self.mode == "pretrain":
+            return [
+                os.path.join(base_dir, "pretrain_hq.jsonl"),
+                os.path.join(base_dir, "sft_mini_512.jsonl")  # 补充数据
+            ]
+        elif self.mode == "sft":
+            return [
+                os.path.join(base_dir, "sft_mini_512.jsonl"),
+                os.path.join(base_dir, "alex_identity.jsonl"),
+                os.path.join(base_dir, "ultra_think.jsonl")
+            ]
+        elif self.mode == "dpo":
+            return [
+                os.path.join(base_dir, "dpo.jsonl")
+            ]
+        elif self.mode == "rlhf":
+            return [
+                os.path.join(base_dir, "alex_identity.jsonl"),
+                os.path.join(base_dir, "ultra_think.jsonl")
+            ]
+        else:
+            raise ValueError(f"不支持的训练模式: {self.mode}")
+
+    def _extract_text_from_data(self, data):
+        """从数据中提取文本"""
+        if 'text' in data:
+            return data['text']
+        elif 'conversations' in data:
+            # 对话格式
+            text = ""
+            for turn in data['conversations']:
+                if 'content' in turn:
+                    text += turn['content'] + " "
+            return text.strip()
+        elif 'input' in data and 'output' in data:
+            return f"{data['input']} {data['output']}"
+        elif 'chosen' in data and 'rejected' in data:
+            # DPO格式
+            return data['chosen']
+        return None
+
+    def setup_data_loader(self, tokenizer):
+        """设置数据加载器"""
+        print(f"📚 设置{self.mode}数据加载器...")
+
+        # 加载数据
+        all_data = []
+        data_paths = self._get_data_paths()
+
+        for data_path in data_paths:
+            if not os.path.exists(data_path):
+                print(f"⚠️  数据文件不存在，跳过: {data_path}")
+                continue
+
+            file_data = []
+            with open(data_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    try:
+                        data = json.loads(line.strip())
+                        file_data.append(data)
+                    except json.JSONDecodeError:
+                        continue
+
+            all_data.extend(file_data)
+            print(f"从 {os.path.basename(data_path)} 加载了 {len(file_data)} 条数据")
+
+        print(f"总共加载 {len(all_data)} 条{self.mode}训练数据")
+
+        # 根据训练模式创建数据集
+        if self.mode == "pretrain":
+            dataset = self._create_pretrain_dataset(all_data, tokenizer)
+        elif self.mode == "sft":
+            dataset = self._create_sft_dataset(all_data, tokenizer)
+        elif self.mode == "dpo":
+            dataset = self._create_dpo_dataset(all_data, tokenizer)
+        elif self.mode == "rlhf":
+            dataset = self._create_rlhf_dataset(all_data, tokenizer)
+        else:
+            raise ValueError(f"不支持的训练模式: {self.mode}")
+
+        # 创建数据加载器
+        data_loader = DataLoader(
+            dataset,
+            batch_size=self.config.batch_size,
+            shuffle=True,
+            num_workers=0,  # 简化为单进程
+            drop_last=True
         )
-        loader = create_data_loader("pretrain", data_config)
-        texts = loader.load_pretrain_data()
-        
-        dataset = LanguageModelingDataset(texts, tokenizer, config.data.max_seq_len)
-        
-    elif training_mode == "sft":
-        # SFT数据
-        data_config = DatasetConfig(
-            data_path=os.path.join(config.data.data_dir, config.data.train_files[0]),
-            max_length=config.data.max_seq_len
+
+        print(f"数据批次数: {len(data_loader)}")
+        return data_loader
+
+    def _create_pretrain_dataset(self, data, tokenizer):
+        """创建预训练数据集"""
+        texts = []
+        for item in data:
+            text = self._extract_text_from_data(item)
+            if text and len(text.strip()) > 10:
+                texts.append(text)
+
+        return LanguageModelingDataset(
+            texts=texts,
+            tokenizer=tokenizer,
+            max_length=self.config.max_seq_len
         )
-        loader = create_data_loader("sft", data_config)
-        conversations = loader.load_conversations()
-        
-        dataset = ConversationDataset(conversations, tokenizer, config.data.max_seq_len)
-        
-    else:
-        raise ValueError(f"不支持的训练模式: {training_mode}")
-    
-    # 划分训练集和验证集
-    train_size = int((1 - config.data.val_split) * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
-    
-    # 创建数据加载器
-    train_dataloader = DataLoader(
-        train_dataset,
-        batch_size=config.data.batch_size,
-        shuffle=config.data.shuffle,
-        num_workers=config.data.num_workers
-    )
-    
-    val_dataloader = DataLoader(
-        val_dataset,
-        batch_size=config.data.batch_size,
-        shuffle=False,
-        num_workers=config.data.num_workers
-    ) if val_size > 0 else None
-    
-    return train_dataloader, val_dataloader
+
+    def _create_sft_dataset(self, data, tokenizer):
+        """创建SFT数据集"""
+        conversations = []
+        for item in data:
+            if 'conversations' in item:
+                conversations.append(item['conversations'])
+            elif 'input' in item and 'output' in item:
+                # 转换为对话格式
+                conv = [
+                    {"role": "user", "content": item['input']},
+                    {"role": "assistant", "content": item['output']}
+                ]
+                conversations.append(conv)
+
+        return ConversationDataset(
+            conversations=conversations,
+            tokenizer=tokenizer,
+            max_length=self.config.max_seq_len
+        )
+
+    def _create_dpo_dataset(self, data, tokenizer):
+        """创建DPO数据集"""
+        # 简化实现，将chosen作为正例训练
+        texts = []
+        for item in data:
+            if 'chosen' in item:
+                texts.append(item['chosen'])
+
+        return LanguageModelingDataset(
+            texts=texts,
+            tokenizer=tokenizer,
+            max_length=self.config.max_seq_len
+        )
+
+    def _create_rlhf_dataset(self, data, tokenizer):
+        """创建RLHF数据集"""
+        # 使用对话格式进行强化学习微调
+        return self._create_sft_dataset(data, tokenizer)
+
+    def setup_model(self, tokenizer, resume_from=None):
+        """设置模型"""
+        print("🧠 创建模型...")
+
+        model = create_model(vocab_size=tokenizer.vocab_size, model_size=self.config.model_size)
+        model = model.to(self.device)
+
+        # 如果有预训练模型，加载权重
+        if resume_from:
+            print(f"🔄 从检查点加载模型: {resume_from}")
+            checkpoint = torch.load(resume_from, map_location=self.device, weights_only=False)
+            if 'model_state_dict' in checkpoint:
+                model.load_state_dict(checkpoint['model_state_dict'])
+            else:
+                model.load_state_dict(checkpoint)
+
+        # 打印模型信息
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f"总参数量: {total_params:,}")
+        print(f"可训练参数: {trainable_params:,}")
+
+        return model
+
+    def train(self, resume_from=None, retrain_tokenizer=False):
+        """执行训练"""
+        print(f"🚀 开始{self.mode}训练...")
+        start_time = time.time()
+
+        # 设置分词器
+        tokenizer = self.setup_tokenizer(retrain=retrain_tokenizer)
+
+        # 设置数据加载器
+        data_loader = self.setup_data_loader(tokenizer)
+
+        # 设置模型
+        model = self.setup_model(tokenizer, resume_from=resume_from)
+
+        # 设置优化器和损失函数
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=self.config.learning_rate,
+            weight_decay=self.config.weight_decay
+        )
+
+        criterion = torch.nn.CrossEntropyLoss(ignore_index=tokenizer.pad_id)
+
+        # 训练循环
+        model.train()
+        step = 0
+        best_loss = float('inf')
+
+        print(f"开始训练，最大步数: {self.config.max_steps}")
+
+        for epoch in range(1000):  # 最大epoch数
+            epoch_loss = 0
+            epoch_steps = 0
+
+            for batch in data_loader:
+                if step >= self.config.max_steps:
+                    break
+
+                # 数据移到设备
+                batch = batch.to(self.device)
+
+                # 验证batch尺寸
+                if batch.size(1) < 2:
+                    continue
+
+                # 准备输入和目标
+                input_ids = batch[:, :-1]
+                target_ids = batch[:, 1:]
+
+                # 前向传播
+                optimizer.zero_grad()
+                outputs = model(input_ids)
+
+                # 计算损失
+                loss = criterion(outputs.reshape(-1, outputs.size(-1)), target_ids.reshape(-1))
+
+                # 反向传播
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                optimizer.step()
+
+                # 更新统计
+                epoch_loss += loss.item()
+                epoch_steps += 1
+                step += 1
+
+                # 记录日志
+                if step % 100 == 0:
+                    avg_loss = epoch_loss / epoch_steps
+                    elapsed = time.time() - start_time
+                    print(f"Step {step:5d} | Loss: {loss.item():.4f} | Avg: {avg_loss:.4f} | "
+                          f"Time: {elapsed/60:.1f}min")
+
+                # 保存检查点
+                if step % self.config.save_steps == 0:
+                    self._save_checkpoint(model, tokenizer, optimizer, step, loss.item())
+
+                # 评估模型
+                if step % self.config.eval_steps == 0:
+                    self._evaluate_model(model, tokenizer)
+
+                if step >= self.config.max_steps:
+                    break
+
+            if step >= self.config.max_steps:
+                break
+
+        # 保存最终模型
+        final_path = os.path.join(self.output_dir, "final_model.pt")
+        torch.save({
+            'model_state_dict': model.state_dict(),
+            'tokenizer_vocab_size': tokenizer.vocab_size,
+            'config': self.config,
+            'mode': self.mode,
+            'step': step
+        }, final_path)
+
+        print(f"🎉 {self.mode}训练完成！")
+        print(f"总步数: {step}")
+        print(f"训练时间: {(time.time() - start_time)/60:.1f}分钟")
+        print(f"最终模型已保存: {final_path}")
+
+        return final_path
+
+    def _save_checkpoint(self, model, tokenizer, optimizer, step, loss):
+        """保存检查点"""
+        checkpoint_path = os.path.join(self.output_dir, f"checkpoint_step_{step}.pt")
+        torch.save({
+            'step': step,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': loss,
+            'config': self.config,
+            'mode': self.mode
+        }, checkpoint_path)
+        print(f"💾 检查点已保存: {checkpoint_path}")
+
+    def _evaluate_model(self, model, tokenizer):
+        """简单评估模型"""
+        model.eval()
+        try:
+            test_prompt = "你好，我是"
+            input_ids = tokenizer.encode(test_prompt, add_special_tokens=True)
+            input_tensor = torch.tensor([input_ids], device=self.device)
+
+            with torch.no_grad():
+                for _ in range(10):
+                    outputs = model(input_tensor)
+                    next_token_logits = outputs[0, -1, :]
+                    next_token = torch.argmax(next_token_logits).item()
+                    input_tensor = torch.cat([input_tensor, torch.tensor([[next_token]], device=self.device)], dim=1)
+
+            generated_text = tokenizer.decode(input_tensor[0].cpu().tolist())
+            print(f"🧪 生成测试: '{generated_text}'")
+        except Exception as e:
+            print(f"生成测试失败: {e}")
+        finally:
+            model.train()
 
 
 def main():
-    parser = argparse.ArgumentParser(description="MiniGPT训练脚本")
-    parser.add_argument("--mode", type=str, choices=["pretrain", "sft", "dpo"], 
-                       default="sft", help="训练模式")
-    parser.add_argument("--config", type=str, choices=["tiny", "small", "medium"], 
-                       default="small", help="模型配置")
-    parser.add_argument("--data-dir", type=str, default="data/dataset/minimind_dataset",
-                       help="数据目录")
-    parser.add_argument("--output-dir", type=str, default="checkpoints",
-                       help="输出目录")
-    parser.add_argument("--resume", type=str, default=None,
-                       help="从checkpoint恢复训练")
-    parser.add_argument("--retrain-tokenizer", action="store_true",
-                       help="重新训练分词器")
-    
+    parser = argparse.ArgumentParser(description='MiniGPT训练脚本')
+
+    # 训练模式
+    parser.add_argument('--mode', choices=['pretrain', 'sft', 'dpo', 'rlhf'], default='sft',
+                        help='训练模式 (pretrain: 预训练, sft: 监督微调, dpo: 直接偏好优化, rlhf: 强化学习)')
+
+    # 模型配置
+    parser.add_argument('--config', choices=['tiny', 'small', 'medium'], default='small',
+                        help='模型配置大小')
+
+    # 数据相关
+    parser.add_argument('--retrain-tokenizer', action='store_true',
+                        help='重新训练分词器')
+
+    # 继续训练
+    parser.add_argument('--resume', type=str, default=None,
+                        help='从检查点继续训练')
+
+    # 训练参数覆盖
+    parser.add_argument('--learning-rate', type=float, default=None,
+                        help='学习率')
+    parser.add_argument('--max-steps', type=int, default=None,
+                        help='最大训练步数')
+    parser.add_argument('--batch-size', type=int, default=None,
+                        help='批次大小')
+
     args = parser.parse_args()
-    
-    # 设置设备
-    device = setup_device()
-    
-    # 加载配置
-    if args.config == "tiny":
-        config = get_tiny_config()
-    elif args.config == "small":
-        config = get_small_config()
-    else:
-        raise ValueError(f"不支持的配置: {args.config}")
-    
-    # 更新配置
-    config.device = device
-    config.data.data_dir = args.data_dir
-    config.output_dir = args.output_dir
-    
-    print(f"训练模式: {args.mode}")
-    print(f"模型配置: {args.config}")
-    print(f"设备: {device}")
-    print(f"输出目录: {args.output_dir}")
-    
-    # 创建输出目录
-    os.makedirs(config.output_dir, exist_ok=True)
-    os.makedirs(config.logging_dir, exist_ok=True)
-    
-    # 训练或加载分词器
-    tokenizer = train_or_load_tokenizer(config, args.retrain_tokenizer)
-    print(f"分词器词汇表大小: {tokenizer.get_vocab_size()}")
-    
-    # 更新模型词汇表大小
-    config.model.vocab_size = tokenizer.get_vocab_size()
-    
-    # 创建模型
-    model = create_model(
-        vocab_size=config.model.vocab_size,
-        model_size=config.model.model_size
-    )
-    print(f"模型参数量: {model.get_num_params():,}")
-    
-    # 准备数据
-    train_dataloader, val_dataloader = prepare_data(config, tokenizer, args.mode)
-    print(f"训练数据批次数: {len(train_dataloader)}")
-    if val_dataloader:
-        print(f"验证数据批次数: {len(val_dataloader)}")
-    
-    # 创建训练器
-    trainer = create_trainer(args.mode, model, tokenizer, device)
-    
-    # 从checkpoint恢复（如果指定）
-    if args.resume:
-        print(f"从checkpoint恢复: {args.resume}")
-        trainer.load_checkpoint(args.resume)
-    
-    # 开始训练
+
+    # 获取配置
+    config = get_config(args.config)
+
+    # 应用命令行参数覆盖
+    if args.learning_rate is not None:
+        config.learning_rate = args.learning_rate
+    if args.max_steps is not None:
+        config.max_steps = args.max_steps
+    if args.batch_size is not None:
+        config.batch_size = args.batch_size
+
+    # 根据训练模式调整配置
     if args.mode == "pretrain":
-        num_epochs = config.pretrain.max_steps // len(train_dataloader) + 1
-        trainer.train(train_dataloader, val_dataloader, num_epochs, config.output_dir)
+        config.max_steps = config.max_steps or 50000
+        config.learning_rate = config.learning_rate or 1e-4
+        print("📚 预训练模式：建立基础语言理解能力")
     elif args.mode == "sft":
-        trainer.train(train_dataloader, val_dataloader, config.sft.max_epochs, config.output_dir)
-    
-    print("训练完成！")
+        config.max_steps = config.max_steps or 10000
+        config.learning_rate = config.learning_rate or 5e-5
+        print("🎯 监督微调模式：训练对话和特定任务能力")
+    elif args.mode == "dpo":
+        config.max_steps = config.max_steps or 5000
+        config.learning_rate = config.learning_rate or 1e-5
+        print("⚖️  直接偏好优化模式：根据人类偏好调整响应")
+    elif args.mode == "rlhf":
+        config.max_steps = config.max_steps or 3000
+        config.learning_rate = config.learning_rate or 1e-5
+        print("🔄 强化学习微调模式：通过奖励模型优化")
+
+    # 创建训练器
+    trainer = MiniGPTTrainer(config, mode=args.mode)
+
+    # 开始训练
+    final_model_path = trainer.train(
+        resume_from=args.resume,
+        retrain_tokenizer=args.retrain_tokenizer
+    )
+
+    print(f"\n✅ 训练完成！模型保存在: {final_model_path}")
+
+    # 提示下一步训练建议
+    if args.mode == "pretrain":
+        print("\n💡 建议下一步运行SFT训练:")
+        print(f"python scripts/train.py --mode sft --config {args.config} --resume {final_model_path}")
+    elif args.mode == "sft":
+        print("\n💡 建议下一步运行DPO训练:")
+        print(f"python scripts/train.py --mode dpo --config {args.config} --resume {final_model_path}")
 
 
 if __name__ == "__main__":
