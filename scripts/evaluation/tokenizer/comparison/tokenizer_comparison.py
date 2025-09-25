@@ -18,12 +18,21 @@
 import sys
 import os
 import json
-import matplotlib
-matplotlib.use('Agg')  # 使用非交互式后端
-import matplotlib.pyplot as plt
-import pandas as pd
-from typing import Dict, List, Any
-import numpy as np
+import time
+from typing import Dict, List, Any, Tuple
+
+# 可选依赖导入
+try:
+    import matplotlib
+    matplotlib.use('Agg')  # 使用非交互式后端
+    import matplotlib.pyplot as plt
+    import pandas as pd
+    import numpy as np
+    VISUALIZATION_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️  可视化模块导入失败: {e}")
+    print("📝 提示: 运行 'pip install matplotlib pandas numpy' 安装依赖")
+    VISUALIZATION_AVAILABLE = False
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
 
@@ -41,7 +50,7 @@ class TokenizerComparison:
             'memory_usage_mb'
         ]
 
-    def create_comparison_matrix(self, evaluation_results: Dict[str, Any]) -> pd.DataFrame:
+    def create_comparison_matrix(self, evaluation_results: Dict[str, Any]):
         """创建对比矩阵"""
         data = []
 
@@ -52,10 +61,18 @@ class TokenizerComparison:
                     row[category] = metrics.get(category, 0.0)
                 data.append(row)
 
-        return pd.DataFrame(data)
+        if VISUALIZATION_AVAILABLE:
+            import pandas as pd
+            return pd.DataFrame(data)
+        else:
+            return data  # 返回列表字典格式
 
-    def generate_comparison_charts(self, df: pd.DataFrame, output_dir: str):
+    def generate_comparison_charts(self, df, output_dir: str):
         """生成对比图表"""
+        if not VISUALIZATION_AVAILABLE:
+            print("⚠️  可视化功能不可用，跳过图表生成")
+            return
+
         os.makedirs(output_dir, exist_ok=True)
 
         # 1. 综合性能雷达图
@@ -67,7 +84,7 @@ class TokenizerComparison:
         # 3. 词汇表效率散点图
         self._create_efficiency_scatter(df, os.path.join(output_dir, 'efficiency_scatter.png'))
 
-    def _create_radar_chart(self, df: pd.DataFrame, output_path: str):
+    def _create_radar_chart(self, df, output_path: str):
         """创建雷达图"""
         if df.empty:
             return
@@ -103,7 +120,7 @@ class TokenizerComparison:
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         plt.close()
 
-    def _create_performance_bars(self, df: pd.DataFrame, output_path: str):
+    def _create_performance_bars(self, df, output_path: str):
         """创建性能条形图"""
         if df.empty:
             return
@@ -130,7 +147,7 @@ class TokenizerComparison:
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         plt.close()
 
-    def _create_efficiency_scatter(self, df: pd.DataFrame, output_path: str):
+    def _create_efficiency_scatter(self, df, output_path: str):
         """创建效率散点图"""
         if df.empty or len(df) < 2:
             return
@@ -157,11 +174,20 @@ class TokenizerComparison:
     def generate_comparison_report(self, evaluation_results: Dict[str, Any], output_path: str):
         """生成详细对比报告"""
 
-        df = self.create_comparison_matrix(evaluation_results)
+        data = self.create_comparison_matrix(evaluation_results)
+
+        if VISUALIZATION_AVAILABLE:
+            df = data
+            total_tokenizers = len(df)
+            df_empty = df.empty
+        else:
+            df = data  # 列表格式
+            total_tokenizers = len(data)
+            df_empty = len(data) == 0
 
         report = {
             'summary': {
-                'total_tokenizers': len(df),
+                'total_tokenizers': total_tokenizers,
                 'evaluation_date': time.strftime('%Y-%m-%d %H:%M:%S')
             },
             'rankings': {},
@@ -170,13 +196,19 @@ class TokenizerComparison:
         }
 
         # 生成各指标排名
-        for metric in self.comparison_categories:
-            if metric in df.columns:
-                ranking = df.nlargest(len(df), metric)[['tokenizer', metric]].to_dict('records')
-                report['rankings'][metric] = ranking
+        if VISUALIZATION_AVAILABLE and not df_empty:
+            for metric in self.comparison_categories:
+                if metric in df.columns:
+                    ranking = df.nlargest(len(df), metric)[['tokenizer', metric]].to_dict('records')
+                    report['rankings'][metric] = ranking
+        else:
+            # 简化版排名 (无pandas)
+            for metric in self.comparison_categories:
+                ranking = sorted(data, key=lambda x: x.get(metric, 0), reverse=True)
+                report['rankings'][metric] = [{'tokenizer': r['tokenizer'], metric: r.get(metric, 0)} for r in ranking]
 
         # 分析最佳选择
-        if not df.empty:
+        if not df_empty:
             # 综合得分 (加权)
             weights = {
                 'compression_ratio': 0.25,
@@ -186,24 +218,34 @@ class TokenizerComparison:
                 'memory_usage_mb': -0.15  # 内存使用越少越好
             }
 
-            df_norm = df.copy()
-            for metric, weight in weights.items():
-                if metric in df.columns:
-                    if weight > 0:
-                        df_norm[f'{metric}_score'] = df[metric] / df[metric].max() * weight
-                    else:
-                        df_norm[f'{metric}_score'] = (1 - df[metric] / df[metric].max()) * abs(weight)
+            if VISUALIZATION_AVAILABLE:
+                # 使用pandas计算
+                df_norm = df.copy()
+                for metric, weight in weights.items():
+                    if metric in df.columns:
+                        if weight > 0:
+                            df_norm[f'{metric}_score'] = df[metric] / df[metric].max() * weight
+                        else:
+                            df_norm[f'{metric}_score'] = (1 - df[metric] / df[metric].max()) * abs(weight)
 
-            score_columns = [f'{m}_score' for m in weights.keys() if f'{m}_score' in df_norm.columns]
-            df_norm['total_score'] = df_norm[score_columns].sum(axis=1)
+                score_columns = [f'{m}_score' for m in weights.keys() if f'{m}_score' in df_norm.columns]
+                df_norm['total_score'] = df_norm[score_columns].sum(axis=1)
+                best_overall = df_norm.loc[df_norm['total_score'].idxmax()]
 
-            best_overall = df_norm.loc[df_norm['total_score'].idxmax()]
-
-            report['analysis']['best_overall'] = {
-                'tokenizer': best_overall['tokenizer'],
-                'score': best_overall['total_score'],
-                'strengths': self._analyze_strengths(best_overall, df)
-            }
+                report['analysis']['best_overall'] = {
+                    'tokenizer': best_overall['tokenizer'],
+                    'score': best_overall['total_score'],
+                    'strengths': self._analyze_strengths(best_overall, df)
+                }
+            else:
+                # 简化版计算 (无pandas)
+                best_tokenizer, best_score = self._calculate_best_simple(data, weights)
+                if best_tokenizer:
+                    report['analysis']['best_overall'] = {
+                        'tokenizer': best_tokenizer,
+                        'score': best_score,
+                        'strengths': ['综合性能优异']
+                    }
 
         # 保存报告
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -212,8 +254,11 @@ class TokenizerComparison:
 
         return report
 
-    def _analyze_strengths(self, best_tokenizer: pd.Series, df: pd.DataFrame) -> List[str]:
+    def _analyze_strengths(self, best_tokenizer, df) -> List[str]:
         """分析最佳分词器的优势"""
+        if not VISUALIZATION_AVAILABLE:
+            return ['综合性能优异']
+
         strengths = []
 
         metrics_analysis = {
@@ -228,4 +273,37 @@ class TokenizerComparison:
                 if best_tokenizer[metric] >= df[metric].quantile(0.75):
                     strengths.append(f'{description}表现优异')
 
-        return strengths
+        return strengths if strengths else ['综合性能优异']
+
+    def _calculate_best_simple(self, data: List[Dict], weights: Dict[str, float]) -> Tuple[str, float]:
+        """简化版最佳分词器计算 (无pandas)"""
+        if not data:
+            return None, 0.0
+
+        # 计算每个指标的最大值用于标准化
+        max_values = {}
+        for metric in weights.keys():
+            values = [d.get(metric, 0) for d in data]
+            max_values[metric] = max(values) if values else 1.0
+
+        best_tokenizer = None
+        best_score = -1
+
+        for tokenizer_data in data:
+            total_score = 0
+            for metric, weight in weights.items():
+                value = tokenizer_data.get(metric, 0)
+                max_val = max_values[metric]
+
+                if max_val > 0:
+                    if weight > 0:
+                        normalized = value / max_val
+                    else:
+                        normalized = 1 - (value / max_val)
+                    total_score += normalized * abs(weight)
+
+            if total_score > best_score:
+                best_score = total_score
+                best_tokenizer = tokenizer_data['tokenizer']
+
+        return best_tokenizer, best_score

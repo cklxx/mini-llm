@@ -18,12 +18,20 @@
 import sys
 import os
 import time
-import psutil
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Tuple
 import statistics
 import json
+
+# 可选依赖导入
+try:
+    import psutil
+    MEMORY_MONITORING_AVAILABLE = True
+except ImportError:
+    print("⚠️  psutil模块导入失败，内存监控功能将被禁用")
+    print("📝 提示: 运行 'pip install psutil' 安装依赖")
+    MEMORY_MONITORING_AVAILABLE = False
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
 
@@ -85,6 +93,10 @@ class TokenizerBenchmark:
 
     def run_memory_benchmark(self, tokenizer) -> Dict[str, float]:
         """运行内存使用基准测试"""
+        if not MEMORY_MONITORING_AVAILABLE:
+            print("⚠️  内存监控功能不可用，跳过内存基准测试")
+            return {}
+
         process = psutil.Process()
 
         # 基线内存

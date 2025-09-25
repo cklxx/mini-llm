@@ -46,7 +46,27 @@ pip install -e .
 - **Advanced features**: GQA, RoPE, weight sharing, ultra think capabilities
 - **Training modes**: pretrain, sft, dpo, tool_calling, agent_training
 
+### 🔍 分词器评估系统
+- **评估脚本**: `scripts/evaluation/tokenizer/` 完整评估体系
+- **一键评测**: `python3 scripts/evaluation/tokenizer/run_evaluation.py` (推荐使用)
+- **特色功能**: 6维度评估、性能基准测试、对比分析、可视化报告
+- **使用场景**: 分词器质量评估、性能对比、生产部署选择
+
 ## 🚀 核心脚本使用指南
+
+### 📊 分词器评估
+```bash
+# 🌟 一键评估所有分词器 (最简单)
+python3 scripts/evaluation/tokenizer/run_evaluation.py
+
+# 评估特定分词器
+python3 scripts/evaluation/tokenizer/run_evaluation.py \
+    --tokenizers tokenizers/trained_models/mac_medium_tokenizer.pkl
+
+# 自定义评估参数
+python3 scripts/evaluation/tokenizer/run_evaluation.py \
+    --iterations 100 --output results/my_evaluation/
+```
 
 ### 📋 可用脚本
 ```
@@ -516,6 +536,72 @@ python3 scripts/generate.py \
 3. **Data Preparation** and validation
 4. **Incremental Training** (tiny → small → medium)
 5. **Comprehensive Evaluation** and benchmarking
+
+# 🔧 实用工具集
+MiniGPT项目包含丰富的实用工具，已系统化整理：
+
+### 📁 工具目录结构
+```
+utils/                              # 实用工具集
+├── README.md                       # 工具使用说明
+├── quick_start.py                  # 标准Python环境启动
+├── quick_start_uv.py              # uv包管理器启动 (推荐)
+├── calculate_model_comparison.py   # 模型规模对比分析
+├── demo_optimization_suite.py     # 综合优化演示套件
+└── simple_optimization_demo.py    # 简化优化演示
+
+docs/                              # 文档中心
+├── README.md                      # 文档导航
+├── PROJECT_STRUCTURE.md           # 项目架构说明
+├── CHECKPOINT_DATASET_GUIDE.md    # 检查点和数据集指南
+├── OPTIMIZATION_SUMMARY.md        # 性能优化总结
+└── README_MAC_OPTIMIZED.md       # Mac优化专用指南
+
+scripts/evaluation/tokenizer/      # 分词器评估系统
+├── README.md                      # 评估系统说明
+├── run_evaluation.py             # 🚀 一键评测脚本
+├── comprehensive_tokenizer_evaluation.py  # 主评估脚本
+├── ULTRA_THINK_ANALYSIS.md       # 深度战略分析
+└── [其他评估组件...]
+```
+
+### 🚀 常用快捷命令
+```bash
+# 环境快速配置 (推荐)
+python3 utils/quick_start_uv.py
+
+# 分词器一键评测
+python3 scripts/evaluation/tokenizer/run_evaluation.py
+
+# 模型性能对比
+python3 utils/calculate_model_comparison.py
+
+# 优化效果演示
+python3 utils/demo_optimization_suite.py
+```
+
+# 🎯 分词器评估经验总结
+
+## 评估体系核心理念
+基于MiniGPT项目的分词器评估实践，建立了6维度评估框架：
+1. **基础性能**: 词汇表大小、压缩率、token长度
+2. **效率指标**: 编解码速度、内存使用
+3. **多语言支持**: 中文、英文、混合语言处理能力
+4. **质量评估**: 语义连贯性、词边界准确性
+5. **特殊处理**: 符号、代码、技术术语处理
+6. **实用性**: 训练效率、模型兼容性
+
+## ISTJ系统化方法论
+- **标准化测试用例**: 7类测试场景全面覆盖
+- **定量化指标**: 所有评估结果数值化，避免主观判断
+- **可视化分析**: 雷达图、条形图、散点图直观展示
+- **自动化流程**: 一键运行完整评估，生成标准报告
+
+## 最佳实践经验
+1. **分词器选择**: 根据应用场景匹配合适规模(tiny/small/medium)
+2. **评估频率**: 开发期定期评估，发布前完整对比
+3. **性能基准**: 建立项目专属的基准数据库
+4. **持续改进**: 基于评估结果指导分词器优化方向
 
 ---
 
