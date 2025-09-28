@@ -18,12 +18,17 @@ The project combines educational clarity with production-ready optimizations, ma
 
 ## Development Environment Setup
 
+**Requirements**: Python 3.11+ (specified in pyproject.toml)
+
 ```bash
 # Install dependencies using uv (recommended)
 uv sync
 
 # Alternative: pip install
 pip install -e .
+
+# For NVIDIA GPU optimization (x86_64 only):
+# flash-attn, xformers, and deepspeed will be auto-installed
 ```
 
 ## Core Architecture
@@ -464,7 +469,7 @@ scripts/
 ### 🧪 测试和验证
 
 ```bash
-# 运行完整测试套件
+# 运行完整测试套件 (recommended first step)
 python3 scripts/test_runner.py
 
 # 验证代码结构 (无需PyTorch)
@@ -474,15 +479,32 @@ python3 scripts/tests/test_code_structure.py
 python3 scripts/tests/test_architecture.py
 ```
 
+**Note**: Always run `python3 scripts/test_runner.py` first to validate your environment setup.
+
+### 🔧 Code Quality & Linting
+
+While the project doesn't include specific linting commands in pyproject.toml, you can run basic Python checks:
+
+```bash
+# Check Python syntax
+python3 -m py_compile src/model/*.py src/tokenizer/*.py
+
+# Check imports and basic structure
+python3 -c "import src.model.transformer; import src.tokenizer.bpe_tokenizer; print('✅ Imports successful')"
+```
+
 ## 🚀 完整工作流程
 
 ### 1. 环境设置
 ```bash
-# 确保Python 3.8+
+# 确保Python 3.11+ (required by pyproject.toml)
 python3 --version
 
-# 安装依赖 (需要时)
-pip install torch transformers
+# 使用uv安装 (推荐)
+uv sync
+
+# 或使用pip
+pip install -e .
 ```
 
 ### 2. 验证安装
