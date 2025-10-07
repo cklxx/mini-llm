@@ -32,7 +32,8 @@ class GroupedQueryAttention(nn.Module):
                  dropout: float = 0.1,
                  use_rope: bool = True,
                  max_position_embeddings: int = 2048,
-                 rope_base: float = 10000.0):
+                 rope_base: float = 10000.0,
+                 flash_attn: bool = False):
         """
         Args:
             d_model: 模型维度
@@ -42,6 +43,7 @@ class GroupedQueryAttention(nn.Module):
             use_rope: 是否使用RoPE位置编码
             max_position_embeddings: 最大位置长度
             rope_base: RoPE基数
+            flash_attn: 是否使用Flash Attention (PyTorch 2.0+)
         """
         super().__init__()
 
@@ -67,7 +69,13 @@ class GroupedQueryAttention(nn.Module):
         self.o_proj = nn.Linear(num_heads * self.head_dim, d_model, bias=False)
 
         self.dropout = nn.Dropout(dropout)
+        self.dropout_p = dropout
         self.scale = math.sqrt(self.head_dim)
+
+        # Flash Attention配置
+        self.flash_attn = flash_attn and hasattr(F, 'scaled_dot_product_attention')
+        if flash_attn and not self.flash_attn:
+            print("警告: Flash Attention需要PyTorch 2.0+，将使用标准注意力机制")
 
         # RoPE配置
         self.use_rope = use_rope
@@ -147,20 +155,61 @@ class GroupedQueryAttention(nn.Module):
         key_states = self._repeat_kv(key_states)
         value_states = self._repeat_kv(value_states)
 
-        # 计算注意力分数
-        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / self.scale
+        # 使用Flash Attention或标准注意力
+        if self.flash_attn:
+            # Flash Attention路径 - 显著减少内存使用
+            # scaled_dot_product_attention 自动处理因果mask
+            dropout_p = self.dropout_p if self.training else 0.0
+            
+            # 准备attention mask (Flash Attention需要bool类型的mask)
+            attn_mask = None
+            if attention_mask is not None:
+                if attention_mask.dim() == 2:
+                    attn_mask = attention_mask.unsqueeze(0).unsqueeze(0)
+                elif attention_mask.dim() == 3:
+                    attn_mask = attention_mask.unsqueeze(1)
+                else:
+                    attn_mask = attention_mask
+                # 转换为bool并裁剪
+                attn_mask = attn_mask[:, :, :seq_len, :key_states.shape[-2]].bool()
+            
+            # 使用PyTorch的高效Flash Attention实现
+            attn_output = F.scaled_dot_product_attention(
+                query_states,
+                key_states,
+                value_states,
+                attn_mask=attn_mask,
+                dropout_p=dropout_p,
+                is_causal=False  # 我们已经通过mask处理了因果关系
+            )
+        else:
+            # 标准注意力路径
+            # 计算注意力分数
+            attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / self.scale
 
-        # 应用注意力掩码
-        if attention_mask is not None:
-            causal_mask = attention_mask[:, :, :seq_len, :key_states.shape[-2]]
-            attn_weights = attn_weights + causal_mask
+            # 应用注意力掩码
+            if attention_mask is not None:
+                # 处理不同维度的 attention_mask
+                if attention_mask.dim() == 2:
+                    causal_mask = attention_mask.unsqueeze(0).unsqueeze(0)
+                elif attention_mask.dim() == 3:
+                    causal_mask = attention_mask.unsqueeze(1)
+                else:
+                    causal_mask = attention_mask
+                
+                # 裁剪到当前序列长度
+                causal_mask = causal_mask[:, :, :seq_len, :key_states.shape[-2]]
+                
+                # 将 mask 转换为注意力权重的加法形式 (0 -> -inf, 1 -> 0)
+                causal_mask = (1.0 - causal_mask) * torch.finfo(attn_weights.dtype).min
+                attn_weights = attn_weights + causal_mask
 
-        # 计算注意力权重
-        attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-        attn_weights = self.dropout(attn_weights)
+            # 计算注意力权重
+            attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+            attn_weights = self.dropout(attn_weights)
 
-        # 应用注意力权重
-        attn_output = torch.matmul(attn_weights, value_states)
+            # 应用注意力权重
+            attn_output = torch.matmul(attn_weights, value_states)
 
         # 重塑回原始形状
         attn_output = attn_output.transpose(1, 2).contiguous()

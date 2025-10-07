@@ -6,9 +6,12 @@ dist/
 wheels/
 *.egg-info
 
+data/pretrain_hq.jsonl
+data/sft_mini_512.jsonl
 # Virtual environments
 .venv
 
+benchmark_logs
 # macOS files
 .DS_Store
 ._*

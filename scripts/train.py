@@ -3,12 +3,14 @@
 """
 MiniGPT 训练脚本
 支持完整的训练流水线：pretrain → sft → dpo → rlhf
+支持从checkpoint恢复训练
 """
 import os
 import sys
 import argparse
 import time
 import json
+import glob
 import torch
 from torch.utils.data import DataLoader
 from datetime import datetime
@@ -21,6 +23,7 @@ sys.path.append(os.path.join(project_root, 'src'))
 from model.transformer import create_model
 from tokenizer.bpe_tokenizer import BPETokenizer
 from training.trainer import create_trainer, LanguageModelingDataset, ConversationDataset
+from training.training_monitor import TrainingMonitor
 from config.training_config import get_config
 
 
@@ -278,8 +281,14 @@ class MiniGPTTrainer:
 
         return model
 
-    def train(self, resume_from=None, retrain_tokenizer=False):
-        """执行训练"""
+    def train(self, resume_from=None, auto_resume=False, retrain_tokenizer=False):
+        """执行训练
+        
+        参数:
+            resume_from: 指定checkpoint文件路径
+            auto_resume: 自动从最新checkpoint恢复
+            retrain_tokenizer: 是否重新训练分词器
+        """
         print(f"🚀 开始{self.mode}训练...")
         start_time = time.time()
 
@@ -290,7 +299,7 @@ class MiniGPTTrainer:
         data_loader = self.setup_data_loader(tokenizer)
 
         # 设置模型
-        model = self.setup_model(tokenizer, resume_from=resume_from)
+        model = self.setup_model(tokenizer, resume_from=None)  # 稍后会加载完整checkpoint
 
         # 设置优化器和损失函数
         optimizer = torch.optim.AdamW(
@@ -301,9 +310,38 @@ class MiniGPTTrainer:
 
         criterion = torch.nn.CrossEntropyLoss(ignore_index=tokenizer.pad_id)
 
+        # 处理checkpoint恢复
+        start_step = 0
+        if auto_resume:
+            # 自动查找最新checkpoint
+            latest_checkpoint = self._find_latest_checkpoint()
+            if latest_checkpoint:
+                print(f"🔍 找到checkpoint: {latest_checkpoint}")
+                start_step = self._load_checkpoint(latest_checkpoint, model, optimizer)
+            else:
+                print("ℹ️  未找到checkpoint，从头开始训练")
+        elif resume_from:
+            # 从指定checkpoint恢复
+            if os.path.exists(resume_from):
+                start_step = self._load_checkpoint(resume_from, model, optimizer)
+            else:
+                print(f"⚠️  Checkpoint文件不存在: {resume_from}")
+                print("   从头开始训练")
+
+        # 初始化训练监控器（轻量级模式）
+        monitor_dir = os.path.join(self.output_dir, "monitor_logs")
+        monitor = TrainingMonitor(
+            model=model,
+            log_dir=monitor_dir,
+            enable_tensorboard=True,
+            enable_real_time_plots=False,  # 禁用实时绘图以节省性能
+            lightweight_mode=True,         # 启用轻量级模式
+            log_interval=10                # 每10步记录一次完整指标
+        )
+
         # 训练循环
         model.train()
-        step = 0
+        step = start_step  # 从checkpoint的步数继续
         best_loss = float('inf')
 
         print(f"开始训练，最大步数: {self.config.max_steps}")
@@ -344,15 +382,23 @@ class MiniGPTTrainer:
                 epoch_steps += 1
                 step += 1
 
-                # 记录日志
-                if step % 100 == 0:
-                    avg_loss = epoch_loss / epoch_steps
-                    elapsed = time.time() - start_time
-                    print(f"Step {step:5d} | Loss: {loss.item():.4f} | Avg: {avg_loss:.4f} | "
-                          f"Time: {elapsed/60:.1f}min")
+                # 使用监控器记录指标
+                monitor.log_step(
+                    step=step,
+                    epoch=epoch,
+                    loss=loss.item(),
+                    learning_rate=optimizer.param_groups[0]['lr'],
+                    batch_size=batch.size(0)
+                )
 
-                # 保存检查点
-                if step % self.config.save_steps == 0:
+                # 记录日志 - 每步都显示学习率和loss
+                avg_loss = epoch_loss / epoch_steps
+                elapsed = time.time() - start_time
+                current_lr = optimizer.param_groups[0]['lr']
+                print(f"Step {step:5d} | Loss: {loss.item():.4f} | Avg: {avg_loss:.4f} | LR: {current_lr:.2e} | Time: {elapsed/60:.1f}min")
+
+                # 保存检查点 - 每100步自动保存
+                if step % 100 == 0:
                     self._save_checkpoint(model, tokenizer, optimizer, step, loss.item())
 
                 # 评估模型
@@ -364,6 +410,9 @@ class MiniGPTTrainer:
 
             if step >= self.config.max_steps:
                 break
+
+        # 关闭监控器并保存总结
+        monitor.close()
 
         # 保存最终模型
         final_path = os.path.join(self.output_dir, "final_model.pt")
@@ -379,11 +428,23 @@ class MiniGPTTrainer:
         print(f"总步数: {step}")
         print(f"训练时间: {(time.time() - start_time)/60:.1f}分钟")
         print(f"最终模型已保存: {final_path}")
+        print(f"📊 训练监控日志: {monitor_dir}")
 
         return final_path
 
     def _save_checkpoint(self, model, tokenizer, optimizer, step, loss):
-        """保存检查点"""
+        """保存检查点（只保留最新的一个）"""
+        # 删除旧的checkpoint文件
+        checkpoint_pattern = os.path.join(self.output_dir, "checkpoint_step_*.pt")
+        old_checkpoints = glob.glob(checkpoint_pattern)
+        for old_ckpt in old_checkpoints:
+            try:
+                os.remove(old_ckpt)
+                print(f"🗑️  删除旧checkpoint: {os.path.basename(old_ckpt)}")
+            except Exception as e:
+                print(f"⚠️  删除旧checkpoint失败: {e}")
+        
+        # 保存新的checkpoint
         checkpoint_path = os.path.join(self.output_dir, f"checkpoint_step_{step}.pt")
         torch.save({
             'step': step,
@@ -417,6 +478,77 @@ class MiniGPTTrainer:
         finally:
             model.train()
 
+    def _find_latest_checkpoint(self):
+        """查找最新的checkpoint文件"""
+        checkpoint_pattern = os.path.join(self.output_dir, "checkpoint_step_*.pt")
+        checkpoint_files = glob.glob(checkpoint_pattern)
+        
+        if not checkpoint_files:
+            # 尝试查找 final_model.pt
+            final_model = os.path.join(self.output_dir, "final_model.pt")
+            if os.path.exists(final_model):
+                return final_model
+            return None
+        
+        # 按步数排序，返回最新的
+        def get_step_num(filename):
+            try:
+                # 从文件名中提取步数: checkpoint_step_5000.pt -> 5000
+                basename = os.path.basename(filename)
+                step_str = basename.replace("checkpoint_step_", "").replace(".pt", "")
+                return int(step_str)
+            except:
+                return 0
+        
+        checkpoint_files.sort(key=get_step_num, reverse=True)
+        return checkpoint_files[0]
+    
+    def _load_checkpoint(self, checkpoint_path, model, optimizer):
+        """加载checkpoint并恢复训练状态
+        
+        返回:
+            start_step: 从哪一步开始继续训练
+        """
+        print(f"🔄 正在加载checkpoint: {checkpoint_path}")
+        
+        try:
+            checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
+            
+            # 加载模型权重
+            if 'model_state_dict' in checkpoint:
+                model.load_state_dict(checkpoint['model_state_dict'])
+                print("✅ 模型权重已加载")
+            else:
+                model.load_state_dict(checkpoint)
+                print("✅ 模型权重已加载（旧格式）")
+            
+            # 加载优化器状态
+            if 'optimizer_state_dict' in checkpoint and optimizer is not None:
+                try:
+                    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                    print("✅ 优化器状态已加载")
+                except Exception as e:
+                    print(f"⚠️  优化器状态加载失败: {e}")
+                    print("   将使用新的优化器状态")
+            
+            # 获取训练步数
+            start_step = checkpoint.get('step', 0)
+            if start_step > 0:
+                print(f"✅ 将从第 {start_step} 步继续训练")
+            
+            # 显示checkpoint信息
+            if 'loss' in checkpoint:
+                print(f"📊 Checkpoint损失: {checkpoint['loss']:.4f}")
+            if 'mode' in checkpoint:
+                print(f"📝 训练模式: {checkpoint['mode']}")
+            
+            return start_step
+            
+        except Exception as e:
+            print(f"❌ 加载checkpoint失败: {e}")
+            print("   将从头开始训练")
+            return 0
+
 
 def main():
     parser = argparse.ArgumentParser(description='MiniGPT训练脚本')
@@ -433,9 +565,12 @@ def main():
     parser.add_argument('--retrain-tokenizer', action='store_true',
                         help='重新训练分词器')
 
-    # 继续训练
-    parser.add_argument('--resume', type=str, default=None,
-                        help='从检查点继续训练')
+    # Checkpoint恢复
+    parser.add_argument('--resume', '--resume-from-checkpoint', type=str, default=None,
+                        dest='resume_from_checkpoint',
+                        help='从指定checkpoint文件继续训练（例如: checkpoints/sft_medium/checkpoint_step_5000.pt）')
+    parser.add_argument('--auto-resume', action='store_true',
+                        help='自动从最新的checkpoint恢复训练')
 
     # 训练参数覆盖
     parser.add_argument('--learning-rate', type=float, default=None,
@@ -479,9 +614,16 @@ def main():
     # 创建训练器
     trainer = MiniGPTTrainer(config, mode=args.mode)
 
+    # 显示恢复信息
+    if args.auto_resume:
+        print("🔄 启用自动恢复模式")
+    elif args.resume_from_checkpoint:
+        print(f"🔄 将从checkpoint恢复: {args.resume_from_checkpoint}")
+
     # 开始训练
     final_model_path = trainer.train(
-        resume_from=args.resume,
+        resume_from=args.resume_from_checkpoint,
+        auto_resume=args.auto_resume,
         retrain_tokenizer=args.retrain_tokenizer
     )
 

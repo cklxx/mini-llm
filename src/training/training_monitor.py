@@ -90,8 +90,9 @@ class SystemMonitor:
 class ModelHealthMonitor:
     """模型健康监控器"""
 
-    def __init__(self, model: nn.Module):
+    def __init__(self, model: nn.Module, lightweight_mode: bool = False):
         self.model = model
+        self.lightweight_mode = lightweight_mode
         self.prev_params = None
         self.grad_history = deque(maxlen=100)
         self.param_history = deque(maxlen=100)
@@ -121,6 +122,10 @@ class ModelHealthMonitor:
 
     def compute_weight_update_ratio(self) -> float:
         """计算权重更新比例"""
+        # 轻量级模式下跳过这个耗时操作
+        if self.lightweight_mode:
+            return 0.0
+            
         if self.prev_params is None:
             self.prev_params = {name: param.clone() for name, param in self.model.named_parameters()}
             return 0.0
@@ -329,22 +334,27 @@ class TrainingMonitor:
     """综合训练监控器"""
 
     def __init__(self, model: nn.Module, log_dir: str = "training_logs",
-                 enable_tensorboard: bool = True, enable_real_time_plots: bool = False):
+                 enable_tensorboard: bool = True, enable_real_time_plots: bool = False,
+                 lightweight_mode: bool = False, log_interval: int = 1):
         self.model = model
         self.log_dir = log_dir
         os.makedirs(log_dir, exist_ok=True)
 
+        # 轻量级模式配置
+        self.lightweight_mode = lightweight_mode
+        self.log_interval = log_interval if lightweight_mode else 1
+        
         # 初始化各个监控组件
         self.system_monitor = SystemMonitor()
-        self.health_monitor = ModelHealthMonitor(model)
+        self.health_monitor = ModelHealthMonitor(model, lightweight_mode=lightweight_mode)
         self.visualizer = RealTimeVisualizer(os.path.join(log_dir, "plots"))
 
         # TensorBoard
         self.tensorboard_writer = SummaryWriter(log_dir) if enable_tensorboard else None
 
-        # 实时绘图
-        self.enable_real_time_plots = enable_real_time_plots
-        if enable_real_time_plots:
+        # 实时绘图（轻量级模式下禁用）
+        self.enable_real_time_plots = enable_real_time_plots and not lightweight_mode
+        if self.enable_real_time_plots:
             self.plot_thread = None
             self._start_real_time_plotting()
 
@@ -358,7 +368,10 @@ class TrainingMonitor:
         print(f"🔍 TrainingMonitor initialized:")
         print(f"   Log directory: {log_dir}")
         print(f"   TensorBoard: {'enabled' if enable_tensorboard else 'disabled'}")
-        print(f"   Real-time plots: {'enabled' if enable_real_time_plots else 'disabled'}")
+        print(f"   Real-time plots: {'enabled' if self.enable_real_time_plots else 'disabled'}")
+        print(f"   Lightweight mode: {'enabled' if lightweight_mode else 'disabled'}")
+        if lightweight_mode:
+            print(f"   Log interval: every {log_interval} steps")
 
     def _start_real_time_plotting(self):
         """启动实时绘图线程"""
@@ -371,25 +384,36 @@ class TrainingMonitor:
             self.plot_thread.start()
 
     def log_step(self, step: int, epoch: int, loss: float, learning_rate: float,
-                batch_size: int = 1) -> TrainingMetrics:
+                batch_size: int = 1) -> Optional[TrainingMetrics]:
         """记录训练步骤"""
+        # 轻量级模式下，只在指定间隔记录详细指标
+        should_log_full = (step % self.log_interval == 0)
+        
         current_time = time.time()
 
         # 计算性能指标
         step_duration = current_time - self.step_start_time
         samples_per_sec = batch_size / step_duration if step_duration > 0 else 0
 
-        # 获取系统信息
-        gpu_memory_used, _ = self.system_monitor.get_gpu_memory_info()
-        cpu_usage, _ = self.system_monitor.get_cpu_info()
-        ram_used, _ = self.system_monitor.get_memory_info()
+        # 获取系统信息（轻量级：降低频率）
+        if should_log_full:
+            gpu_memory_used, _ = self.system_monitor.get_gpu_memory_info()
+            cpu_usage, _ = self.system_monitor.get_cpu_info()
+            ram_used, _ = self.system_monitor.get_memory_info()
+        else:
+            gpu_memory_used = cpu_usage = ram_used = 0.0
 
         # 获取模型健康指标
         grad_norm = self.health_monitor.compute_gradient_norm()
         param_norm = self.health_monitor.compute_parameter_norm()
-        weight_update_ratio = self.health_monitor.compute_weight_update_ratio()
+        
+        # 权重更新比例（最耗时，轻量级模式下跳过）
+        if should_log_full:
+            weight_update_ratio = self.health_monitor.compute_weight_update_ratio()
+        else:
+            weight_update_ratio = 0.0
 
-        # 检测异常
+        # 检测异常（始终检查，因为很重要）
         anomaly_info = self.health_monitor.detect_gradient_anomaly(grad_norm)
         if anomaly_info['status'] != 'normal':
             self.anomaly_history.append({
@@ -415,15 +439,21 @@ class TrainingMonitor:
             weight_update_ratio=weight_update_ratio
         )
 
-        # 记录到各个系统
-        self._log_to_tensorboard(metrics)
-        self._log_to_console(metrics, step % 100 == 0)  # 每100步打印一次详细信息
-        self.visualizer.add_metrics(metrics)
+        # 记录到各个系统（只在完整记录时写入详细信息）
+        if should_log_full:
+            self._log_to_tensorboard(metrics)
+            self._log_to_console(metrics, step % 100 == 0)  # 每100步打印一次详细信息
+            self.visualizer.add_metrics(metrics)
+        else:
+            # 轻量级：只记录关键指标到 TensorBoard
+            if self.tensorboard_writer:
+                self.tensorboard_writer.add_scalar('Training/Loss', loss, step)
+                self.tensorboard_writer.add_scalar('Training/LearningRate', learning_rate, step)
 
         # 重置计时器
         self.step_start_time = current_time
 
-        return metrics
+        return metrics if should_log_full else None
 
     def _log_to_tensorboard(self, metrics: TrainingMetrics):
         """记录到TensorBoard"""

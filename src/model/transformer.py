@@ -200,7 +200,8 @@ class TransformerBlock(nn.Module):
                 dropout=config.attention_dropout,
                 use_rope=getattr(config, 'use_rope', True),
                 max_position_embeddings=config.max_position_embeddings,
-                rope_base=getattr(config, 'rope_theta', 10000.0)
+                rope_base=getattr(config, 'rope_theta', 10000.0),
+                flash_attn=getattr(config, 'flash_attn', False)
             )
         else:
             # 兼容传统注意力

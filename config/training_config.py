@@ -80,7 +80,7 @@ class BaseConfig:
     def __init__(self):
         # 基础路径
         self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.data_dir = os.path.join(self.project_root, "data", "dataset", "minimind_dataset")
+        self.data_dir = os.path.join(self.project_root, "data")
         self.checkpoint_dir = os.path.join(self.project_root, "checkpoints")
         self.log_dir = os.path.join(self.project_root, "logs")
 
@@ -114,33 +114,35 @@ class BaseConfig:
 
 
 class MediumConfig(BaseConfig):
-    """中等模型配置 (~200M参数) - GPU 优化"""
+    """中等模型配置 (~80M参数) - GPU优化 + Flash Attention"""
     def __init__(self):
         super().__init__()
         
         # 模型标识
         self.model_size = "medium"
 
-        # 模型参数
-        self.vocab_size = 32000
-        self.d_model = 1024
+        # 模型参数 (与src/model/config.py保持一致)
+        self.vocab_size = 20000  # 更新为与模型配置一致
+        self.d_model = 512       # 减小维度以降低内存
         self.n_heads = 16
         self.n_layers = 16
-        self.d_ff = 4096
+        self.d_ff = 1536         # 减小FFN以降低内存
         self.max_seq_len = 2048
         self.dropout = 0.1
 
-        # GPU 优化训练参数
+        # GPU优化训练参数 - 保守的批量大小
         if self.device == "cuda":
             gpu_memory = self.gpu_info['devices'][0]['memory_total'] if self.gpu_info else 8
-            if gpu_memory >= 24:  # RTX 3090/4090
-                self.batch_size = 16
-            elif gpu_memory >= 12:  # RTX 3060Ti/4060Ti
+            if gpu_memory >= 40:  # A6000等高端卡
+                self.batch_size = 12  # 降低批量大小以确保稳定
+            elif gpu_memory >= 24:  # RTX 3090/4090
                 self.batch_size = 8
-            else:
+            elif gpu_memory >= 12:  # RTX 3060Ti/4060Ti
                 self.batch_size = 4
+            else:
+                self.batch_size = 2
         else:
-            self.batch_size = 4
+            self.batch_size = 2
 
         self.learning_rate = 3e-4
         self.weight_decay = 0.01
@@ -149,7 +151,7 @@ class MediumConfig(BaseConfig):
         self.eval_steps = 2000
         self.save_steps = 5000
 
-        # 梯度累积
+        # 梯度累积 - 提高以补偿较小批量
         self.gradient_accumulation_steps = max(1, 128 // self.batch_size)
 
         # 优化器
