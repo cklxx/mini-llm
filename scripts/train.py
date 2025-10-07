@@ -426,8 +426,8 @@ def main():
                         help='训练模式 (pretrain: 预训练, sft: 监督微调, dpo: 直接偏好优化, rlhf: 强化学习)')
 
     # 模型配置
-    parser.add_argument('--config', choices=['tiny', 'small', 'medium'], default='small',
-                        help='模型配置大小')
+    parser.add_argument('--config', choices=['medium', 'large'], default='medium',
+                        help='模型配置大小 (medium: ~200M参数, large: ~500M参数)')
 
     # 数据相关
     parser.add_argument('--retrain-tokenizer', action='store_true',
@@ -490,10 +490,10 @@ def main():
     # 提示下一步训练建议
     if args.mode == "pretrain":
         print("\n💡 建议下一步运行SFT训练:")
-        print(f"python scripts/train.py --mode sft --config {args.config} --resume {final_model_path}")
+        print(f"uv run python scripts/train.py --mode sft --config {args.config} --resume {final_model_path}")
     elif args.mode == "sft":
         print("\n💡 建议下一步运行DPO训练:")
-        print(f"python scripts/train.py --mode dpo --config {args.config} --resume {final_model_path}")
+        print(f"uv run python scripts/train.py --mode dpo --config {args.config} --resume {final_model_path}")
 
 
 if __name__ == "__main__":

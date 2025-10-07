@@ -113,103 +113,13 @@ class BaseConfig:
         os.makedirs(self.log_dir, exist_ok=True)
 
 
-class TinyConfig(BaseConfig):
-    """超小模型配置 (~1M参数) - GPU 优化"""
-    def __init__(self):
-        super().__init__()
-
-        # 模型参数
-        self.vocab_size = 10000
-        self.d_model = 256
-        self.n_heads = 4
-        self.n_layers = 4
-        self.d_ff = 1024
-        self.max_seq_len = 512
-        self.dropout = 0.1
-
-        # GPU 优化训练参数
-        if self.device == "cuda":
-            gpu_memory = self.gpu_info['devices'][0]['memory_total'] if self.gpu_info else 8
-            self.batch_size = 64 if gpu_memory >= 12 else 32
-        else:
-            self.batch_size = 16
-
-        self.learning_rate = 1e-3
-        self.weight_decay = 0.01
-        self.warmup_steps = 500
-        self.max_steps = 10000
-        self.eval_steps = 1000
-        self.save_steps = 2000
-
-        # 梯度累积
-        self.gradient_accumulation_steps = max(1, 128 // self.batch_size)
-
-        # 优化器
-        self.optimizer = "adamw"
-        self.beta1 = 0.9
-        self.beta2 = 0.95
-        self.eps = 1e-8
-
-        # 生成参数
-        self.max_generate_length = 256
-        self.temperature = 0.8
-        self.top_k = 50
-        self.top_p = 0.9
-
-
-class SmallConfig(BaseConfig):
-    """小模型配置 (~50M参数) - GPU 优化"""
-    def __init__(self):
-        super().__init__()
-
-        # 模型参数
-        self.vocab_size = 32000
-        self.d_model = 768
-        self.n_heads = 12
-        self.n_layers = 8
-        self.d_ff = 3072
-        self.max_seq_len = 1024
-        self.dropout = 0.1
-
-        # GPU 优化训练参数
-        if self.device == "cuda":
-            gpu_memory = self.gpu_info['devices'][0]['memory_total'] if self.gpu_info else 8
-            if gpu_memory >= 24:  # RTX 3090/4090
-                self.batch_size = 32
-            elif gpu_memory >= 12:  # RTX 3060Ti/4060Ti
-                self.batch_size = 16
-            else:
-                self.batch_size = 8
-        else:
-            self.batch_size = 8
-
-        self.learning_rate = 5e-4
-        self.weight_decay = 0.01
-        self.warmup_steps = 2000
-        self.max_steps = 50000
-        self.eval_steps = 2000
-        self.save_steps = 5000
-
-        # 梯度累积
-        self.gradient_accumulation_steps = max(1, 128 // self.batch_size)
-
-        # 优化器
-        self.optimizer = "adamw"
-        self.beta1 = 0.9
-        self.beta2 = 0.95
-        self.eps = 1e-8
-
-        # 生成参数
-        self.max_generate_length = 512
-        self.temperature = 0.8
-        self.top_k = 50
-        self.top_p = 0.9
-
-
 class MediumConfig(BaseConfig):
     """中等模型配置 (~200M参数) - GPU 优化"""
     def __init__(self):
         super().__init__()
+        
+        # 模型标识
+        self.model_size = "medium"
 
         # 模型参数
         self.vocab_size = 32000
@@ -259,6 +169,9 @@ class LargeConfig(BaseConfig):
     """大模型配置 (~500M参数) - 高端 GPU 优化"""
     def __init__(self):
         super().__init__()
+        
+        # 模型标识
+        self.model_size = "large"
 
         # 模型参数
         self.vocab_size = 50000
@@ -309,11 +222,9 @@ class LargeConfig(BaseConfig):
         self.top_p = 0.9
 
 
-def get_config(model_size="small"):
+def get_config(model_size="medium"):
     """获取指定大小的配置"""
     configs = {
-        "tiny": TinyConfig,
-        "small": SmallConfig,
         "medium": MediumConfig,
         "large": LargeConfig
     }
@@ -340,14 +251,6 @@ def get_config(model_size="small"):
     return config
 
 
-def get_tiny_config():
-    return get_config("tiny")
-
-
-def get_small_config():
-    return get_config("small")
-
-
 def get_medium_config():
     return get_config("medium")
 
@@ -358,7 +261,7 @@ def get_large_config():
 
 if __name__ == "__main__":
     # 测试所有配置
-    configs = ["tiny", "small", "medium", "large"]
+    configs = ["medium", "large"]
 
     for config_name in configs:
         print(f"\n{'='*50}")
