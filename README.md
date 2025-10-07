@@ -18,6 +18,13 @@
 
 ## ✨ 项目特色
 
+### 🎯 极简脚本架构
+项目已精简至**7个核心脚本**，清晰高效：
+- **训练**: `train.py` - 统一训练入口（pretrain/sft/dpo/rlhf）
+- **推理**: `generate.py` - 统一推理入口（chat/single/ultra_think）
+- **测试**: `test_runner.py` - 一键环境验证
+- **评估**: `evaluate_model.py` + `run_evaluation.py` - 模型与分词器评估
+
 ### 🚀 完整训练流程
 - **预训练（Pretrain）**: 从零开始训练语言模型
 - **监督微调（SFT）**: 指令跟随和对话能力训练
@@ -176,152 +183,93 @@ pip install deepspeed>=0.14.0
 ### 1️⃣ 环境测试
 
 ```bash
-# 测试GPU配置和模型创建
-python -c "
-from config.training_config import get_config
-from src.model.transformer import create_model
+# 运行测试验证环境配置
+python scripts/test_runner.py
 
-config = get_config('tiny')
-model = create_model(vocab_size=config.vocab_size, model_size='tiny')
-print('✅ 环境配置正常，可以开始训练！')
-"
+# 测试架构组件
+python scripts/tests/test_architecture.py
+
+# 端到端训练和推理测试
+python scripts/tests/test_training_inference.py
 ```
 
-### 2️⃣ 快速训练测试
+### 2️⃣ 标准训练流程
 
+#### 预训练
 ```bash
-# 运行完整的训练和推理测试
-python scripts/tests/run_all_tests.py  # 运行所有测试
-
-# 或者单独运行特定测试
-python scripts/tests/test_training_inference.py   # 训练和推理测试
-python scripts/tests/test_architecture.py         # 架构组件测试
-python scripts/tests/test_code_structure.py       # 代码结构验证
-```
-
-### 3️⃣ 标准训练流程
-
-#### 训练分词器和模型
-
-```bash
-# 方法1: 使用训练脚本
-python scripts/train.py --mode sft --config small --retrain-tokenizer
-
-# 方法2: 分步训练
-# 1) 训练分词器
-python scripts/train_tokenizer.py --vocab_size 10000 --data_path data/dataset/minimind_dataset/sft_mini_512.jsonl
-
-# 2) 训练模型
-python scripts/train.py --mode sft --config small
+# 基础语言理解能力训练
+python scripts/train.py --mode pretrain --config small
 ```
 
 #### 监督微调 (SFT)
-
 ```bash
 # 使用tiny配置快速验证
 python scripts/train.py --mode sft --config tiny
 
-# 使用small配置标准训练
-python scripts/train.py --mode sft --config small
-
-# 使用medium配置 (需要较大显存)
-python scripts/train.py --mode sft --config medium
+# 使用small配置标准训练（推荐）
+python scripts/train.py --mode sft --config small --retrain-tokenizer
 
 # 从检查点恢复训练
 python scripts/train.py --mode sft --config small --resume checkpoints/checkpoint.pt
 ```
 
-#### 预训练
-
+#### DPO训练
 ```bash
-# 预训练模型
-python scripts/train.py --mode pretrain --config small
-
-# 使用大数据集预训练
-python scripts/train.py --mode pretrain --config medium --data_path data/dataset/minimind_dataset/pretrain_hq.jsonl
+# 直接偏好优化
+python scripts/train.py --mode dpo --config small --resume checkpoints/sft_small/final_model.pt
 ```
 
-### 4️⃣ 推理和生成
+#### RLHF训练
+```bash
+# 强化学习微调
+python scripts/train.py --mode rlhf --config small --resume checkpoints/dpo_small/final_model.pt
+```
+
+### 3️⃣ 推理和生成
 
 #### 交互式对话
-
 ```bash
-# 启动聊天模式
 python scripts/generate.py \
-    --model-path checkpoints/best_model.pt \
-    --tokenizer-path checkpoints/tokenizer.pkl \
+    --model-path checkpoints/sft_small/final_model.pt \
     --mode chat
-
-# 示例对话:
-# 用户: 你好
-# 助手: 你好！有什么我可以帮助您的吗？
 ```
 
 #### 单次推理
-
 ```bash
-# 单个问题推理
 python scripts/generate.py \
-    --model-path checkpoints/best_model.pt \
-    --tokenizer-path checkpoints/tokenizer.pkl \
+    --model-path checkpoints/sft_small/final_model.pt \
     --mode single \
-    --prompt "请介绍一下人工智能的发展历史"
+    --prompt "你好，你是谁？"
 ```
 
-#### 批量测试
-
+#### Ultra Think深度思维
 ```bash
-# 批量测试生成质量
 python scripts/generate.py \
-    --model-path checkpoints/best_model.pt \
-    --tokenizer-path checkpoints/tokenizer.pkl \
-    --mode batch \
-    --output results.jsonl
+    --model-path checkpoints/sft_small/final_model.pt \
+    --mode single \
+    --prompt "分析人工智能的发展趋势" \
+    --ultra-think
 ```
 
-### 5️⃣ GPU优化配置
-
-系统会自动检测您的硬件并优化配置：
+### 4️⃣ 模型评估
 
 ```bash
-# 自动检测并显示优化信息
-python -c "
-from config.training_config import get_config
-config = get_config('small')  # 会显示GPU信息和优化配置
-"
+# 评估模型性能
+python scripts/evaluation/evaluate_model.py --model-path checkpoints/best_model.pt
+
+# 分词器评估（一键评测）
+python scripts/evaluation/tokenizer/run_evaluation.py
 ```
 
-#### 不同GPU的推荐配置
+### 5️⃣ 硬件配置建议
 
-| GPU型号 | 显存 | 推荐配置 | 批量大小 |
-|---------|------|----------|----------|
-| RTX 3090/4090 | 24GB | medium/large | 16-32 |
-| RTX 3080/4080 | 16GB | small/medium | 8-16 |
-| RTX 3060Ti/4060Ti | 12GB | tiny/small | 4-8 |
-| Apple M1/M2 Pro | 统一内存 | tiny/small | 4-16 |
+| 硬件平台 | 显存/内存 | 推荐配置 | 批量大小 |
+|---------|----------|---------|----------|
+| RTX 3090/4090 | 24GB | medium | 16-32 |
+| RTX 3080/4080 | 16GB | small | 8-16 |
+| RTX 3060Ti | 12GB | small | 4-8 |
+| Apple M1/M2 Pro | 统一内存 | small | 4-16 |
 | CPU | 系统内存 | tiny | 2-4 |
-
-### 6️⃣ 自定义配置
-
-```bash
-# 创建自定义配置
-python -c "
-from src.model.config import MiniGPTConfig
-from src.model.transformer import create_model
-
-config = MiniGPTConfig(
-    vocab_size=32000,
-    hidden_size=768,
-    num_hidden_layers=12,
-    num_attention_heads=12,
-    intermediate_size=3072,
-    max_position_embeddings=2048
-)
-
-model = create_model(config=config)
-print(f'自定义模型参数量: {model.get_num_params():,}')
-"
-```
 
 ## 🔄 训练流程
 
@@ -360,26 +308,28 @@ minigpt-training/
 │   ├── rl/                # 强化学习
 │   └── utils/             # 工具函数
 ├── config/                # 配置文件
-├── scripts/               # 训练脚本
+├── scripts/               # 核心脚本
+│   ├── train.py          # 统一训练脚本
+│   ├── generate.py       # 统一推理脚本
+│   ├── test_runner.py    # 测试运行器
+│   ├── tests/            # 测试脚本
+│   └── evaluation/       # 评估工具
 ├── data/                  # 数据集
-├── docs/                  # 文档
-├── tests/                 # 测试代码
+├── docs/                  # 技术文档
 └── checkpoints/           # 模型检查点
 ```
 
-### 核心模块说明
+### 核心脚本说明
 
-| 模块 | 功能 | 主要文件 |
+| 脚本 | 功能 | 使用场景 |
 |------|------|----------|
-| `src.model` | Transformer模型实现 | `transformer.py` |
-| `src.model` | 现代激活函数 | `activation_functions.py` |
-| `src.model` | 现代优化器 | `optimizers.py` |
-| `src.model` | MoE架构 | `moe.py` |
-| `src.training` | 训练流程控制 | `trainer.py` |
-| `src.data` | 数据加载和处理 | `dataset_loader.py` |
-| `src.tokenizer` | BPE分词器 | `bpe_tokenizer.py` |
-| `src.rl` | 强化学习训练 | `rlhf_pipeline.py` |
-| `src.inference` | 文本生成 | `generator.py` |
+| `train.py` | 统一训练入口 | pretrain/sft/dpo/rlhf |
+| `generate.py` | 统一推理入口 | chat/single/batch/ultra_think |
+| `test_runner.py` | 环境测试 | 验证安装配置 |
+| `tests/test_architecture.py` | 架构测试 | 验证模型组件 |
+| `tests/test_training_inference.py` | 端到端测试 | 完整流程验证 |
+| `evaluation/evaluate_model.py` | 模型评估 | 性能评测 |
+| `evaluation/tokenizer/run_evaluation.py` | 分词器评估 | 一键评测 |
 
 ## ⚙️ 配置说明
 
@@ -582,24 +532,24 @@ python -m torch.distributed.launch --nproc_per_node=4 scripts/train.py
 ### 运行测试
 
 ```bash
-# 模型结构测试
-python tests/test_correct_small.py
+# 环境配置测试
+python scripts/test_runner.py
 
-# 中等模型测试
-python tests/test_medium_model.py
+# 架构组件测试
+python scripts/tests/test_architecture.py
 
-# 模型检查
-python tests/inspect_model.py
+# 端到端训练和推理测试
+python scripts/tests/test_training_inference.py
 ```
 
 ### 性能评估
 
 ```bash
-# 生成质量评估
-python scripts/evaluate.py --model checkpoints/model.pt --dataset test
+# 模型性能评估
+python scripts/evaluation/evaluate_model.py --model-path checkpoints/best_model.pt
 
-# 性能基准测试
-python calculate_model_comparison.py
+# 分词器综合评估
+python scripts/evaluation/tokenizer/run_evaluation.py
 ```
 
 ## 🤝 贡献指南
