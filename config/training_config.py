@@ -103,10 +103,15 @@ class BaseConfig:
         self.gradient_checkpointing = True
         self.flash_attention = self.device == "cuda"
 
-        # 数据加载优化
-        self.num_workers = 4 if self.device == "cuda" else 2
+        # 数据加载优化 - 针对A6000和16核CPU优化
+        if self.device == "cuda":
+            self.num_workers = 8  # 增加到8个worker (16核CPU的一半)
+            self.prefetch_factor = 4  # 每个worker预取4个batch
+        else:
+            self.num_workers = 2
+            self.prefetch_factor = 2
         self.pin_memory = self.device == "cuda"
-        self.persistent_workers = True
+        self.persistent_workers = True if self.num_workers > 0 else False
 
         # 创建必要目录
         os.makedirs(self.checkpoint_dir, exist_ok=True)
@@ -130,19 +135,24 @@ class MediumConfig(BaseConfig):
         self.max_seq_len = 2048
         self.dropout = 0.1
 
-        # GPU优化训练参数 - 保守的批量大小
+        # GPU优化训练参数 - 针对A6000优化
         if self.device == "cuda":
             gpu_memory = self.gpu_info['devices'][0]['memory_total'] if self.gpu_info else 8
-            if gpu_memory >= 40:  # A6000等高端卡
-                self.batch_size = 12  # 降低批量大小以确保稳定
+            if gpu_memory >= 40:  # A6000等高端卡 (48GB)
+                self.batch_size = 32  # 大幅提高批量大小
+                self.gradient_accumulation_steps = 4  # 有效批量 = 32 * 4 = 128
             elif gpu_memory >= 24:  # RTX 3090/4090
-                self.batch_size = 8
+                self.batch_size = 16
+                self.gradient_accumulation_steps = 8  # 有效批量 = 128
             elif gpu_memory >= 12:  # RTX 3060Ti/4060Ti
-                self.batch_size = 4
+                self.batch_size = 8
+                self.gradient_accumulation_steps = 16
             else:
-                self.batch_size = 2
+                self.batch_size = 4
+                self.gradient_accumulation_steps = 32
         else:
             self.batch_size = 2
+            self.gradient_accumulation_steps = 64
 
         self.learning_rate = 3e-4
         self.weight_decay = 0.01
@@ -150,9 +160,6 @@ class MediumConfig(BaseConfig):
         self.max_steps = 100000
         self.eval_steps = 2000
         self.save_steps = 5000
-
-        # 梯度累积 - 提高以补偿较小批量
-        self.gradient_accumulation_steps = max(1, 128 // self.batch_size)
 
         # 优化器
         self.optimizer = "adamw"

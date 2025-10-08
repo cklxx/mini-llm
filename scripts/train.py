@@ -192,12 +192,15 @@ class MiniGPTTrainer:
         else:
             raise ValueError(f"不支持的训练模式: {self.mode}")
 
-        # 创建数据加载器
+        # 创建数据加载器 - 多进程优化
         data_loader = DataLoader(
             dataset,
             batch_size=self.config.batch_size,
             shuffle=True,
-            num_workers=0,  # 简化为单进程
+            num_workers=self.config.num_workers,
+            pin_memory=self.config.pin_memory,
+            persistent_workers=self.config.persistent_workers,
+            prefetch_factor=getattr(self.config, 'prefetch_factor', 2),
             drop_last=True
         )
 
@@ -310,6 +313,17 @@ class MiniGPTTrainer:
 
         criterion = torch.nn.CrossEntropyLoss(ignore_index=tokenizer.pad_id)
 
+        # 设置混合精度训练
+        scaler = None
+        if self.config.mixed_precision and self.device == "cuda":
+            scaler = torch.cuda.amp.GradScaler()
+            print("✅ 启用混合精度训练 (FP16)")
+
+        # 启用梯度检查点
+        if self.config.gradient_checkpointing and hasattr(model, 'gradient_checkpointing_enable'):
+            model.gradient_checkpointing_enable()
+            print("✅ 启用梯度检查点")
+
         # 处理checkpoint恢复
         start_step = 0
         if auto_resume:
@@ -343,19 +357,22 @@ class MiniGPTTrainer:
         model.train()
         step = start_step  # 从checkpoint的步数继续
         best_loss = float('inf')
+        accumulation_steps = self.config.gradient_accumulation_steps
 
         print(f"开始训练，最大步数: {self.config.max_steps}")
+        print(f"Batch size: {self.config.batch_size}, 梯度累积: {accumulation_steps}, 有效batch: {self.config.batch_size * accumulation_steps}")
 
         for epoch in range(1000):  # 最大epoch数
             epoch_loss = 0
             epoch_steps = 0
+            optimizer.zero_grad()  # 在epoch开始时清空梯度
 
-            for batch in data_loader:
+            for batch_idx, batch in enumerate(data_loader):
                 if step >= self.config.max_steps:
                     break
 
                 # 数据移到设备
-                batch = batch.to(self.device)
+                batch = batch.to(self.device, non_blocking=True)
 
                 # 验证batch尺寸
                 if batch.size(1) < 2:
@@ -365,48 +382,68 @@ class MiniGPTTrainer:
                 input_ids = batch[:, :-1]
                 target_ids = batch[:, 1:]
 
-                # 前向传播
-                optimizer.zero_grad()
-                outputs = model(input_ids)
-
-                # 计算损失
-                loss = criterion(outputs.reshape(-1, outputs.size(-1)), target_ids.reshape(-1))
+                # 混合精度前向传播
+                if scaler is not None:
+                    with torch.cuda.amp.autocast():
+                        outputs = model(input_ids)
+                        loss = criterion(outputs.reshape(-1, outputs.size(-1)), target_ids.reshape(-1))
+                        # 梯度累积：损失除以累积步数
+                        loss = loss / accumulation_steps
+                else:
+                    outputs = model(input_ids)
+                    loss = criterion(outputs.reshape(-1, outputs.size(-1)), target_ids.reshape(-1))
+                    loss = loss / accumulation_steps
 
                 # 反向传播
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                optimizer.step()
+                if scaler is not None:
+                    scaler.scale(loss).backward()
+                else:
+                    loss.backward()
 
-                # 更新统计
-                epoch_loss += loss.item()
-                epoch_steps += 1
-                step += 1
+                # 梯度累积：只在累积步数达到时更新参数
+                if (batch_idx + 1) % accumulation_steps == 0 or (batch_idx + 1) == len(data_loader):
+                    if scaler is not None:
+                        scaler.unscale_(optimizer)
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                        optimizer.step()
 
-                # 使用监控器记录指标
-                monitor.log_step(
-                    step=step,
-                    epoch=epoch,
-                    loss=loss.item(),
-                    learning_rate=optimizer.param_groups[0]['lr'],
-                    batch_size=batch.size(0)
-                )
+                    optimizer.zero_grad()
+                    step += 1
 
-                # 记录日志 - 每步都显示学习率和loss
-                avg_loss = epoch_loss / epoch_steps
-                elapsed = time.time() - start_time
-                current_lr = optimizer.param_groups[0]['lr']
-                print(f"Step {step:5d} | Loss: {loss.item():.4f} | Avg: {avg_loss:.4f} | LR: {current_lr:.2e} | Time: {elapsed/60:.1f}min")
+                    # 更新统计（使用实际损失值）
+                    actual_loss = loss.item() * accumulation_steps
+                    epoch_loss += actual_loss
+                    epoch_steps += 1
 
-                # 保存检查点 - 每100步自动保存
-                if step % 100 == 0:
-                    self._save_checkpoint(model, tokenizer, optimizer, step, loss.item())
+                    # 使用监控器记录指标
+                    monitor.log_step(
+                        step=step,
+                        epoch=epoch,
+                        loss=actual_loss,
+                        learning_rate=optimizer.param_groups[0]['lr'],
+                        batch_size=batch.size(0) * accumulation_steps
+                    )
 
-                # 评估模型
-                if step % self.config.eval_steps == 0:
-                    self._evaluate_model(model, tokenizer)
+                    # 记录日志 - 每步都显示学习率和loss
+                    avg_loss = epoch_loss / epoch_steps
+                    elapsed = time.time() - start_time
+                    current_lr = optimizer.param_groups[0]['lr']
+                    print(f"Step {step:5d} | Loss: {actual_loss:.4f} | Avg: {avg_loss:.4f} | LR: {current_lr:.2e} | Time: {elapsed/60:.1f}min")
 
-                if step >= self.config.max_steps:
-                    break
+                    # 保存检查点 - 每100步自动保存
+                    if step % 100 == 0:
+                        self._save_checkpoint(model, tokenizer, optimizer, step, actual_loss)
+
+                    # 评估模型
+                    if step % self.config.eval_steps == 0:
+                        self._evaluate_model(model, tokenizer)
+
+                    if step >= self.config.max_steps:
+                        break
 
             if step >= self.config.max_steps:
                 break
