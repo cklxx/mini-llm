@@ -528,16 +528,30 @@ class MiniGPTTrainer:
                     break
 
                 try:
-                    # 数据移到设备
-                    batch = batch.to(self.device, non_blocking=True)
-
-                    # 验证batch尺寸
-                    if batch.size(1) < 2:
-                        continue
-
-                    # 准备输入和目标
-                    input_ids = batch[:, :-1]
-                    target_ids = batch[:, 1:]
+                    # 数据移到设备 - 处理字典和tensor两种格式
+                    if isinstance(batch, dict):
+                        # 字典格式 (ConversationDataset)
+                        input_ids = batch['input_ids'].to(self.device, non_blocking=True)
+                        if 'labels' in batch:
+                            target_ids = batch['labels'].to(self.device, non_blocking=True)
+                        else:
+                            # 如果没有labels，从input_ids生成
+                            target_ids = torch.cat([
+                                input_ids[:, 1:],
+                                torch.full((input_ids.size(0), 1), tokenizer.pad_id, 
+                                         dtype=torch.long, device=self.device)
+                            ], dim=1)
+                    else:
+                        # Tensor格式 (LanguageModelingDataset)
+                        batch = batch.to(self.device, non_blocking=True)
+                        
+                        # 验证batch尺寸
+                        if batch.size(1) < 2:
+                            continue
+                        
+                        # 准备输入和目标
+                        input_ids = batch[:, :-1]
+                        target_ids = batch[:, 1:]
 
                     # 混合精度前向传播
                     if scaler is not None:
@@ -559,8 +573,15 @@ class MiniGPTTrainer:
 
                 except torch.cuda.OutOfMemoryError as e:
                     print(f"\n❌ CUDA OOM错误在步骤 {step}!")
-                    print(f"   当前批次大小: {batch.size(0)}")
-                    print(f"   序列长度: {batch.size(1)}")
+                    # 获取batch信息 - 处理字典和tensor格式
+                    if isinstance(batch, dict):
+                        batch_size = batch['input_ids'].size(0)
+                        seq_length = batch['input_ids'].size(1)
+                    else:
+                        batch_size = batch.size(0)
+                        seq_length = batch.size(1)
+                    print(f"   当前批次大小: {batch_size}")
+                    print(f"   序列长度: {seq_length}")
                     if self.device == "cuda":
                         allocated = torch.cuda.memory_allocated() / 1024**3
                         reserved = torch.cuda.memory_reserved() / 1024**3
@@ -603,12 +624,18 @@ class MiniGPTTrainer:
                     epoch_steps += 1
 
                     # 使用监控器记录指标
+                    # 获取batch size - 处理字典和tensor格式
+                    if isinstance(batch, dict):
+                        current_batch_size = batch['input_ids'].size(0)
+                    else:
+                        current_batch_size = batch.size(0)
+                    
                     monitor.log_step(
                         step=step,
                         epoch=epoch,
                         loss=actual_loss,
                         learning_rate=optimizer.param_groups[0]['lr'],
-                        batch_size=batch.size(0) * accumulation_steps
+                        batch_size=current_batch_size * accumulation_steps
                     )
 
                     # 记录日志 - 每步都显示学习率和loss
