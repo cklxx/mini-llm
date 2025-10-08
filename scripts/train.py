@@ -842,6 +842,13 @@ class MiniGPTTrainer:
                 try:
                     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
                     print("✅ 优化器状态已加载")
+                    
+                    # 修复: 设置 initial_lr，这是学习率调度器恢复时所需的
+                    # 如果 param_groups 中没有 initial_lr，使用当前配置的学习率
+                    for param_group in optimizer.param_groups:
+                        if 'initial_lr' not in param_group:
+                            param_group['initial_lr'] = self.config.learning_rate
+                    
                 except Exception as e:
                     print(f"⚠️  优化器状态加载失败: {e}")
                     print("   将使用新的优化器状态")
