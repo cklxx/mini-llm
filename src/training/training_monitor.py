@@ -179,9 +179,16 @@ class ModelHealthMonitor:
 
         # 梯度消失检测 - 动态阈值，训练初期更宽松
         # Step 100之前: 1e-10 (几乎不触发)
-        # Step 100之后: 1e-8  (更严格但合理)
-        elif grad_norm < (1e-10 if step < 100 else 1e-8):
-            vanishing_threshold = 1e-10 if step < 100 else 1e-8
+        # Step 100-1000: 1e-6 (宽松，适应阶段)
+        # Step 1000之后: 1e-7 (正常训练中合理的梯度范围)
+        if step < 100:
+            vanishing_threshold = 1e-10
+        elif step < 1000:
+            vanishing_threshold = 1e-6
+        else:
+            vanishing_threshold = 1e-7
+            
+        if grad_norm < vanishing_threshold:
             anomaly_info.update({
                 'status': 'gradient_vanishing',
                 'current': grad_norm,

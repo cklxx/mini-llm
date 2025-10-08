@@ -737,33 +737,42 @@ def main():
     # 根据训练模式调整配置（会自动设置warmup_steps）
     if args.mode == "pretrain":
         config.max_steps = config.max_steps or 50000
-        config.learning_rate = config.learning_rate or 1e-4
+        if args.learning_rate is None:
+            config.learning_rate = 1e-4  # 预训练基础学习率
         # 预训练：从零开始，需要较长warmup稳定训练
-        config.warmup_steps = min(500, int(config.max_steps * 0.05))  # 5% 或最多2000步
+        config.warmup_steps = min(500, int(config.max_steps * 0.05))  # 5% 或最多500步
         print("📚 预训练模式：建立基础语言理解能力")
+        print(f"   学习率: {config.learning_rate:.2e}")
         print(f"   Warmup steps: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)")
     elif args.mode == "sft":
         config.max_steps = config.max_steps or 10000
-        config.learning_rate = config.learning_rate or 5e-5
+        # SFT微调：使用更小的学习率避免破坏预训练知识
+        if args.learning_rate is None:  # 只在用户未指定时设置默认值
+            config.learning_rate = 5e-5  # 比预训练低一个数量级
         # SFT：已有预训练基础，使用较短warmup快速适应
         config.warmup_steps = min(200, int(config.max_steps * 0.02))  # 2% 或最多200步
         print("🎯 监督微调模式：训练对话和特定任务能力")
+        print(f"   学习率: {config.learning_rate:.2e} (比预训练低，保护已学知识)")
         print(f"   Warmup steps: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)")
         print(f"   💡 模型已有预训练基础，使用短warmup快速进入衰减阶段")
     elif args.mode == "dpo":
         config.max_steps = config.max_steps or 5000
-        config.learning_rate = config.learning_rate or 1e-5
+        if args.learning_rate is None:
+            config.learning_rate = 1e-5  # DPO使用更小学习率
         # DPO：在SFT基础上微调，使用极短warmup
         config.warmup_steps = min(100, int(config.max_steps * 0.02))  # 2% 或最多100步
         print("⚖️  直接偏好优化模式：根据人类偏好调整响应")
+        print(f"   学习率: {config.learning_rate:.2e}")
         print(f"   Warmup steps: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)")
         print(f"   💡 在SFT基础上优化，使用极短warmup")
     elif args.mode == "rlhf":
         config.max_steps = config.max_steps or 3000
-        config.learning_rate = config.learning_rate or 1e-5
+        if args.learning_rate is None:
+            config.learning_rate = 1e-5  # RLHF使用小学习率
         # RLHF：在已训练模型上强化学习，使用极短warmup
         config.warmup_steps = min(100, int(config.max_steps * 0.02))  # 2% 或最多100步
         print("🔄 强化学习微调模式：通过奖励模型优化")
+        print(f"   学习率: {config.learning_rate:.2e}")
         print(f"   Warmup steps: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)")
         print(f"   💡 在已训练模型上强化学习，使用极短warmup")
 
