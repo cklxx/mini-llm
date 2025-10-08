@@ -1,114 +1,37 @@
-# 第01章：数学基础与理论框架
+# 第 01 章 · 数学基础与理论框架
 
-> **从数学视角理解深度学习的本质**
+本章梳理 mini-llm 中最常见的数学工具，并展示它们如何在源码中落地。阅读时请对照 `src/model/transformer.py`、`src/model/rope.py` 和 `src/training/trainer.py`。
 
-## 章节概览
+## 1.1 注意力的概率视角
+- **Scaled Dot-Product Attention**：在 `TransformerBlock.forward` 中，通过 `q @ k.transpose(-2, -1)` 计算相似度矩阵，随后除以 `math.sqrt(head_dim)` 完成缩放。
+- **Softmax 归一化**：`torch.nn.functional.softmax` 将注意力权重解释为概率分布，保证每个 token 的权重和为 1。
+- **Mask 处理**：推理时的因果 mask 由 `src/model/transformer.py` 中的 `Transformer.create_causal_mask` 生成，确保模型只关注历史 token。
 
-深度学习和大语言模型的成功建立在坚实的数学基础之上。本章将深入探讨支撑 MiniGPT 训练过程的核心数学理论，为后续章节的学习奠定基础。
+> 实践提示：如果你想调试注意力权重，建议在 `TransformerBlock` 中插入 `torch.no_grad()` 的钩子，并输出 `attn_weights` 的统计量。
 
-我们将从信息论的角度理解语言建模的本质，从线性代数的角度理解 Transformer 的计算过程，从优化理论的角度理解训练算法的收敛性，从统计学习理论的角度理解泛化能力。
+## 1.2 残差连接与层归一化
+- **残差公式**：`y = x + f(x)`，对应代码中 `hidden_states = residual + self.dropout(output)`。
+- **层归一化**：`LayerNorm(eps)` 在 mini-llm 里使用预归一化（Pre-LN）结构，相关实现位于 `src/model/transformer.py` 的 `RMSNorm`。
+- **稳定性原因**：预归一化可以在深层网络中保持梯度稳定，避免训练前期的梯度爆炸。
 
-## 学习目标
+## 1.3 RoPE 位置编码
+- **旋转公式**：通过二维旋转矩阵嵌入位置信息，`src/model/rope.py` 中的 `apply_rope` 函数会在计算 q/k 时注入角频率。
+- **频率选取**：`RotaryPositionEmbedding` 读取配置中的 `rope_theta` 并生成频率表，与 `LLaMA` 系列的实现保持一致。
 
-完成本章学习后，你将能够：
+## 1.4 损失函数与梯度
+- **Cross Entropy**：`src/training/trainer.py` 中 `PreTrainer.compute_loss` 调用 `nn.CrossEntropyLoss`，默认使用 `ignore_index=self.tokenizer.pad_id` 以跳过 padding token。
+- **梯度裁剪**：`torch.nn.utils.clip_grad_norm_` 在 `PreTrainer.train_epoch` 里保证梯度范数不超过 1.0。
+- **学习率调度**：`PreTrainer` 默认启用 `optim.lr_scheduler.CosineAnnealingLR`，并在每个 step 调用 `self.scheduler.step()`。
 
-1. **掌握信息论基础**：理解熵、互信息、KL散度等概念在语言模型中的应用
-2. **精通线性代数**：理解矩阵运算、特征分解、奇异值分解在注意力机制中的作用
-3. **理解优化理论**：掌握梯度下降、自适应优化算法的数学原理
-4. **熟悉统计学习**：理解偏差-方差权衡、正则化、泛化理论
+> 若要复现论文中的数值，建议使用 `torch.autocast` 检查混合精度对梯度的影响，并结合训练监控 (`src/training/training_monitor.py`) 观察损失曲线。
 
-## 本章结构
+## 深度拆解章节
+- [1.1 信息论视角下的注意力概率](01-信息论与概率基础/README.md)
+- [1.2 线性代数驱动的表示变换](02-线性代数与矩阵运算/README.md)
+- [1.3 优化理论与梯度下降](03-优化理论与梯度下降/README.md)
+- [1.4 统计学习与泛化分析](04-统计学习理论/README.md)
 
-### [01 信息论与概率基础](01-信息论与概率基础/)
-- 香农信息论的核心概念
-- 熵与语言的不确定性
-- KL散度与分布距离
-- 互信息与依赖关系
-- **代码对应**：`src/training/trainer.py` 中的损失函数计算
-
-### [02 线性代数与矩阵运算](02-线性代数与矩阵运算/)
-- 向量空间与子空间
-- 矩阵分解与特征值
-- 奇异值分解(SVD)的几何意义
-- 矩阵微分与梯度计算
-- **代码对应**：`src/model/transformer.py` 中的注意力计算
-
-### [03 优化理论与梯度下降](03-优化理论与梯度下降/)
-- 凸优化与非凸优化
-- 梯度下降的收敛分析
-- 自适应优化算法(Adam, AdamW)
-- 学习率调度与退火
-- **代码对应**：`src/training/trainer.py` 中的优化器配置
-
-### [04 统计学习理论](04-统计学习理论/)
-- PAC学习框架
-- 偏差-方差分解
-- 正则化与结构风险最小化
-- 泛化界与样本复杂度
-- **代码对应**：训练过程中的正则化技术
-
-## 数学记号约定
-
-为保持一致性，本小册采用以下数学记号：
-
-### 基本记号
-- $\mathbb{R}$：实数集
-- $\mathbb{R}^n$：n维实向量空间
-- $\mathbb{R}^{m \times n}$：m×n实矩阵空间
-- $\mathcal{D}$：数据分布
-- $\mathcal{L}$：损失函数
-
-### 概率与信息论
-- $P(x)$：概率分布
-- $H(X)$：随机变量X的熵
-- $D_{KL}(P||Q)$：KL散度
-- $I(X;Y)$：互信息
-
-### 向量与矩阵
-- $\mathbf{x}$：向量（粗体小写）
-- $\mathbf{A}$：矩阵（粗体大写）
-- $\mathbf{A}^T$：矩阵转置
-- $\mathbf{A}^{-1}$：矩阵逆
-- $\|\mathbf{x}\|_2$：L2范数
-
-### 函数与优化
-- $f(\mathbf{x})$：标量函数
-- $\nabla f$：梯度
-- $\mathbf{H}$：Hessian矩阵
-- $\eta$：学习率
-- $\theta$：模型参数
-
-## 与代码的对应关系
-
-本章的每个数学概念都会在 MiniGPT 代码中找到对应的实现：
-
-```
-数学理论 ↔ 代码实现 ↔ 实际应用
-   ↓           ↓          ↓
-信息熵   ↔  CrossEntropyLoss  ↔  语言模型损失
-注意力   ↔  MultiHeadAttention ↔  序列建模
-优化算法  ↔  AdamW optimizer   ↔  参数更新
-正则化   ↔  weight_decay      ↔  防止过拟合
-```
-
-## 学习建议
-
-1. **理论先行**：先理解数学原理，再看代码实现
-2. **动手推导**：重要公式建议手工推导一遍
-3. **代码验证**：用代码验证理论推导的结果
-4. **可视化理解**：用图表直观理解抽象概念
-
-## 预备知识检查
-
-在开始学习前，请确保你具备以下基础：
-
-- [ ] 微积分：导数、偏导数、链式法则
-- [ ] 线性代数：矩阵运算、特征值、向量空间
-- [ ] 概率论：概率分布、贝叶斯定理、期望值
-- [ ] Python 基础：NumPy、PyTorch 的基本使用
-
-如果某些基础不够扎实，建议先复习相关内容再继续学习。
-
----
-
-**准备好了吗？让我们从信息论开始，探索深度学习的数学本质！** 🎯
+## 1.5 进一步阅读
+- 《Attention Is All You Need》：理解自注意力的原理。
+- 《A Primer in BERTology》：了解预训练语言模型的损失建模方式。
+- mini-llm [`docs/training.md`](../../training.md)：介绍完整的训练流水线。
