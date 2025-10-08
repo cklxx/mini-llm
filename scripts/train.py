@@ -372,6 +372,25 @@ class MiniGPTTrainer:
             else:
                 print(f"⚠️  Checkpoint文件不存在: {resume_from}")
                 print("   从头开始训练")
+        
+        # 关键修复：恢复checkpoint后，调整scheduler到正确的步数
+        if start_step > 0:
+            print(f"📊 调整学习率调度器到第 {start_step} 步...")
+            # 快进scheduler到当前步数
+            for _ in range(start_step):
+                scheduler.step()
+            
+            current_lr = optimizer.param_groups[0]['lr']
+            if start_step >= self.config.warmup_steps:
+                phase = "Cosine Decay"
+                progress = (start_step - self.config.warmup_steps) / (self.config.max_steps - self.config.warmup_steps) * 100
+                print(f"   当前阶段: {phase} (已完成{progress:.1f}%)")
+            else:
+                phase = "Warmup"
+                progress = start_step / self.config.warmup_steps * 100
+                print(f"   当前阶段: {phase} (已完成{progress:.1f}%)")
+            print(f"   当前学习率: {current_lr:.2e}")
+            print(f"   💡 已跳过warmup，直接从第{start_step}步继续训练")
 
         # 初始化训练监控器（轻量级模式）
         # TensorBoard日志统一存储在 runs/{mode}_{size}_{timestamp}/
