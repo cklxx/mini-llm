@@ -360,7 +360,9 @@ class TrainingMonitor:
 
         # TensorBoard - 支持自定义flush间隔
         if enable_tensorboard:
-            flush_secs = getattr(model, 'config', {}).get('tensorboard_flush_secs', 30) if hasattr(model, 'config') else 30
+            flush_secs = 30
+            if hasattr(model, 'config'):
+                flush_secs = getattr(model.config, 'tensorboard_flush_secs', 30)
             self.tensorboard_writer = SummaryWriter(log_dir, flush_secs=flush_secs)
         else:
             self.tensorboard_writer = None
