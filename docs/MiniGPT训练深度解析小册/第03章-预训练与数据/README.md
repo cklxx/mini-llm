@@ -23,7 +23,7 @@ mini-llm 的数据流水线兼顾了实验便利性与工程可扩展性。本�
 - `IntelligentDataCache` 利用文件 hash + 配置组合成缓存键，自动维护缓存元数据，能显著缩短多次实验的准备时间。
 
 ## 3.5 与训练循环协同
-- `LanguageModelingDataset` 和 `ConversationDataset` 在 `src/training/trainer.py` 中实现，可直接接入 `torch.utils.data.DataLoader`。
+- `LanguageModelingDataset` 和 `ConversationDataset` 在 `src/training/datasets/` 模块中实现，可直接接入 `torch.utils.data.DataLoader`。
 - 预训练场景下，`__getitem__` 会输出固定长度的 `torch.long` 张量，并自动补齐 `<pad>` token，确保批次对齐。
 - 上游数据加载器返回的 Python 对象可直接喂入上述 Dataset，构成“加载 → 切分 → tokenize → DataLoader” 的闭环。
 

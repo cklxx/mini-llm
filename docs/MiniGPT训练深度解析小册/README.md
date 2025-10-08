@@ -21,7 +21,7 @@
 | --- | --- | --- |
 | 模型构建 | Transformer 层、注意力、并行优化 | `src/model/transformer.py`, `src/model/gqa.py`, `src/model/moe.py` |
 | 数据处理 | 数据集抽象、tokenizer 适配 | `src/data/dataset_loader.py`, `src/tokenizer/tokenizer_manager.py` |
-| 训练流程 | 训练循环、优化器、监控 | `src/training/trainer.py`, `src/training/memory_optimizer.py`, `src/training/training_monitor.py` |
+| 训练流程 | 训练循环、优化器、监控 | `src/training/pipeline/app.py`, `src/training/pipeline/data_manager.py`, `src/training/training_monitor.py` |
 | 推理与服务 | 生成策略、聊天接口 | `src/inference/generator.py` |
 | 对齐 (RLHF) | 奖励模型、策略优化 | `src/rl/reward_model/reward_trainer.py`, `src/rl/ppo/ppo_trainer.py` |
 

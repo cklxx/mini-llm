@@ -4,7 +4,7 @@ mini-llm 在训练阶段提供了一套可直接复用的 Trainer、内存优化
 
 ## 4.1 训练器骨架
 - `PreTrainer` 位于 `src/training/trainer.py`，封装了语言模型预训练的核心循环：取 batch、前向、计算损失、反向、优化器 step、调度器 step。
-- `LanguageModelingDataset`/`ConversationDataset` 作为数据入口，分别适配纯文本和 SFT 对话格式，返回 PyTorch 张量或字典供 DataLoader 直接使用。
+- `LanguageModelingDataset`/`ConversationDataset` 作为数据入口，分别适配纯文本和 SFT 对话格式，返回 PyTorch 张量或字典供 DataLoader 直接使用，源码位于 `src/training/datasets/`。
 - 每个 epoch 会记录 `total_loss` 并输出进度条，可快速评估训练是否收敛。
 
 ## 4.2 优化器与调度器

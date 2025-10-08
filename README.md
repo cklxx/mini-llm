@@ -4,8 +4,9 @@ Mini-LLM 是一个面向教学与原型验证的小型语言模型训练框架�
 
 ## ✨ 项目亮点
 - **模块化 Transformer 实现**：`MiniGPTConfig` 与 `MiniGPT` 提供可配置的隐藏层数、注意力头数、RoPE、GQA、SwiGLU、MoE 等现代组件，便于按需裁剪模型规模与特性。
-- **数据与分词支持**：`ConversationDataLoader`/`PretrainDataLoader`/`DPODataLoader` 覆盖监督微调、预训练与偏好数据三种常见格式；`TokenizerManager` 与 `BPETokenizer` 支持中文友好的 BPE 训练和缓存复用。
-- **训练工具链**：`PreTrainer` 与 `SFTTrainer` 等封装了损失计算、梯度裁剪、Cosine 调度器、混合精度、梯度累积等训练常见逻辑，`MemoryConfig`/`MemoryMonitor` 聚焦显存与内存优化。
+- **训练流水线抽象**：`training.pipeline` 中的 `TrainingEnvironment`、`DatasetPreparer`、`TrainingLoopRunner`、`CheckpointManager` 和 `TrainingMonitor` 串联起设备初始化、数据采样、调度器/优化器、验证与早停等流程，可直接通过 `scripts/train.py` 复现完整训练回路。【F:src/training/pipeline/app.py†L25-L162】【F:src/training/pipeline/training_loop.py†L18-L214】
+- **数据与分词支持**：`training.datasets` 提供语言建模与对话 SFT 数据集实现，支持角色标记、掩码策略与轮次截断增强；`TokenizerManager` 管理分词器训练与缓存复用，降低重复开销。【F:src/training/datasets/conversation.py†L10-L145】【F:src/training/pipeline/tokenizer_manager.py†L1-L118】
+- **监控与实验追踪**：增强版 `TrainingMonitor` 记录训练/验证损失、PPL、系统资源与梯度健康指标，并在训练结束自动生成 TensorBoard 与可视化摘要。【F:src/training/training_monitor.py†L120-L332】
 - **推理与评估**：`TextGenerator` 提供贪心、Top-k、Top-p、Beam Search 等生成策略；`benchmarks/performance_benchmark.py` 可用于快速评估不同配置的性能。
 - **RLHF 管道雏形**：`RLHFPipeline` 串联监督微调、奖励模型训练与 PPO 策略优化，展示 RLHF 端到端流程的关键步骤。
 
@@ -21,7 +22,11 @@ mini-llm/
 │   ├── model/               # 模型与配置实现
 │   ├── rl/                  # 奖励模型与 PPO
 │   ├── tokenizer/           # BPE 分词器与管理器
-│   └── training/            # 训练循环与内存优化
+│   └── training/
+│       ├── datasets/        # 预训练/SFT 数据集实现
+│       ├── pipeline/        # 训练环境、数据、训练循环与 CLI
+│       ├── memory_optimizer.py
+│       └── trainer.py       # 教学用的轻量训练器
 ├── tokenizers/              # 已训练分词器缓存
 ├── utils/                   # 预留工具模块
 └── test_lightweight_monitor.py
@@ -35,14 +40,21 @@ mini-llm/
    pip install -e .
    ```
 
-2. **训练最小示例**（CPU 上运行一个 batch 演示完整流程）
+2. **运行训练流水线**（自动创建输出目录、采样数据并保存检查点）
+   ```bash
+   uv run python scripts/train.py --mode sft --config medium --auto-resume
+   ```
+   > 通过 `--mode pretrain` / `--mode dpo` / `--mode rlhf` 切换不同阶段，`--retrain-tokenizer` 可强制重新训练分词器。【F:scripts/train.py†L1-L21】【F:src/training/pipeline/cli.py†L8-L117】
+
+3. **训练最小示例**（保留教学用途，便于理解基础训练循环）
    ```python
    from torch.utils.data import DataLoader
 
    from src.model.config import get_tiny_config
    from src.model.transformer import MiniGPT
    from src.tokenizer.bpe_tokenizer import BPETokenizer
-   from src.training.trainer import LanguageModelingDataset, PreTrainer
+   from src.training.datasets import LanguageModelingDataset
+   from src.training.trainer import PreTrainer
 
    texts = ["你好，Mini-LLM!", "Transformer 架构演示", "小模型也能训练"]
 
@@ -60,7 +72,7 @@ mini-llm/
    print(f"epoch loss: {loss:.4f}")
    ```
 
-3. **文本生成**
+4. **文本生成**
    ```python
    import torch
    from src.inference.generator import TextGenerator, GenerationConfig
