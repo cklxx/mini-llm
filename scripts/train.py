@@ -353,6 +353,12 @@ class MiniGPTTrainer:
             log_interval=10                # 每10步记录一次完整指标
         )
 
+        # 清理GPU缓存
+        if self.device == "cuda":
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats()
+            print(f"🧹 GPU缓存已清理")
+
         # 训练循环
         model.train()
         step = start_step  # 从checkpoint的步数继续
@@ -361,6 +367,12 @@ class MiniGPTTrainer:
 
         print(f"开始训练，最大步数: {self.config.max_steps}")
         print(f"Batch size: {self.config.batch_size}, 梯度累积: {accumulation_steps}, 有效batch: {self.config.batch_size * accumulation_steps}")
+
+        # 显示内存使用情况
+        if self.device == "cuda":
+            allocated = torch.cuda.memory_allocated() / 1024**3
+            reserved = torch.cuda.memory_reserved() / 1024**3
+            print(f"💾 初始GPU内存: 已分配={allocated:.2f}GB, 已保留={reserved:.2f}GB")
 
         for epoch in range(1000):  # 最大epoch数
             epoch_loss = 0
@@ -371,34 +383,58 @@ class MiniGPTTrainer:
                 if step >= self.config.max_steps:
                     break
 
-                # 数据移到设备
-                batch = batch.to(self.device, non_blocking=True)
+                try:
+                    # 数据移到设备
+                    batch = batch.to(self.device, non_blocking=True)
 
-                # 验证batch尺寸
-                if batch.size(1) < 2:
-                    continue
+                    # 验证batch尺寸
+                    if batch.size(1) < 2:
+                        continue
 
-                # 准备输入和目标
-                input_ids = batch[:, :-1]
-                target_ids = batch[:, 1:]
+                    # 准备输入和目标
+                    input_ids = batch[:, :-1]
+                    target_ids = batch[:, 1:]
 
-                # 混合精度前向传播
-                if scaler is not None:
-                    with torch.cuda.amp.autocast():
+                    # 混合精度前向传播
+                    if scaler is not None:
+                        with torch.amp.autocast('cuda'):
+                            outputs = model(input_ids)
+                            loss = criterion(outputs.reshape(-1, outputs.size(-1)), target_ids.reshape(-1))
+                            # 梯度累积：损失除以累积步数
+                            loss = loss / accumulation_steps
+                    else:
                         outputs = model(input_ids)
                         loss = criterion(outputs.reshape(-1, outputs.size(-1)), target_ids.reshape(-1))
-                        # 梯度累积：损失除以累积步数
                         loss = loss / accumulation_steps
-                else:
-                    outputs = model(input_ids)
-                    loss = criterion(outputs.reshape(-1, outputs.size(-1)), target_ids.reshape(-1))
-                    loss = loss / accumulation_steps
 
-                # 反向传播
-                if scaler is not None:
-                    scaler.scale(loss).backward()
-                else:
-                    loss.backward()
+                    # 反向传播
+                    if scaler is not None:
+                        scaler.scale(loss).backward()
+                    else:
+                        loss.backward()
+
+                except torch.cuda.OutOfMemoryError as e:
+                    print(f"\n❌ CUDA OOM错误在步骤 {step}!")
+                    print(f"   当前批次大小: {batch.size(0)}")
+                    print(f"   序列长度: {batch.size(1)}")
+                    if self.device == "cuda":
+                        allocated = torch.cuda.memory_allocated() / 1024**3
+                        reserved = torch.cuda.memory_reserved() / 1024**3
+                        print(f"   GPU内存: 已分配={allocated:.2f}GB, 已保留={reserved:.2f}GB")
+
+                    # 清理显存
+                    optimizer.zero_grad()
+                    if self.device == "cuda":
+                        torch.cuda.empty_cache()
+
+                    print(f"\n💡 建议解决方案:")
+                    print(f"   1. 降低batch_size: --batch-size {self.config.batch_size // 2}")
+                    print(f"   2. 增加梯度累积: 当前={accumulation_steps}, 建议={accumulation_steps * 2}")
+                    print(f"   3. 减小序列长度: 当前max_seq_len={self.config.max_seq_len}")
+                    print(f"   4. 启用梯度检查点 (gradient checkpointing)")
+                    print(f"   5. 设置环境变量: PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True")
+
+                    raise  # 重新抛出异常以终止训练
 
                 # 梯度累积：只在累积步数达到时更新参数
                 if (batch_idx + 1) % accumulation_steps == 0 or (batch_idx + 1) == len(data_loader):

@@ -135,21 +135,23 @@ class MediumConfig(BaseConfig):
         self.max_seq_len = 2048
         self.dropout = 0.1
 
-        # GPU优化训练参数 - 针对A6000优化
+        # GPU优化训练参数 - 针对A6000优化 (保守配置以避免OOM)
         if self.device == "cuda":
             gpu_memory = self.gpu_info['devices'][0]['memory_total'] if self.gpu_info else 8
             if gpu_memory >= 40:  # A6000等高端卡 (48GB)
-                self.batch_size = 32  # 大幅提高批量大小
-                self.gradient_accumulation_steps = 4  # 有效批量 = 32 * 4 = 128
+                # 保守配置：降低batch_size，增加梯度累积
+                # 这样可以减少单次前向传播的内存峰值
+                self.batch_size = 16  # 降低到16 (之前32)
+                self.gradient_accumulation_steps = 8  # 增加到8，有效批量 = 16 * 8 = 128
             elif gpu_memory >= 24:  # RTX 3090/4090
-                self.batch_size = 16
-                self.gradient_accumulation_steps = 8  # 有效批量 = 128
-            elif gpu_memory >= 12:  # RTX 3060Ti/4060Ti
                 self.batch_size = 8
-                self.gradient_accumulation_steps = 16
-            else:
+                self.gradient_accumulation_steps = 16  # 有效批量 = 128
+            elif gpu_memory >= 12:  # RTX 3060Ti/4060Ti
                 self.batch_size = 4
                 self.gradient_accumulation_steps = 32
+            else:
+                self.batch_size = 2
+                self.gradient_accumulation_steps = 64
         else:
             self.batch_size = 2
             self.gradient_accumulation_steps = 64
