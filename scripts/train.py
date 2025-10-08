@@ -365,12 +365,15 @@ class MiniGPTTrainer:
         )
 
         # 学习率调度器: Warmup + Cosine Decay
-        def get_lr_scheduler(optimizer, warmup_steps, max_steps):
+        def get_lr_scheduler(optimizer, warmup_steps, max_steps, last_epoch=-1):
             """
             创建带Warmup的Cosine退火学习率调度器
 
             - 0 ~ warmup_steps: 线性增长从0到peak_lr
             - warmup_steps ~ max_steps: Cosine退火到min_lr
+            
+            Args:
+                last_epoch: 上次训练的epoch/step数，用于恢复训练 (default: -1表示从头开始)
             """
             def lr_lambda(current_step):
                 if current_step < warmup_steps:
@@ -381,13 +384,10 @@ class MiniGPTTrainer:
                     progress = float(current_step - warmup_steps) / float(max(1, max_steps - warmup_steps))
                     return max(0.1, 0.5 * (1.0 + math.cos(math.pi * progress)))  # 最低降到10%
 
-            return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+            return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch=last_epoch)
 
-        scheduler = get_lr_scheduler(
-            optimizer,
-            warmup_steps=self.config.warmup_steps,
-            max_steps=self.config.max_steps
-        )
+        # Note: scheduler will be created after checkpoint loading to use correct last_epoch
+        scheduler = None
         warmup_ratio = self.config.warmup_steps / self.config.max_steps * 100
         print(f"✅ 学习率调度器: Warmup({self.config.warmup_steps}步, {warmup_ratio:.1f}%) + Cosine Decay")
         print(f"   初始LR: 0 -> 峰值LR: {self.config.learning_rate:.2e} -> 最低LR: {self.config.learning_rate * 0.1:.2e}")
@@ -455,13 +455,18 @@ class MiniGPTTrainer:
         if not checkpoint_loaded and self.mode == "pretrain":
             print("\n📚 Pretrain 模式：从随机初始化开始训练")
         
-        # 关键修复：恢复checkpoint后，调整scheduler到正确的步数
+        # 创建学习率调度器，使用正确的last_epoch参数
+        # 当恢复checkpoint时，last_epoch应该是start_step - 1
+        scheduler = get_lr_scheduler(
+            optimizer,
+            warmup_steps=self.config.warmup_steps,
+            max_steps=self.config.max_steps,
+            last_epoch=start_step - 1 if start_step > 0 else -1
+        )
+        
+        # 显示当前学习率状态
         if start_step > 0:
-            print(f"📊 调整学习率调度器到第 {start_step} 步...")
-            # 快进scheduler到当前步数
-            for _ in range(start_step):
-                scheduler.step()
-            
+            print(f"📊 学习率调度器已恢复到第 {start_step} 步")
             current_lr = optimizer.param_groups[0]['lr']
             if start_step >= self.config.warmup_steps:
                 phase = "Cosine Decay"
@@ -472,7 +477,6 @@ class MiniGPTTrainer:
                 progress = start_step / self.config.warmup_steps * 100
                 print(f"   当前阶段: {phase} (已完成{progress:.1f}%)")
             print(f"   当前学习率: {current_lr:.2e}")
-            print(f"   💡 已跳过warmup，直接从第{start_step}步继续训练")
 
         # 初始化训练监控器（轻量级模式）
         # TensorBoard日志统一存储在 runs/{mode}_{size}_{timestamp}/
