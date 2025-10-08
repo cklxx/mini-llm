@@ -338,7 +338,9 @@ class MiniGPTTrainer:
             warmup_steps=self.config.warmup_steps,
             max_steps=self.config.max_steps
         )
-        print(f"✅ 学习率调度器: Warmup({self.config.warmup_steps}步) + Cosine Decay")
+        warmup_ratio = self.config.warmup_steps / self.config.max_steps * 100
+        print(f"✅ 学习率调度器: Warmup({self.config.warmup_steps}步, {warmup_ratio:.1f}%) + Cosine Decay")
+        print(f"   初始LR: 0 -> 峰值LR: {self.config.learning_rate:.2e} -> 最低LR: {self.config.learning_rate * 0.1:.2e}")
 
         criterion = torch.nn.CrossEntropyLoss(ignore_index=tokenizer.pad_id)
 
@@ -507,7 +509,12 @@ class MiniGPTTrainer:
                     avg_loss = epoch_loss / epoch_steps
                     elapsed = time.time() - start_time
                     current_lr = optimizer.param_groups[0]['lr']
-                    print(f"Step {step:5d} | Loss: {actual_loss:.4f} | Avg: {avg_loss:.4f} | LR: {current_lr:.2e} | Time: {elapsed/60:.1f}min")
+                    
+                    # 显示学习率阶段
+                    lr_phase = "Warmup" if step < self.config.warmup_steps else "Decay"
+                    lr_progress = f"{step}/{self.config.warmup_steps}" if step < self.config.warmup_steps else f"{step}/{self.config.max_steps}"
+                    
+                    print(f"Step {step:5d} | Loss: {actual_loss:.4f} | Avg: {avg_loss:.4f} | LR: {current_lr:.2e} ({lr_phase} {lr_progress}) | Time: {elapsed/60:.1f}min")
 
                     # 保存检查点 - 每100步自动保存
                     if step % 100 == 0:
@@ -692,13 +699,15 @@ def main():
                         help='最大训练步数')
     parser.add_argument('--batch-size', type=int, default=None,
                         help='批次大小')
+    parser.add_argument('--warmup-steps', type=int, default=None,
+                        help='学习率warmup步数（如果不指定，将根据训练模式自动设置）')
 
     args = parser.parse_args()
 
     # 获取配置
     config = get_config(args.config)
 
-    # 应用命令行参数覆盖
+    # 应用命令行参数覆盖（优先级最低）
     if args.learning_rate is not None:
         config.learning_rate = args.learning_rate
     if args.max_steps is not None:
@@ -706,23 +715,43 @@ def main():
     if args.batch_size is not None:
         config.batch_size = args.batch_size
 
-    # 根据训练模式调整配置
+    # 根据训练模式调整配置（会自动设置warmup_steps）
     if args.mode == "pretrain":
         config.max_steps = config.max_steps or 50000
         config.learning_rate = config.learning_rate or 1e-4
+        # 预训练：从零开始，需要较长warmup稳定训练
+        config.warmup_steps = min(500, int(config.max_steps * 0.05))  # 5% 或最多2000步
         print("📚 预训练模式：建立基础语言理解能力")
+        print(f"   Warmup steps: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)")
     elif args.mode == "sft":
         config.max_steps = config.max_steps or 10000
         config.learning_rate = config.learning_rate or 5e-5
+        # SFT：已有预训练基础，使用较短warmup快速适应
+        config.warmup_steps = min(200, int(config.max_steps * 0.02))  # 2% 或最多200步
         print("🎯 监督微调模式：训练对话和特定任务能力")
+        print(f"   Warmup steps: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)")
+        print(f"   💡 模型已有预训练基础，使用短warmup快速进入衰减阶段")
     elif args.mode == "dpo":
         config.max_steps = config.max_steps or 5000
         config.learning_rate = config.learning_rate or 1e-5
+        # DPO：在SFT基础上微调，使用极短warmup
+        config.warmup_steps = min(100, int(config.max_steps * 0.02))  # 2% 或最多100步
         print("⚖️  直接偏好优化模式：根据人类偏好调整响应")
+        print(f"   Warmup steps: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)")
+        print(f"   💡 在SFT基础上优化，使用极短warmup")
     elif args.mode == "rlhf":
         config.max_steps = config.max_steps or 3000
         config.learning_rate = config.learning_rate or 1e-5
+        # RLHF：在已训练模型上强化学习，使用极短warmup
+        config.warmup_steps = min(100, int(config.max_steps * 0.02))  # 2% 或最多100步
         print("🔄 强化学习微调模式：通过奖励模型优化")
+        print(f"   Warmup steps: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)")
+        print(f"   💡 在已训练模型上强化学习，使用极短warmup")
+
+    # 命令行参数覆盖warmup_steps（优先级最高）
+    if args.warmup_steps is not None:
+        config.warmup_steps = args.warmup_steps
+        print(f"⚙️  使用自定义warmup步数: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)")
 
     # 创建训练器
     trainer = MiniGPTTrainer(config, mode=args.mode)
