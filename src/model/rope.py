@@ -93,9 +93,13 @@ def rotate_half(x: torch.Tensor) -> torch.Tensor:
     return torch.cat((-x2, x1), dim=-1)
 
 
-def apply_rotary_pos_emb(q: torch.Tensor, k: torch.Tensor,
-                        cos: torch.Tensor, sin: torch.Tensor,
-                        position_ids: torch.Tensor = None) -> Tuple[torch.Tensor, torch.Tensor]:
+def apply_rotary_pos_emb(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    cos: torch.Tensor,
+    sin: torch.Tensor,
+    position_ids: torch.Tensor = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """应用RoPE位置编码到查询和键张量
 
     Args:
@@ -110,13 +114,30 @@ def apply_rotary_pos_emb(q: torch.Tensor, k: torch.Tensor,
     """
     # 如果提供了position_ids，则根据位置选择对应的cos和sin
     if position_ids is not None:
-        cos = cos[position_ids]
+        # 允许position_ids形状为(batch, seq_len)
+        if position_ids.dim() != 2:
+            raise ValueError(
+                "position_ids 必须是形状为 (batch, seq_len) 的二维张量"
+            )
+
+        # 防止整型溢出并确保在正确的设备上
+        position_ids = position_ids.to(dtype=torch.long, device=cos.device)
+
+        # 选择对应位置的cos/sin值
+        cos = cos[position_ids]  # (batch, seq_len, head_dim)
         sin = sin[position_ids]
 
-    # 确保cos和sin的形状与q、k兼容
-    # 添加num_heads维度
-    cos = cos.unsqueeze(1)  # (seq_len, 1, head_dim)
-    sin = sin.unsqueeze(1)  # (seq_len, 1, head_dim)
+        # 为注意力头维度添加轴，便于广播
+        cos = cos.unsqueeze(1)  # (batch, 1, seq_len, head_dim)
+        sin = sin.unsqueeze(1)
+    else:
+        # 未提供position_ids时广播到(batch, heads, seq_len, head_dim)
+        cos = cos.unsqueeze(0).unsqueeze(0)  # (1, 1, seq_len, head_dim)
+        sin = sin.unsqueeze(0).unsqueeze(0)
+
+    # 确保 cos/sin 与输入张量位于相同的设备和数据类型
+    cos = cos.to(dtype=q.dtype, device=q.device)
+    sin = sin.to(dtype=q.dtype, device=q.device)
 
     # 应用旋转变换
     # RoPE公式: R * x = x * cos + rotate_half(x) * sin
