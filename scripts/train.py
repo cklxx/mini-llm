@@ -57,11 +57,35 @@ class MiniGPTTrainer:
         return device
 
     def setup_tokenizer(self, retrain=False):
-        """设置分词器"""
+        """设置分词器 - 支持跨阶段复用"""
         print("🔤 设置分词器...")
 
+        # 当前模式的分词器路径
         tokenizer_path = os.path.join(self.output_dir, "tokenizer.pkl")
+        
+        # 如果是 SFT/DPO/RLHF，优先从 pretrain checkpoint 加载分词器
+        pretrain_tokenizer_path = None
+        if self.mode in ["sft", "dpo", "rlhf"]:
+            # 尝试找到 pretrain 的分词器
+            pretrain_dir = os.path.join(self.config.checkpoint_dir, f"pretrain_{self.config.model_size}")
+            pretrain_tokenizer_path = os.path.join(pretrain_dir, "tokenizer.pkl")
+            
+            if os.path.exists(pretrain_tokenizer_path):
+                print(f"✅ 从 pretrain checkpoint 加载分词器: {pretrain_tokenizer_path}")
+                tokenizer = BPETokenizer(vocab_size=self.config.vocab_size)
+                tokenizer.load(pretrain_tokenizer_path)
+                
+                # 复制到当前目录以便推理时使用
+                import shutil
+                shutil.copy2(pretrain_tokenizer_path, tokenizer_path)
+                print(f"📋 分词器已复制到: {tokenizer_path}")
+                print(f"词汇表大小: {tokenizer.vocab_size}")
+                return tokenizer
+            else:
+                print(f"⚠️  未找到 pretrain 分词器: {pretrain_tokenizer_path}")
+                print(f"   将训练新的分词器（建议先运行 pretrain 模式）")
 
+        # 检查当前目录是否已有分词器
         if os.path.exists(tokenizer_path) and not retrain:
             print(f"加载现有分词器: {tokenizer_path}")
             tokenizer = BPETokenizer(vocab_size=self.config.vocab_size)
@@ -223,19 +247,23 @@ class MiniGPTTrainer:
         )
 
     def _create_sft_dataset(self, data, tokenizer):
-        """创建SFT数据集"""
+        """创建SFT数据集 - 支持多种数据格式"""
         conversations = []
         for item in data:
             if 'conversations' in item:
+                # 格式1: {'conversations': [{'role': 'user', 'content': ...}, ...]}
                 conversations.append(item['conversations'])
             elif 'input' in item and 'output' in item:
-                # 转换为对话格式
-                conv = [
-                    {"role": "user", "content": item['input']},
-                    {"role": "assistant", "content": item['output']}
-                ]
-                conversations.append(conv)
+                # 格式2: {'input': ..., 'output': ...} - 直接使用字典格式
+                conversations.append({
+                    'input': item['input'],
+                    'output': item['output']
+                })
+            else:
+                # 跳过无法识别的格式
+                continue
 
+        print(f"📊 SFT数据集包含 {len(conversations)} 个对话")
         return ConversationDataset(
             conversations=conversations,
             tokenizer=tokenizer,

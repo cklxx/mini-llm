@@ -68,7 +68,7 @@ class LanguageModelingDataset(Dataset):
 
 
 class ConversationDataset(Dataset):
-    """对话数据集"""
+    """对话数据集 - 支持多种格式"""
     
     def __init__(self, conversations: List[Dict], tokenizer, max_length: int = 512):
         self.conversations = conversations
@@ -81,9 +81,35 @@ class ConversationDataset(Dataset):
     def __getitem__(self, idx):
         conv = self.conversations[idx]
         
-        # 构造输入和标签
-        input_text = conv['input']
-        output_text = conv['output']
+        # 支持两种格式：
+        # 1. {'input': ..., 'output': ...} 直接格式
+        # 2. [{'role': 'user', 'content': ...}, {'role': 'assistant', 'content': ...}] 对话格式
+        
+        if isinstance(conv, dict) and 'input' in conv and 'output' in conv:
+            # 格式1：直接字典格式
+            input_text = conv['input']
+            output_text = conv['output']
+        elif isinstance(conv, list):
+            # 格式2：对话列表格式
+            input_text = ""
+            output_text = ""
+            
+            for message in conv:
+                if isinstance(message, dict):
+                    role = message.get('role', '')
+                    content = message.get('content', '')
+                    
+                    if role == 'user' or role == 'human':
+                        input_text += content + " "
+                    elif role == 'assistant' or role == 'bot':
+                        output_text += content + " "
+            
+            input_text = input_text.strip()
+            output_text = output_text.strip()
+        else:
+            # 无法识别的格式，使用空字符串
+            input_text = ""
+            output_text = ""
         
         # 编码输入和输出
         input_ids = self.tokenizer.encode(input_text, add_special_tokens=False)
