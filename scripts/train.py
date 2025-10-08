@@ -12,6 +12,7 @@ import time
 import json
 import glob
 import math
+import signal
 import torch
 from torch.utils.data import DataLoader
 from datetime import datetime
@@ -37,6 +38,10 @@ class MiniGPTTrainer:
         self.device = self._setup_device()
         self.output_dir = os.path.join(config.checkpoint_dir, f"{mode}_{config.model_size}")
         os.makedirs(self.output_dir, exist_ok=True)
+        
+        # 优雅中断标志
+        self.interrupted = False
+        self.save_on_interrupt = True  # 中断时保存模型
 
         print(f"=== MiniGPT {mode.upper()} 训练 ===")
         print(f"模型配置: {config.model_size}")
@@ -313,6 +318,18 @@ class MiniGPTTrainer:
 
         return model
 
+    def _signal_handler(self, signum, frame):
+        """处理中断信号 (Ctrl+C)"""
+        print(f"\n\n⚠️  收到中断信号 (Ctrl+C)")
+        if not self.interrupted:
+            self.interrupted = True
+            print("🔄 正在优雅地停止训练...")
+            print("💾 将保存当前模型状态...")
+            print("   (再次按 Ctrl+C 可强制退出)")
+        else:
+            print("⚡ 强制退出！")
+            sys.exit(1)
+
     def train(self, resume_from=None, auto_resume=False, retrain_tokenizer=False):
         """执行训练
         
@@ -322,6 +339,11 @@ class MiniGPTTrainer:
             retrain_tokenizer: 是否重新训练分词器
         """
         print(f"🚀 开始{self.mode}训练...")
+        
+        # 设置信号处理器
+        signal.signal(signal.SIGINT, self._signal_handler)
+        print("💡 按 Ctrl+C 可优雅地停止训练并保存模型")
+        
         start_time = time.time()
 
         # 设置分词器
@@ -385,21 +407,53 @@ class MiniGPTTrainer:
 
         # 处理checkpoint恢复
         start_step = 0
+        checkpoint_loaded = False
+        
         if auto_resume:
             # 自动查找最新checkpoint
             latest_checkpoint = self._find_latest_checkpoint()
             if latest_checkpoint:
                 print(f"🔍 找到checkpoint: {latest_checkpoint}")
                 start_step = self._load_checkpoint(latest_checkpoint, model, optimizer)
+                checkpoint_loaded = True
             else:
-                print("ℹ️  未找到checkpoint，从头开始训练")
+                print("ℹ️  未找到当前模式的checkpoint")
         elif resume_from:
             # 从指定checkpoint恢复
             if os.path.exists(resume_from):
                 start_step = self._load_checkpoint(resume_from, model, optimizer)
+                checkpoint_loaded = True
             else:
                 print(f"⚠️  Checkpoint文件不存在: {resume_from}")
-                print("   从头开始训练")
+        
+        # 如果是 SFT/DPO/RLHF 模式且没有加载到checkpoint，尝试从 pretrain 加载初始权重
+        if not checkpoint_loaded and self.mode in ["sft", "dpo", "rlhf"]:
+            pretrain_dir = os.path.join(self.config.checkpoint_dir, f"pretrain_{self.config.model_size}")
+            pretrain_model_path = os.path.join(pretrain_dir, "final_model.pt")
+            
+            if os.path.exists(pretrain_model_path):
+                print(f"\n🎯 {self.mode.upper()} 模式：从 pretrain checkpoint 加载初始权重")
+                print(f"   加载路径: {pretrain_model_path}")
+                try:
+                    checkpoint = torch.load(pretrain_model_path, map_location=self.device, weights_only=False)
+                    if 'model_state_dict' in checkpoint:
+                        model.load_state_dict(checkpoint['model_state_dict'])
+                    else:
+                        model.load_state_dict(checkpoint)
+                    print(f"✅ 成功加载 pretrain 模型权重")
+                    print(f"   💡 将在预训练基础上进行 {self.mode} 训练")
+                    checkpoint_loaded = True
+                except Exception as e:
+                    print(f"⚠️  加载 pretrain 权重失败: {e}")
+                    print(f"   将使用随机初始化的模型")
+            else:
+                print(f"\n⚠️  未找到 pretrain 模型: {pretrain_model_path}")
+                print(f"   建议先运行 pretrain 模式训练基础模型：")
+                print(f"   uv run python scripts/train.py --mode pretrain --config {self.config.model_size}")
+                print(f"   现在将使用随机初始化的模型进行 {self.mode} 训练")
+        
+        if not checkpoint_loaded and self.mode == "pretrain":
+            print("\n📚 Pretrain 模式：从随机初始化开始训练")
         
         # 关键修复：恢复checkpoint后，调整scheduler到正确的步数
         if start_step > 0:
@@ -465,6 +519,11 @@ class MiniGPTTrainer:
             optimizer.zero_grad()  # 在epoch开始时清空梯度
 
             for batch_idx, batch in enumerate(data_loader):
+                # 检查中断标志
+                if self.interrupted:
+                    print(f"\n⚠️  训练被用户中断（步骤 {step}）")
+                    break
+                
                 if step >= self.config.max_steps:
                     break
 
@@ -574,14 +633,31 @@ class MiniGPTTrainer:
                     if step >= self.config.max_steps:
                         break
 
-            if step >= self.config.max_steps:
+            # 检查是否需要退出epoch循环
+            if step >= self.config.max_steps or self.interrupted:
                 break
 
         # 关闭监控器并保存总结
         monitor.close()
 
+        # 如果是中断，先保存checkpoint以便恢复
+        if self.interrupted:
+            print(f"\n💾 正在保存中断checkpoint...")
+            checkpoint_path = os.path.join(self.output_dir, f"checkpoint_step_{step}.pt")
+            torch.save({
+                'step': step,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss': epoch_loss / max(epoch_steps, 1),
+                'config': self.config,
+                'mode': self.mode
+            }, checkpoint_path)
+            print(f"✅ Checkpoint已保存: {checkpoint_path}")
+            print(f"💡 可使用 --auto-resume 从此处恢复训练")
+
         # 保存最终模型
         final_path = os.path.join(self.output_dir, "final_model.pt")
+        print(f"\n💾 正在保存最终模型...")
         torch.save({
             'model_state_dict': model.state_dict(),
             'tokenizer_vocab_size': tokenizer.vocab_size,
@@ -590,7 +666,13 @@ class MiniGPTTrainer:
             'step': step
         }, final_path)
 
-        print(f"🎉 {self.mode}训练完成！")
+        # 根据是否中断显示不同的消息
+        if self.interrupted:
+            print(f"\n⚠️  训练被用户中断")
+            print(f"✅ 已成功保存中断时的模型状态")
+        else:
+            print(f"\n🎉 {self.mode}训练完成！")
+        
         print(f"总步数: {step}")
         print(f"训练时间: {(time.time() - start_time)/60:.1f}分钟")
         print(f"最终模型已保存: {final_path}")
@@ -645,8 +727,13 @@ class MiniGPTTrainer:
         finally:
             model.train()
 
-    def _find_latest_checkpoint(self):
-        """查找最新的checkpoint文件"""
+    def _find_latest_checkpoint(self, search_pretrain_if_not_found=True):
+        """查找最新的checkpoint文件
+        
+        参数:
+            search_pretrain_if_not_found: 如果是SFT/DPO/RLHF模式且找不到checkpoint，
+                                         是否查找pretrain的checkpoint
+        """
         checkpoint_pattern = os.path.join(self.output_dir, "checkpoint_step_*.pt")
         checkpoint_files = glob.glob(checkpoint_pattern)
         
@@ -655,6 +742,36 @@ class MiniGPTTrainer:
             final_model = os.path.join(self.output_dir, "final_model.pt")
             if os.path.exists(final_model):
                 return final_model
+            
+            # 如果是 SFT/DPO/RLHF 模式，尝试从 pretrain 查找
+            if search_pretrain_if_not_found and self.mode in ["sft", "dpo", "rlhf"]:
+                print(f"   当前模式({self.mode})未找到checkpoint，尝试查找 pretrain checkpoint...")
+                pretrain_dir = os.path.join(self.config.checkpoint_dir, f"pretrain_{self.config.model_size}")
+                
+                # 查找 pretrain 的中间 checkpoint
+                pretrain_pattern = os.path.join(pretrain_dir, "checkpoint_step_*.pt")
+                pretrain_checkpoints = glob.glob(pretrain_pattern)
+                
+                if pretrain_checkpoints:
+                    # 按步数排序，返回最新的
+                    def get_step_num(filename):
+                        try:
+                            basename = os.path.basename(filename)
+                            step_str = basename.replace("checkpoint_step_", "").replace(".pt", "")
+                            return int(step_str)
+                        except:
+                            return 0
+                    
+                    pretrain_checkpoints.sort(key=get_step_num, reverse=True)
+                    print(f"   ✅ 找到 pretrain checkpoint: {pretrain_checkpoints[0]}")
+                    return pretrain_checkpoints[0]
+                
+                # 查找 pretrain 的 final_model.pt
+                pretrain_final = os.path.join(pretrain_dir, "final_model.pt")
+                if os.path.exists(pretrain_final):
+                    print(f"   ✅ 找到 pretrain final_model: {pretrain_final}")
+                    return pretrain_final
+            
             return None
         
         # 按步数排序，返回最新的
@@ -737,7 +854,7 @@ def main():
                         dest='resume_from_checkpoint',
                         help='从指定checkpoint文件继续训练（例如: checkpoints/sft_medium/checkpoint_step_5000.pt）')
     parser.add_argument('--auto-resume', action='store_true',
-                        help='自动从最新的checkpoint恢复训练')
+                        help='自动从最新的checkpoint恢复训练。注意：SFT/DPO/RLHF模式会自动加载pretrain权重作为初始化')
 
     # 训练参数覆盖
     parser.add_argument('--learning-rate', type=float, default=None,
