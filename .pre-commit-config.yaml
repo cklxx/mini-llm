@@ -1,0 +1,67 @@
+# Pre-commit hooks配置
+# 安装: pre-commit install
+# 运行: pre-commit run --all-files
+
+repos:
+  # Python代码格式化
+  - repo: https://github.com/psf/black
+    rev: 24.4.2
+    hooks:
+      - id: black
+        language_version: python3.11
+
+  # Python代码检查和自动修复
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.5.0
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+
+  # 基础检查
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.md$'
+      - id: end-of-file-fixer
+        exclude: '\.jsonl$'
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+      - id: check-json
+        exclude: '\.jsonl$'
+      - id: check-toml
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+      - id: name-tests-test
+        args: ['--pytest-test-first']
+
+  # 检查Python语法错误
+  - repo: https://github.com/pre-commit/pygrep-hooks
+    rev: v1.10.0
+    hooks:
+      - id: python-check-blanket-noqa
+      - id: python-check-blanket-type-ignore
+      - id: python-use-type-annotations
+
+  # YAML格式化
+  - repo: https://github.com/macisamuele/language-formatters-pre-commit-hooks
+    rev: v2.13.0
+    hooks:
+      - id: pretty-format-yaml
+        args: [--autofix, --indent, '2']
+
+# 全局配置
+default_language_version:
+  python: python3.11
+
+# CI配置
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit hooks
+  autofix_prs: true
+  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: []
+  submodules: false

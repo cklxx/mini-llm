@@ -11,6 +11,7 @@ import argparse
 import time
 import json
 import glob
+import math
 import torch
 from torch.utils.data import DataLoader
 from datetime import datetime
@@ -308,8 +309,36 @@ class MiniGPTTrainer:
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=self.config.learning_rate,
-            weight_decay=self.config.weight_decay
+            weight_decay=self.config.weight_decay,
+            betas=(self.config.beta1, self.config.beta2),
+            eps=self.config.eps
         )
+
+        # 学习率调度器: Warmup + Cosine Decay
+        def get_lr_scheduler(optimizer, warmup_steps, max_steps):
+            """
+            创建带Warmup的Cosine退火学习率调度器
+
+            - 0 ~ warmup_steps: 线性增长从0到peak_lr
+            - warmup_steps ~ max_steps: Cosine退火到min_lr
+            """
+            def lr_lambda(current_step):
+                if current_step < warmup_steps:
+                    # Warmup阶段: 线性增长
+                    return float(current_step) / float(max(1, warmup_steps))
+                else:
+                    # Cosine退火阶段
+                    progress = float(current_step - warmup_steps) / float(max(1, max_steps - warmup_steps))
+                    return max(0.1, 0.5 * (1.0 + math.cos(math.pi * progress)))  # 最低降到10%
+
+            return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+        scheduler = get_lr_scheduler(
+            optimizer,
+            warmup_steps=self.config.warmup_steps,
+            max_steps=self.config.max_steps
+        )
+        print(f"✅ 学习率调度器: Warmup({self.config.warmup_steps}步) + Cosine Decay")
 
         criterion = torch.nn.CrossEntropyLoss(ignore_index=tokenizer.pad_id)
 
@@ -343,11 +372,18 @@ class MiniGPTTrainer:
                 print("   从头开始训练")
 
         # 初始化训练监控器（轻量级模式）
-        monitor_dir = os.path.join(self.output_dir, "monitor_logs")
+        # TensorBoard日志统一存储在 runs/{mode}_{size}_{timestamp}/
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        tensorboard_dir = os.path.join(
+            self.config.tensorboard_dir,
+            f"{self.mode}_{self.config.model_size}_{timestamp}"
+        )
+
         monitor = TrainingMonitor(
             model=model,
-            log_dir=monitor_dir,
-            enable_tensorboard=True,
+            log_dir=tensorboard_dir,
+            enable_tensorboard=self.config.enable_tensorboard,
             enable_real_time_plots=False,  # 禁用实时绘图以节省性能
             lightweight_mode=True,         # 启用轻量级模式
             log_interval=10                # 每10步记录一次完整指标
@@ -447,6 +483,9 @@ class MiniGPTTrainer:
                         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                         optimizer.step()
 
+                    # 更新学习率调度器
+                    scheduler.step()
+
                     optimizer.zero_grad()
                     step += 1
 
@@ -501,7 +540,8 @@ class MiniGPTTrainer:
         print(f"总步数: {step}")
         print(f"训练时间: {(time.time() - start_time)/60:.1f}分钟")
         print(f"最终模型已保存: {final_path}")
-        print(f"📊 训练监控日志: {monitor_dir}")
+        print(f"📊 TensorBoard日志: {tensorboard_dir}")
+        print(f"💡 查看训练过程: tensorboard --logdir={tensorboard_dir}")
 
         return final_path
 

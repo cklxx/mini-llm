@@ -3,14 +3,14 @@ name = "minigpt-training"
 version = "0.1.0"
 description = "MiniGPT训练框架 - RTX 3090优化版本"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
-    # PyTorch 核心依赖
-    "torch==2.4.0",
-    "torchvision==0.19.0",
-    "torchaudio==2.4.0",
+    # PyTorch 核心依赖 - 灵活版本约束
+    "torch>=2.4.0,<2.5.0",
+    "torchvision>=0.19.0,<0.20.0",
+    "torchaudio>=2.4.0,<2.5.0",
     # 核心依赖
-    "numpy>=1.24.0",
+    "numpy>=1.24.0,<2.0.0",
     "matplotlib>=3.7.0",
     "seaborn>=0.13.0",
     "tqdm>=4.66.0",
@@ -29,5 +29,146 @@ dependencies = [
     "accelerate>=0.33.0",
     # CUDA 工具
     "ninja>=1.11.0",
+]
+
+[project.optional-dependencies]
+# 开发工具
+dev = [
+    "black>=24.0.0",
+    "ruff>=0.5.0",
+    "mypy>=1.10.0",
+    "pre-commit>=3.5.0",
+]
+# 测试工具
+test = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    "pytest-xdist>=3.5.0",
+]
+# GPU优化 (仅x86_64架构)
+gpu = [
+    "flash-attn>=2.6.0; platform_machine=='x86_64'",
+    "xformers>=0.0.27; platform_machine=='x86_64'",
+    "deepspeed>=0.14.0; platform_machine=='x86_64'",
+]
+# 完整开发环境
+all = [
+    "minigpt-training[dev,test,gpu]",
+]
+
+# ===== 工具配置 =====
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # 排除的目录
+  \.git
+  | \.venv
+  | \.uv
+  | build
+  | dist
+  | checkpoints
+  | data
+  | logs
+)/
+'''
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # 允许未使用的导入
+"scripts/*" = ["E402"]     # 允许模块级导入不在顶部
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
+
+# 排除的目录
+exclude = [
+    "build",
+    "dist",
+    ".venv",
+    ".uv",
+    "checkpoints",
+    "data",
+    "logs",
+]
+
+[[tool.mypy.overrides]]
+module = [
+    "torch.*",
+    "transformers.*",
+    "datasets.*",
+    "wandb.*",
+    "tensorboard.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["scripts/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+    "--cov=src",
+    "--cov-report=term-missing",
+    "--cov-report=html:htmlcov",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/__init__.py",
+    "*/scripts/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "if torch.cuda.is_available():",
 ]
 

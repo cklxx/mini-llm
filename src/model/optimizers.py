@@ -1,11 +1,23 @@
 """
-现代优化器实现
-包含业界主流的优化器：AdamW、Lion、Sophia等
+现代优化器实现 (2024-2025最新)
+包含业界主流的优化器：AdamW、Lion、Sophia、Muon等
+
+基于最新研究:
+- Muon (2024): 2x效率提升, Kimi-2使用
+- Sophia (2023): 二阶优化, 适合大模型预训练
+- Lion (2023): 内存高效
+- WSD调度器 (2024): 无需预设总步数
+
+论文参考:
+- Muon: https://arxiv.org/abs/2502.16982
+- Sophia: https://arxiv.org/abs/2305.14342
+- Lion: https://arxiv.org/abs/2302.06675
+- WSD: https://arxiv.org/abs/2410.05192
 """
 import math
 import torch
 from torch.optim.optimizer import Optimizer
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Callable
 
 
 class Lion(Optimizer):
@@ -396,4 +408,348 @@ def get_scheduler(
         return torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
     else:
         raise ValueError(f"Unsupported scheduler: {scheduler_name}. "
-                        f"Supported schedulers: ['cosine', 'warmup_cosine', 'linear', 'step', 'none']")
+                        f"Supported schedulers: ['cosine', 'warmup_cosine', 'linear', 'step', 'inverse_sqrt', 'wsd', 'none']")
+
+
+class Muon(Optimizer):
+    """
+    Muon优化器 - Momentum Orthogonalized by Newton-Schulz (2024)
+
+    最新研究成果，相比AdamW节省~48%计算量达到相同效果。
+    Kimi-2 (1T参数)使用此优化器。
+
+    核心思想:
+    - 对2D参数(权重矩阵)使用Newton-Schulz正交化
+    - 与AdamW混合使用(AdamW处理1D参数如bias, norm)
+
+    论文: https://arxiv.org/abs/2502.16982
+
+    Args:
+        params: 模型参数(推荐只传入2D参数)
+        lr: 学习率 (推荐: 0.02, 比AdamW高20倍!)
+        momentum: 动量系数 (默认: 0.95)
+        nesterov: 是否使用Nesterov动量
+        ns_steps: Newton-Schulz迭代步数 (默认: 5)
+        weight_decay: 权重衰减
+
+    使用示例:
+        # 推荐: 混合使用Muon(2D参数) + AdamW(1D参数)
+        params_2d = [p for p in model.parameters() if len(p.shape) >= 2]
+        params_1d = [p for p in model.parameters() if len(p.shape) < 2]
+
+        opt_muon = Muon(params_2d, lr=0.02)
+        opt_adamw = torch.optim.AdamW(params_1d, lr=1e-3)
+    """
+
+    def __init__(
+        self,
+        params,
+        lr: float = 0.02,
+        momentum: float = 0.95,
+        nesterov: bool = True,
+        ns_steps: int = 5,
+        weight_decay: float = 0.0
+    ):
+        if lr < 0.0:
+            raise ValueError(f"Invalid learning rate: {lr}")
+        if not 0.0 <= momentum < 1.0:
+            raise ValueError(f"Invalid momentum: {momentum}")
+
+        defaults = dict(
+            lr=lr,
+            momentum=momentum,
+            nesterov=nesterov,
+            ns_steps=ns_steps,
+            weight_decay=weight_decay
+        )
+        super().__init__(params, defaults)
+
+    def newton_schulz_iteration(self, G, steps=5):
+        """
+        Newton-Schulz正交化迭代
+
+        将梯度矩阵G正交化，使更新方向更稳定
+        """
+        # 优化的系数(通过实验确定)
+        a, b, c = (3.4445, -4.7750, 2.0315)
+
+        X = G.clone()
+        if steps == 5:
+            for _ in range(steps):
+                A = X @ X.T
+                B = b * A + c * A @ A
+                X = a * X + B @ X
+
+        return X
+
+    @torch.no_grad()
+    def step(self, closure: Optional[Callable] = None):
+        """执行单步优化"""
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        for group in self.param_groups:
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+
+                grad = p.grad
+
+                # 权重衰减
+                if group['weight_decay'] != 0:
+                    grad = grad.add(p, alpha=group['weight_decay'])
+
+                state = self.state[p]
+
+                # 状态初始化
+                if len(state) == 0:
+                    state['momentum_buffer'] = torch.zeros_like(grad)
+
+                buf = state['momentum_buffer']
+
+                # 动量更新
+                buf.mul_(group['momentum']).add_(grad)
+
+                # Muon核心: 对2D参数应用Newton-Schulz正交化
+                if len(p.shape) == 2:
+                    update = self.newton_schulz_iteration(
+                        buf.view(p.shape),
+                        steps=group['ns_steps']
+                    )
+                else:
+                    # 1D参数使用标准动量
+                    update = buf
+
+                # Nesterov加速
+                if group['nesterov']:
+                    update = grad + group['momentum'] * update
+
+                # 应用更新
+                p.add_(update, alpha=-group['lr'])
+
+        return loss
+
+
+def get_warmup_cosine_schedule(
+    optimizer: Optimizer,
+    num_warmup_steps: int,
+    num_training_steps: int,
+    num_cycles: float = 0.5,
+    min_lr_ratio: float = 0.1
+):
+    """
+    Warmup + Cosine退火调度器 (推荐用于LLM训练)
+
+    GPT-3, Llama, Chinchilla, Pythia等都使用此调度器
+
+    Args:
+        optimizer: 优化器
+        num_warmup_steps: warmup步数 (推荐: 总步数的5-10%)
+        num_training_steps: 总训练步数
+        num_cycles: cosine周期数 (0.5 = 半周期, 1.0 = 全周期)
+        min_lr_ratio: 最小学习率占比 (默认0.1 = 降到10%)
+
+    Returns:
+        LambdaLR调度器
+    """
+    def lr_lambda(current_step: int):
+        # Warmup阶段: 线性增长
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1, num_warmup_steps))
+
+        # Cosine退火阶段
+        progress = float(current_step - num_warmup_steps) / float(max(1, num_training_steps - num_warmup_steps))
+        cosine_decay = 0.5 * (1.0 + math.cos(math.pi * num_cycles * 2.0 * progress))
+
+        # 确保不低于min_lr_ratio
+        return max(min_lr_ratio, cosine_decay)
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+
+def get_inverse_sqrt_schedule(
+    optimizer: Optimizer,
+    num_warmup_steps: int,
+    timescale: int = 10000
+):
+    """
+    Inverse Sqrt调度器 (Transformer论文原始调度器)
+
+    "Attention is All You Need"中使用的调度器
+
+    公式: lr = lr_max * min(step^(-0.5), step * warmup_steps^(-1.5))
+
+    Args:
+        optimizer: 优化器
+        num_warmup_steps: warmup步数
+        timescale: 时间尺度 (默认10000)
+
+    Returns:
+        LambdaLR调度器
+    """
+    def lr_lambda(current_step: int):
+        current_step += 1  # 避免除以0
+        if current_step < num_warmup_steps:
+            # Warmup阶段: 线性增长
+            return float(current_step) / float(num_warmup_steps)
+        else:
+            # Inverse sqrt decay
+            return float(num_warmup_steps) ** 0.5 / (current_step ** 0.5)
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+
+def get_wsd_schedule(
+    optimizer: Optimizer,
+    num_warmup_steps: int,
+    num_stable_steps: int,
+    num_decay_steps: int,
+    min_lr_ratio: float = 0.1
+):
+    """
+    Warmup-Stable-Decay调度器 (2024最新)
+
+    无需预设总训练步数,支持持续训练
+
+    阶段:
+    1. Warmup: 0 → warmup_steps, 线性增长
+    2. Stable: warmup_steps → warmup_steps + stable_steps, 保持常数
+    3. Decay: 之后, Cosine退火
+
+    论文: https://arxiv.org/abs/2410.05192
+
+    Args:
+        optimizer: 优化器
+        num_warmup_steps: warmup步数
+        num_stable_steps: 稳定阶段步数
+        num_decay_steps: 衰减阶段步数
+        min_lr_ratio: 最小学习率占比
+
+    Returns:
+        LambdaLR调度器
+    """
+    def lr_lambda(current_step: int):
+        # 1. Warmup阶段
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1, num_warmup_steps))
+
+        # 2. Stable阶段
+        if current_step < num_warmup_steps + num_stable_steps:
+            return 1.0
+
+        # 3. Decay阶段
+        progress = float(current_step - num_warmup_steps - num_stable_steps) / float(max(1, num_decay_steps))
+        progress = min(progress, 1.0)  # 限制在[0, 1]
+        cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
+
+        return max(min_lr_ratio, cosine_decay)
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+
+# 更新get_optimizer函数以支持Muon
+_original_get_optimizer = get_optimizer
+
+
+def get_optimizer(
+    optimizer_name: str,
+    parameters,
+    lr: float = 1e-4,
+    weight_decay: float = 0.01,
+    **kwargs
+) -> Optimizer:
+    """
+    获取优化器实例 (2024更新)
+
+    新增支持:
+    - muon: Muon优化器 (2024, 推荐大模型)
+    - muon_adamw: Muon+AdamW混合 (最优配置)
+
+    推荐配置:
+    1. 小模型(<1B): adamw
+    2. 大模型(>1B): muon_adamw (混合)
+    3. 预训练: adamw with β2=0.95
+    4. 微调: adamw with β2=0.999
+    """
+    optimizer_name = optimizer_name.lower()
+
+    if optimizer_name == "muon":
+        return Muon(
+            parameters,
+            lr=lr,
+            momentum=0.95,
+            weight_decay=weight_decay,
+            **kwargs
+        )
+    elif optimizer_name == "muon_adamw":
+        # 混合模式: 需要传入model而不是parameters
+        # 这里返回提示信息
+        raise ValueError(
+            "muon_adamw需要使用get_hybrid_optimizer(model, ...)函数创建"
+        )
+    else:
+        # 调用原始函数处理其他优化器
+        return _original_get_optimizer(optimizer_name, parameters, lr, weight_decay, **kwargs)
+
+
+def get_hybrid_optimizer(
+    model,
+    muon_lr: float = 0.02,
+    adamw_lr: float = 1e-3,
+    weight_decay: float = 0.01,
+    betas: tuple = (0.9, 0.95)
+):
+    """
+    创建Muon+AdamW混合优化器 (2024最优配置)
+
+    Muon处理2D参数(权重矩阵), AdamW处理1D参数(bias, norm)
+
+    Args:
+        model: PyTorch模型
+        muon_lr: Muon学习率 (默认0.02, 是AdamW的20倍)
+        adamw_lr: AdamW学习率 (默认1e-3)
+        weight_decay: 权重衰减
+        betas: AdamW的beta参数
+
+    Returns:
+        dict包含两个优化器: {'muon': Muon, 'adamw': AdamW}
+
+    使用示例:
+        opts = get_hybrid_optimizer(model)
+        # 训练循环中:
+        loss.backward()
+        opts['muon'].step()
+        opts['adamw'].step()
+        opts['muon'].zero_grad()
+        opts['adamw'].zero_grad()
+    """
+    params_2d = []  # 权重矩阵
+    params_1d = []  # bias, norm等
+
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            if len(param.shape) >= 2:
+                params_2d.append(param)
+            else:
+                params_1d.append(param)
+
+    print(f"🔧 创建混合优化器:")
+    print(f"   - Muon: {len(params_2d)} 个2D参数, lr={muon_lr}")
+    print(f"   - AdamW: {len(params_1d)} 个1D参数, lr={adamw_lr}")
+
+    return {
+        'muon': Muon(
+            params_2d,
+            lr=muon_lr,
+            momentum=0.95,
+            weight_decay=weight_decay
+        ),
+        'adamw': torch.optim.AdamW(
+            params_1d,
+            lr=adamw_lr,
+            betas=betas,
+            weight_decay=weight_decay
+        )
+    }

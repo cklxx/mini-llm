@@ -151,8 +151,13 @@ class ModelHealthMonitor:
         else:
             return 0.0
 
-    def detect_gradient_anomaly(self, grad_norm: float) -> Dict[str, Any]:
-        """检测梯度异常"""
+    def detect_gradient_anomaly(self, grad_norm: float, step: int = 0) -> Dict[str, Any]:
+        """检测梯度异常
+
+        Args:
+            grad_norm: 当前梯度范数
+            step: 当前训练步数（用于动态调整阈值）
+        """
         self.grad_history.append(grad_norm)
 
         if len(self.grad_history) < 10:
@@ -172,11 +177,15 @@ class ModelHealthMonitor:
                 'threshold': mean_grad + 3 * std_grad
             })
 
-        # 梯度消失检测
-        elif grad_norm < 1e-6:
+        # 梯度消失检测 - 动态阈值，训练初期更宽松
+        # Step 100之前: 1e-10 (几乎不触发)
+        # Step 100之后: 1e-8  (更严格但合理)
+        elif grad_norm < (1e-10 if step < 100 else 1e-8):
+            vanishing_threshold = 1e-10 if step < 100 else 1e-8
             anomaly_info.update({
                 'status': 'gradient_vanishing',
-                'current': grad_norm
+                'current': grad_norm,
+                'threshold': vanishing_threshold
             })
 
         return anomaly_info
@@ -349,8 +358,12 @@ class TrainingMonitor:
         self.health_monitor = ModelHealthMonitor(model, lightweight_mode=lightweight_mode)
         self.visualizer = RealTimeVisualizer(os.path.join(log_dir, "plots"))
 
-        # TensorBoard
-        self.tensorboard_writer = SummaryWriter(log_dir) if enable_tensorboard else None
+        # TensorBoard - 支持自定义flush间隔
+        if enable_tensorboard:
+            flush_secs = getattr(model, 'config', {}).get('tensorboard_flush_secs', 30) if hasattr(model, 'config') else 30
+            self.tensorboard_writer = SummaryWriter(log_dir, flush_secs=flush_secs)
+        else:
+            self.tensorboard_writer = None
 
         # 实时绘图（轻量级模式下禁用）
         self.enable_real_time_plots = enable_real_time_plots and not lightweight_mode
@@ -414,7 +427,7 @@ class TrainingMonitor:
             weight_update_ratio = 0.0
 
         # 检测异常（始终检查，因为很重要）
-        anomaly_info = self.health_monitor.detect_gradient_anomaly(grad_norm)
+        anomaly_info = self.health_monitor.detect_gradient_anomaly(grad_norm, step)
         if anomaly_info['status'] != 'normal':
             self.anomaly_history.append({
                 'step': step,

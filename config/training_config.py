@@ -84,6 +84,21 @@ class BaseConfig:
         self.checkpoint_dir = os.path.join(self.project_root, "checkpoints")
         self.log_dir = os.path.join(self.project_root, "logs")
 
+        # TensorBoard 配置
+        # 检测是否在云GPU环境（OpenBayes）
+        cloud_tb_dir = "/openbayes/home/tf_dir"
+        if os.path.exists("/openbayes/home") and os.access("/openbayes/home", os.W_OK):
+            # 云GPU环境：使用固定路径以便平台自动检测
+            self.tensorboard_dir = cloud_tb_dir
+            os.makedirs(cloud_tb_dir, exist_ok=True)
+            print(f"🌐 检测到云GPU环境，TensorBoard日志: {cloud_tb_dir}")
+        else:
+            # 本地环境：使用项目内的runs目录
+            self.tensorboard_dir = os.path.join(self.project_root, "runs")
+
+        self.enable_tensorboard = True  # 默认启用TensorBoard
+        self.tensorboard_flush_secs = 30  # 每30秒刷新一次
+
         # 设备配置
         self.device, self.gpu_info = get_device()
 
@@ -116,6 +131,7 @@ class BaseConfig:
         # 创建必要目录
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         os.makedirs(self.log_dir, exist_ok=True)
+        os.makedirs(self.tensorboard_dir, exist_ok=True)
 
 
 class MediumConfig(BaseConfig):

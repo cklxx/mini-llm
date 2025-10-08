@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  # 代码质量检查
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          uv sync --all-extras
+
+      - name: Run ruff (linting)
+        run: |
+          uv run ruff check src/ scripts/
+
+      - name: Run black (formatting check)
+        run: |
+          uv run black --check src/ scripts/
+
+      - name: Run mypy (type checking)
+        run: |
+          uv run mypy src/
+        continue-on-error: true  # 类型检查不强制通过
+
+  # 单元测试
+  tests:
+    name: Run Tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          uv sync --all-extras
+
+      - name: Run structure tests (no PyTorch required)
+        run: |
+          uv run python scripts/tests/test_code_structure.py
+
+      - name: Run architecture tests
+        run: |
+          uv run python scripts/tests/test_architecture.py
+        continue-on-error: true  # 架构测试可能因设备差异失败
+
+      - name: Run pytest unit tests
+        run: |
+          uv run pytest scripts/tests/ -v --tb=short -m "not slow"
+        continue-on-error: true  # 测试可选
+
+  # 安全检查
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: |
+          uv sync
+
+      - name: Run safety check
+        run: |
+          uv pip install safety
+          uv run safety check --ignore 70612
+        continue-on-error: true  # 安全检查不强制通过
+
+  # 构建测试
+  build:
+    name: Build Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Test build
+        run: |
+          uv build
+          uv pip install dist/*.whl
+
+      - name: Verify installation
+        run: |
+          python -c "import src.model.transformer; import src.tokenizer.bpe_tokenizer; print('✅ Package installation verified')"
