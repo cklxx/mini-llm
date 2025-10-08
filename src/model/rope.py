@@ -76,10 +76,10 @@ class RotaryPositionEmbedding(nn.Module):
         if seq_len > self.max_seq_len_cached:
             self._set_cos_sin_cache(seq_len, x.device)
 
-        return (
-            self.cos_cached[:seq_len].to(dtype=x.dtype),
-            self.sin_cached[:seq_len].to(dtype=x.dtype),
-        )
+        cos = self.cos_cached[:seq_len].to(dtype=x.dtype, device=x.device)
+        sin = self.sin_cached[:seq_len].to(dtype=x.dtype, device=x.device)
+
+        return cos, sin
 
 
 def rotate_half(x: torch.Tensor) -> torch.Tensor:
@@ -120,8 +120,26 @@ def apply_rotary_pos_emb(
                 "position_ids 必须是形状为 (batch, seq_len) 的二维张量"
             )
 
+        batch_size, seq_len = position_ids.shape
+        if batch_size != q.shape[0]:
+            raise ValueError(
+                "position_ids 的batch大小应与查询张量匹配"
+            )
+        if seq_len != q.shape[-2]:
+            raise ValueError(
+                "position_ids 的序列长度应与查询张量匹配"
+            )
+        if torch.any(position_ids < 0):
+            raise ValueError("position_ids 不应包含负数")
+
         # 防止整型溢出并确保在正确的设备上
         position_ids = position_ids.to(dtype=torch.long, device=cos.device)
+
+        max_pos = int(position_ids.max().item()) if position_ids.numel() > 0 else -1
+        if max_pos >= cos.size(0):
+            raise ValueError(
+                "cos/sin 缓存长度不足，请确保RoPE缓存覆盖最大的位置索引"
+            )
 
         # 选择对应位置的cos/sin值
         cos = cos[position_ids]  # (batch, seq_len, head_dim)
@@ -199,8 +217,22 @@ class RoPEAttention(nn.Module):
         key = key.view(batch_size, seq_len, self.n_heads, self.head_dim).transpose(1, 2)
         value = value.view(batch_size, seq_len, self.n_heads, self.head_dim).transpose(1, 2)
 
+        rope_seq_len = seq_len
+        if position_ids is not None:
+            if position_ids.dim() != 2:
+                raise ValueError(
+                    "position_ids 必须是形状为 (batch, seq_len) 的二维张量"
+                )
+            if position_ids.shape[0] != batch_size:
+                raise ValueError("position_ids 的batch大小应与输入匹配")
+            if position_ids.shape[1] != seq_len:
+                raise ValueError("position_ids 的序列长度应与输入匹配")
+
+            max_position = int(position_ids.max().item()) if position_ids.numel() > 0 else -1
+            rope_seq_len = max(rope_seq_len, max_position + 1)
+
         # 获取RoPE编码
-        cos, sin = self.rope(hidden_states, seq_len)
+        cos, sin = self.rope(hidden_states, rope_seq_len)
 
         # 应用RoPE到查询和键
         query, key = apply_rotary_pos_emb(query, key, cos, sin, position_ids)

@@ -138,7 +138,21 @@ class GroupedQueryAttention(nn.Module):
 
         # 应用RoPE位置编码
         if self.use_rope:
-            cos, sin = self.rope(hidden_states, seq_len)
+            rope_seq_len = seq_len
+            if position_ids is not None and position_ids.numel() > 0:
+                if position_ids.dim() != 2:
+                    raise ValueError(
+                        "position_ids 必须是形状为 (batch, seq_len) 的二维张量"
+                    )
+                if position_ids.shape[0] != batch_size:
+                    raise ValueError("position_ids 的batch大小应与输入匹配")
+                if position_ids.shape[1] != seq_len:
+                    raise ValueError("position_ids 的序列长度应与输入匹配")
+
+                max_position = int(position_ids.max().item())
+                rope_seq_len = max(rope_seq_len, max_position + 1)
+
+            cos, sin = self.rope(hidden_states, rope_seq_len)
             query_states, key_states = apply_rotary_pos_emb(
                 query_states, key_states, cos, sin, position_ids
             )
