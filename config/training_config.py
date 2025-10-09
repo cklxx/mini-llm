@@ -112,6 +112,66 @@ class BaseConfig:
         self.ultra_think_data_path = os.path.join(self.data_dir, "ultra_think.jsonl")
         self.lora_identity_data_path = os.path.join(self.data_dir, "lora_identity.jsonl")
 
+        # 训练可重复性与验证集设置
+        self.random_seed = int(os.environ.get("MINIGPT_TRAIN_SEED", 42))
+        self.validation_split = float(os.environ.get("MINIGPT_VAL_SPLIT", 0.05))
+        self.validation_min_samples = 80
+        self.early_stopping_patience = int(os.environ.get("MINIGPT_EARLY_STOP_PATIENCE", 4))
+        self.early_stopping_delta = float(os.environ.get("MINIGPT_EARLY_STOP_DELTA", 0.0))
+        self.label_smoothing = float(os.environ.get("MINIGPT_LABEL_SMOOTHING", 0.05))
+
+        # 数据采样与验证划分策略（按文件名匹配）
+        self.dataset_sampling = {
+            "default": {
+                "sample_ratio": 1.0,
+                "max_samples": None,
+                "val_split": self.validation_split
+            },
+            "alex_identity.jsonl": {
+                "sample_ratio": 0.25,
+                "max_samples": 3000,
+                "val_split": 0.1
+            },
+            "minigpt_identity.jsonl": {
+                "sample_ratio": 0.25,
+                "max_samples": 3000,
+                "val_split": 0.1
+            },
+            "ultra_think.jsonl": {
+                "sample_ratio": 0.5,
+                "max_samples": 6000,
+                "val_split": 0.05
+            },
+        }
+
+        # 对话角色标记
+        self.role_tokens = {
+            "system": "<|system|>",
+            "user": "<|user|>",
+            "assistant": "<|assistant|>",
+            "turn_separator": "<|endofturn|>"
+        }
+
+        # 对话数据增强配置
+        self.conversation_augmentation = {
+            "turn_truncate_prob": float(os.environ.get("MINIGPT_TURN_TRUNCATE_PROB", 0.1)),
+            "max_turn_truncate": int(os.environ.get("MINIGPT_MAX_TURN_TRUNCATE", 1))
+        }
+
+        # 训练内存监控与优化
+        self.memory_monitor_enabled = os.environ.get("MINIGPT_MEMORY_MONITOR", "1") == "1"
+        self.memory_pressure_threshold = float(os.environ.get("MINIGPT_MEMORY_THRESHOLD", 0.92))
+        self.memory_cleanup_interval = int(os.environ.get("MINIGPT_MEMORY_CLEANUP_INTERVAL", 200))
+        self.memory_log_interval = int(os.environ.get("MINIGPT_MEMORY_LOG_INTERVAL", 200))
+
+        # 训练后回归评估配置
+        self.regression_eval_enabled = os.environ.get("MINIGPT_REGRESSION_EVAL", "1") == "1"
+        self.regression_eval_prompts = os.path.join(self.data_dir, "eval", "regression_prompts.jsonl")
+        self.regression_eval_interval = int(os.environ.get("MINIGPT_REGRESSION_INTERVAL", 500))
+        self.regression_eval_max_new_tokens = int(os.environ.get("MINIGPT_REGRESSION_MAX_NEW", 96))
+        self.regression_eval_temperature = float(os.environ.get("MINIGPT_REGRESSION_TEMPERATURE", 0.7))
+        self.regression_eval_top_p = float(os.environ.get("MINIGPT_REGRESSION_TOP_P", 0.95))
+
         # NVIDIA GPU 优化设置
         self.mixed_precision = self.device == "cuda"
         self.compile_model = self.device == "cuda"  # PyTorch 2.4 编译优化

@@ -15,8 +15,24 @@ pip install -e .
 ```
 > 如果你使用 `uv`，可以在仓库根目录执行 `uv sync`。
 
-## 最小训练示例
-下面的示例展示如何使用仓库内置组件训练一个最小的语言模型 batch，并记录损失。
+## 运行标准训练流水线
+推荐通过脚本入口复现实验，它会自动解析配置、准备分词器、采样数据并保存检查点。
+
+```bash
+uv run python scripts/train.py --mode sft --config medium --auto-resume
+```
+
+常用参数：
+
+- `--mode {pretrain,sft,dpo,rlhf}`：切换训练阶段；
+- `--retrain-tokenizer`：强制重新训练并覆盖现有分词器；
+- `--resume` / `--auto-resume`：从指定或最新检查点恢复训练；
+- `--learning-rate`、`--batch-size`、`--warmup-steps`：命令行覆盖配置文件数值。【F:src/training/pipeline/cli.py†L8-L117】
+
+脚本内部会构建 `MiniGPTTrainer`，它将 `TrainingEnvironment`、`DatasetPreparer`、`TrainingLoopRunner` 等模块串联起来，并在输出目录中持久化配置快照与数据集统计，方便追踪实验。【F:src/training/pipeline/app.py†L25-L162】【F:src/training/pipeline/data_manager.py†L24-L214】
+
+## 最小化教学示例
+若你想快速理解底层训练循环，可以使用下列少量代码复现一个语言模型 batch 的训练：
 
 ```python
 import torch
@@ -25,30 +41,25 @@ from torch.utils.data import DataLoader
 from src.model.config import get_tiny_config
 from src.model.transformer import MiniGPT
 from src.tokenizer.bpe_tokenizer import BPETokenizer
-from src.training.trainer import LanguageModelingDataset, PreTrainer
+from src.training.datasets import LanguageModelingDataset
+from src.training.trainer import PreTrainer
 
-# 1. 准备训练语料
 texts = [
     "你好，Mini-LLM!",
     "Transformer 架构演示",
     "小模型也能训练",
 ]
 
-# 2. 训练一个最小 BPE 分词器
-#    （实际项目中请使用更大的语料并缓存 tokenizer）
 tokenizer = BPETokenizer(vocab_size=256)
 tokenizer.train(texts)
 
-# 3. 构造数据集与 DataLoader
 dataset = LanguageModelingDataset(texts, tokenizer, max_length=64)
 dataloader = DataLoader(dataset, batch_size=2)
 
-# 4. 初始化模型与训练器
 config = get_tiny_config()
 model = MiniGPT(config)
 trainer = PreTrainer(model, tokenizer, device="cpu")
 
-# 5. 运行一个 epoch 并查看损失
 loss = trainer.train_epoch(dataloader)
 print(f"epoch loss: {loss:.4f}")
 ```

@@ -28,6 +28,7 @@ if __name__ == "__main__":
 
 # 导入各个组件
 from ..training.trainer import SFTTrainer, create_trainer
+from ..training.datasets import ConversationDataset
 from .reward_model.reward_trainer import RewardTrainer, create_reward_model, create_reward_trainer
 from .reward_model.preference_data import create_preference_dataloader
 from .ppo.ppo_trainer import PPOTrainer, create_ppo_trainer
@@ -187,8 +188,6 @@ class RLHFPipeline:
         
         # 创建数据加载器
         from torch.utils.data import DataLoader
-        from ..training.trainer import ConversationDataset
-        
         dataset = ConversationDataset(sft_data, self.tokenizer, self.config.max_length)
         dataloader = DataLoader(dataset, batch_size=self.config.sft_batch_size, shuffle=True)
         

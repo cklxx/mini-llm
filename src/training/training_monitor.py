@@ -477,6 +477,34 @@ class TrainingMonitor:
 
         return metrics if should_log_full else None
 
+    def log_validation(self, step: int, loss: float, perplexity: float,
+                       extra_metrics: Optional[Dict[str, float]] = None):
+        """记录验证集指标到 TensorBoard 与控制台"""
+        print(f"📏 Validation @ Step {step}: loss={loss:.4f}, ppl={perplexity:.2f}")
+
+        if self.tensorboard_writer:
+            self.tensorboard_writer.add_scalar('Validation/Loss', loss, step)
+            self.tensorboard_writer.add_scalar('Validation/Perplexity', perplexity, step)
+            if extra_metrics:
+                for key, value in extra_metrics.items():
+                    self.tensorboard_writer.add_scalar(f'Validation/{key}', value, step)
+
+    def log_regression(self, step: int, pass_rate: float, results: List[Dict[str, Any]]):
+        """记录提示回归测试结果"""
+        print(f"🧪 Regression @ Step {step}: pass_rate={pass_rate:.2%} ({len(results)} prompts)")
+
+        if self.tensorboard_writer:
+            self.tensorboard_writer.add_scalar('Regression/PassRate', pass_rate, step)
+            passed = sum(1 for item in results if item.get('passed'))
+            self.tensorboard_writer.add_scalar('Regression/Passed', passed, step)
+            sample_lines = []
+            for item in results[: min(3, len(results))]:
+                status = '✅' if item.get('passed') else '❌'
+                response = item.get('response', '')
+                sample_lines.append(f"{status} {item.get('id', 'unknown')}: {response[:160]}")
+            if sample_lines:
+                self.tensorboard_writer.add_text('Regression/Samples', "\n\n".join(sample_lines), step)
+
     def _log_to_tensorboard(self, metrics: TrainingMetrics):
         """记录到TensorBoard"""
         if self.tensorboard_writer is None:
