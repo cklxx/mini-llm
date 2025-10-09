@@ -149,6 +149,10 @@ class CheckpointManager:
             if "optimizer_state_dict" in checkpoint and optimizer is not None:
                 try:
                     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+                    # Set initial_lr for each param group (required for LR schedulers when resuming)
+                    for group in optimizer.param_groups:
+                        if 'initial_lr' not in group:
+                            group['initial_lr'] = group['lr']
                     print("✅ 优化器状态已加载")
                 except Exception as exc:
                     print(f"⚠️  优化器状态加载失败: {exc}")
