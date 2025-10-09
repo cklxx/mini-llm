@@ -135,6 +135,11 @@ class MiniGPTTrainer:
             auto_resume=auto_resume,
         )
 
+        # Set initial_lr for scheduler (required when resuming from checkpoint)
+        for param_group in optimizer.param_groups:
+            if 'initial_lr' not in param_group:
+                param_group['initial_lr'] = param_group['lr']
+
         scheduler = self._build_scheduler(optimizer, start_step=start_step)
         self._log_scheduler_state(optimizer, start_step)
 
