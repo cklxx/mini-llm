@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 梯度诊断工具
 分析训练过程中的梯度健康状况
 """
-import os
-import sys
-import torch
 import argparse
 import json
+import os
+import sys
 from pathlib import Path
+
+import torch
 
 # 添加项目路径
 project_root = os.path.dirname(os.path.dirname(__file__))
@@ -31,7 +31,7 @@ def analyze_checkpoint_gradients(checkpoint_path):
     print(f"   Loss: {checkpoint.get('loss', 'N/A'):.4f}")
 
     # 分析参数范数
-    print(f"\n🔍 参数统计:")
+    print("\n🔍 参数统计:")
     if 'model_state_dict' in checkpoint:
         state_dict = checkpoint['model_state_dict']
 
@@ -57,7 +57,7 @@ def analyze_checkpoint_gradients(checkpoint_path):
 
         print(f"   总参数量: {total_params:,}")
 
-        print(f"\n   各层参数范数:")
+        print("\n   各层参数范数:")
         for layer, stats in sorted(layer_stats.items()):
             avg_norm = stats['mean_norm'] / stats['count']
             print(f"   • {layer:20s}: 参数={stats['params']:>10,}, "
