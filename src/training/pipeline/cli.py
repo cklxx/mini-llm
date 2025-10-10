@@ -18,9 +18,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--config",
-        choices=["medium", "large"],
+        choices=["tiny", "small", "small_30m", "medium", "large", "foundation", "moe"],
         default="medium",
-        help="模型配置大小 (medium: ~200M参数, large: ~500M参数)",
+        help="模型配置大小 (tiny: ~1M, small: ~25M, small_30m: ~30M, medium: ~80M, large: ~350M, foundation: ~200M, moe: MOE模型)",
     )
     parser.add_argument(
         "--retrain-tokenizer",
