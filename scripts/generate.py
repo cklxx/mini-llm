@@ -17,16 +17,26 @@ sys.path.append(os.path.join(project_root, 'src'))
 
 from model.transformer import create_model
 from tokenizer.bpe_tokenizer import BPETokenizer
-from inference.generator import TextGenerator, GenerationConfig
 
 
 class MiniGPTInference:
     """MiniGPT推理器，支持多种生成模式"""
 
-    def __init__(self, model_path, tokenizer_path=None, device=None):
+    def __init__(self, model_path, tokenizer_path=None, device=None, generation_kwargs=None):
         self.model_path = model_path
         self.device = self._setup_device(device)
         self.model, self.tokenizer = self._load_model_and_tokenizer(model_path, tokenizer_path)
+
+        defaults = {
+            "max_new_tokens": 128,
+            "temperature": 0.7,
+            "top_k": 50,
+            "top_p": 0.9,
+            "repetition_penalty": 1.05,
+        }
+        if generation_kwargs:
+            defaults.update({k: v for k, v in generation_kwargs.items() if v is not None})
+        self.generation_defaults = defaults
 
         print(f"=== MiniGPT 推理引擎 ===")
         print(f"模型路径: {model_path}")
@@ -66,6 +76,44 @@ class MiniGPTInference:
         tokenizer = BPETokenizer(vocab_size=vocab_size)
         tokenizer.load(tokenizer_path)
 
+        expected_config = checkpoint.get('tokenizer_config')
+        if expected_config:
+            actual_config = tokenizer.get_config()
+            mismatches = {
+                key: (expected_config[key], actual_config.get(key))
+                for key in expected_config
+                if actual_config.get(key) != expected_config[key]
+            }
+            if mismatches:
+                mismatch_info = ", ".join(
+                    f"{k}: ckpt={v[0]} vs tokenizer={v[1]}" for k, v in mismatches.items()
+                )
+                raise ValueError(
+                    "分词器配置与checkpoint不一致，请确认推理端使用的tokenizer文件正确。"
+                    f"差异: {mismatch_info}"
+                )
+
+        expected_special = checkpoint.get('tokenizer_special_tokens')
+        if expected_special:
+            special_mismatches = tokenizer.diff_special_tokens(expected_special)
+            if special_mismatches:
+                mismatch_info = ", ".join(
+                    f"{name}: ckpt={exp} vs tokenizer={act}" for name, (exp, act) in special_mismatches.items()
+                )
+                raise ValueError(
+                    "分词器特殊token映射与checkpoint不一致，请检查 tokenizer.pkl 是否匹配训练输出。"
+                    f"差异: {mismatch_info}"
+                )
+
+        expected_checksum = checkpoint.get('tokenizer_checksum')
+        if expected_checksum:
+            actual_checksum = tokenizer.checksum()
+            if actual_checksum and actual_checksum != expected_checksum:
+                raise ValueError(
+                    "分词器校验失败：checksum不匹配。请确保使用训练时导出的tokenizer.pkl。"
+                )
+        print("✅ 分词器配置校验通过")
+
         # 创建并加载模型
         if 'config' in checkpoint:
             config = checkpoint['config']
@@ -87,74 +135,99 @@ class MiniGPTInference:
         print(f"✅ 模型加载成功")
         return model, tokenizer
 
-    def generate_text(self, prompt, max_length=100, temperature=0.8, top_k=50, top_p=0.9):
+    def generate_text(self, prompt, **overrides):
         """生成文本"""
-        # 编码输入
+
+        config = self.generation_defaults.copy()
+        config.update({k: v for k, v in overrides.items() if v is not None})
+
+        max_new_tokens = int(config.get("max_new_tokens", 0))
+        temperature = float(config.get("temperature", 1.0))
+        top_k = int(config.get("top_k", 0))
+        top_p = float(config.get("top_p", 1.0))
+        repetition_penalty = float(config.get("repetition_penalty", 1.0))
+
+        if max_new_tokens <= 0:
+            return ""
+
         input_ids = self.tokenizer.encode(prompt, add_special_tokens=True)
-        input_tensor = torch.tensor([input_ids], device=self.device)
+        prompt_length = len(input_ids)
+        generated_ids = list(input_ids)
+        input_tensor = torch.tensor([generated_ids], device=self.device, dtype=torch.long)
 
-        generated_length = 0
         with torch.no_grad():
-            while generated_length < max_length:
-                # 前向传播
+            for _ in range(max_new_tokens):
                 outputs = self.model(input_tensor)
-                next_token_logits = outputs[0, -1, :] / temperature
+                next_token_logits = outputs[0, -1, :]
 
-                # Top-k采样
-                if top_k > 0:
-                    indices_to_remove = next_token_logits < torch.topk(next_token_logits, top_k)[0][..., -1, None]
-                    next_token_logits[indices_to_remove] = float('-inf')
+                adjusted_logits = next_token_logits.clone()
+                if temperature > 0:
+                    adjusted_logits = adjusted_logits / temperature
 
-                # Top-p采样
-                if top_p < 1.0:
-                    sorted_logits, sorted_indices = torch.sort(next_token_logits, descending=True)
+                if repetition_penalty and repetition_penalty != 1.0:
+                    for token_id in set(generated_ids):
+                        logit = adjusted_logits[token_id]
+                        if logit < 0:
+                            adjusted_logits[token_id] *= repetition_penalty
+                        else:
+                            adjusted_logits[token_id] /= repetition_penalty
+
+                if top_k and top_k > 0:
+                    values, _ = torch.topk(adjusted_logits, min(top_k, adjusted_logits.size(-1)))
+                    min_values = values[..., -1, None]
+                    adjusted_logits[adjusted_logits < min_values] = float('-inf')
+
+                if top_p and 0 < top_p < 1.0:
+                    sorted_logits, sorted_indices = torch.sort(adjusted_logits, descending=True)
                     cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
                     sorted_indices_to_remove = cumulative_probs > top_p
                     sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
                     sorted_indices_to_remove[..., 0] = 0
                     indices_to_remove = sorted_indices[sorted_indices_to_remove]
-                    next_token_logits[indices_to_remove] = float('-inf')
+                    adjusted_logits[indices_to_remove] = float('-inf')
 
-                # 采样下一个token
-                probs = torch.softmax(next_token_logits, dim=-1)
-                next_token = torch.multinomial(probs, num_samples=1)
+                if temperature <= 0:
+                    next_token_id = int(torch.argmax(adjusted_logits).item())
+                else:
+                    probs = torch.softmax(adjusted_logits, dim=-1)
+                    next_token_id = int(torch.multinomial(probs, num_samples=1).item())
 
-                # 检查是否结束
-                if next_token.item() == self.tokenizer.eos_id:
+                generated_ids.append(next_token_id)
+                next_token_tensor = torch.tensor([[next_token_id]], device=self.device, dtype=torch.long)
+                input_tensor = torch.cat([input_tensor, next_token_tensor], dim=1)
+
+                if next_token_id == self.tokenizer.eos_id:
                     break
 
-                # 添加到序列
-                input_tensor = torch.cat([input_tensor, next_token.unsqueeze(0)], dim=1)
-                generated_length += 1
+        new_token_ids = generated_ids[prompt_length:]
+        generated_text = self.tokenizer.decode(new_token_ids)
+        return generated_text.strip()
 
-        # 解码结果
-        generated_ids = input_tensor[0].cpu().tolist()
-        generated_text = self.tokenizer.decode(generated_ids)
-
-        return generated_text
-
-    def ultra_think_generate(self, prompt, max_length=200):
+    def ultra_think_generate(self, prompt, **generation_kwargs):
         """Ultra Think深度思维生成"""
         print("🧠 启动Ultra Think深度思维模式...")
 
-        # Ultra Think提示词模板
         ultra_think_prompt = f"""<ultra_think>
-让我深度分析这个问题：{prompt}
+我将逐步深入分析该问题：{prompt}
 
-多维度思考：
-1. 问题分析：从不同角度理解问题的核心
-2. 知识整合：结合相关领域的知识和经验
-3. 创新思路：探索新颖的解决方案
-4. 系统性思维：考虑问题的全局影响
-
-基于alex-ckl.com公司的ultra think技术，我将提供深入的分析和创新的解决方案。
+思考方向：
+1. 核心问题与背景
+2. 相关知识与事实
+3. 潜在方案与利弊
+4. 长期影响与延伸思考
 </ultra_think>
 
-{prompt}
+请根据以上分析给出最终回答："""
 
-作为alex-ckl.com公司开发的AI助手，我将运用ultra think深度思维能力为您分析："""
-
-        return self.generate_text(ultra_think_prompt, max_length=max_length, temperature=0.7)
+        max_tokens = generation_kwargs.pop(
+            "max_new_tokens",
+            max(self.generation_defaults.get("max_new_tokens", 128), 200),
+        )
+        return self.generate_text(
+            ultra_think_prompt,
+            max_new_tokens=max_tokens,
+            **generation_kwargs,
+        )
 
     def chat_mode(self):
         """交互式聊天模式"""
@@ -195,21 +268,18 @@ class MiniGPTInference:
                         conversation_history = conversation_history[-8:]
 
                     context = "\n".join(conversation_history)
-                    prompt = f"我是alex-ckl.com公司开发的AI助手，具备ultra think深度思维能力。\n\n{context}\nAI助手:"
+                    prompt = f"{context}\n助手:"
 
-                    print("AI: ", end="", flush=True)
+                    print("助手: ", end="", flush=True)
                     response = self.generate_text(prompt)
 
                 # 提取AI回复部分
-                if "AI助手:" in response:
-                    ai_response = response.split("AI助手:")[-1].strip()
-                elif "AI (Ultra Think):" in response:
-                    ai_response = response.split("AI (Ultra Think):")[-1].strip()
-                else:
-                    ai_response = response
+                ai_response = response.strip()
+                if ai_response.lower().startswith("助手:"):
+                    ai_response = ai_response.split("助手:", 1)[-1].strip()
 
                 print(ai_response)
-                conversation_history.append(f"AI助手: {ai_response}")
+                conversation_history.append(f"助手: {ai_response}")
 
             except KeyboardInterrupt:
                 print("\n\n再见！")
@@ -217,15 +287,13 @@ class MiniGPTInference:
             except Exception as e:
                 print(f"\n错误: {e}")
 
-    def single_inference(self, prompt, max_length=100, use_ultra_think=False):
+    def single_inference(self, prompt, use_ultra_think=False, **generation_kwargs):
         """单次推理"""
         if use_ultra_think:
-            return self.ultra_think_generate(prompt, max_length)
-        else:
-            enhanced_prompt = f"作为alex-ckl.com公司开发的AI助手，我来回答您的问题：\n\n{prompt}\n\n回答："
-            return self.generate_text(enhanced_prompt, max_length)
+            return self.ultra_think_generate(prompt, **generation_kwargs)
+        return self.generate_text(prompt, **generation_kwargs)
 
-    def batch_inference(self, prompts_file):
+    def batch_inference(self, prompts_file, **generation_kwargs):
         """批量推理"""
         print(f"📚 批量推理模式：{prompts_file}")
 
@@ -239,7 +307,7 @@ class MiniGPTInference:
         results = []
         for i, prompt in enumerate(prompts):
             print(f"处理 {i+1}/{len(prompts)}: {prompt[:50]}...")
-            response = self.single_inference(prompt)
+            response = self.single_inference(prompt, **generation_kwargs)
             results.append({
                 'prompt': prompt,
                 'response': response
@@ -277,14 +345,16 @@ def main():
                         help='批量推理的提示文件路径 (mode=batch时必需)')
 
     # 生成参数
-    parser.add_argument('--max-length', type=int, default=100,
-                        help='最大生成长度')
-    parser.add_argument('--temperature', type=float, default=0.8,
+    parser.add_argument('--max-new-tokens', '--max-length', type=int, default=128, dest='max_new_tokens',
+                        help='最大生成token数 (包含别名 --max-length)')
+    parser.add_argument('--temperature', type=float, default=0.7,
                         help='采样温度')
     parser.add_argument('--top-k', type=int, default=50,
                         help='Top-k采样参数')
     parser.add_argument('--top-p', type=float, default=0.9,
                         help='Top-p采样参数')
+    parser.add_argument('--repetition-penalty', type=float, default=1.05,
+                        help='重复惩罚系数 (>1 会抑制重复)')
 
     # 设备
     parser.add_argument('--device', type=str, default=None,
@@ -301,10 +371,18 @@ def main():
 
     # 创建推理器
     try:
+        generation_kwargs = {
+            "max_new_tokens": args.max_new_tokens,
+            "temperature": args.temperature,
+            "top_k": args.top_k,
+            "top_p": args.top_p,
+            "repetition_penalty": args.repetition_penalty,
+        }
         inference = MiniGPTInference(
             model_path=args.model_path,
             tokenizer_path=args.tokenizer_path,
-            device=args.device
+            device=args.device,
+            generation_kwargs=generation_kwargs,
         )
     except Exception as e:
         print(f"❌ 加载模型失败: {e}")
@@ -319,12 +397,23 @@ def main():
 
         response = inference.single_inference(
             args.prompt,
-            max_length=args.max_length,
-            use_ultra_think=args.ultra_think
+            use_ultra_think=args.ultra_think,
+            max_new_tokens=args.max_new_tokens,
+            temperature=args.temperature,
+            top_k=args.top_k,
+            top_p=args.top_p,
+            repetition_penalty=args.repetition_penalty,
         )
         print(response)
     elif args.mode == 'batch':
-        inference.batch_inference(args.prompts_file)
+        inference.batch_inference(
+            args.prompts_file,
+            max_new_tokens=args.max_new_tokens,
+            temperature=args.temperature,
+            top_k=args.top_k,
+            top_p=args.top_p,
+            repetition_penalty=args.repetition_penalty,
+        )
 
 
 if __name__ == "__main__":

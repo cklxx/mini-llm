@@ -405,8 +405,15 @@ class TrainingMonitor:
             self.plot_thread = threading.Thread(target=plot_worker, daemon=True)
             self.plot_thread.start()
 
-    def log_step(self, step: int, epoch: int, loss: float, learning_rate: float,
-                batch_size: int = 1) -> Optional[TrainingMetrics]:
+    def log_step(
+        self,
+        step: int,
+        epoch: int,
+        loss: float,
+        learning_rate: float,
+        batch_size: int = 1,
+        grad_norm: Optional[float] = None,
+    ) -> Optional[TrainingMetrics]:
         """记录训练步骤"""
         # 轻量级模式下，只在指定间隔记录详细指标
         should_log_full = (step % self.log_interval == 0)
@@ -426,7 +433,11 @@ class TrainingMonitor:
             gpu_memory_used = cpu_usage = ram_used = 0.0
 
         # 获取模型健康指标
-        grad_norm = self.health_monitor.compute_gradient_norm()
+        grad_norm_value = (
+            float(grad_norm)
+            if grad_norm is not None
+            else self.health_monitor.compute_gradient_norm()
+        )
         param_norm = self.health_monitor.compute_parameter_norm()
         
         # 权重更新比例（最耗时，轻量级模式下跳过）
@@ -436,7 +447,7 @@ class TrainingMonitor:
             weight_update_ratio = 0.0
 
         # 检测异常（始终检查，因为很重要）
-        anomaly_info = self.health_monitor.detect_gradient_anomaly(grad_norm, step)
+        anomaly_info = self.health_monitor.detect_gradient_anomaly(grad_norm_value, step)
         if anomaly_info['status'] != 'normal':
             self.anomaly_history.append({
                 'step': step,
@@ -451,7 +462,7 @@ class TrainingMonitor:
             epoch=epoch,
             loss=loss,
             learning_rate=learning_rate,
-            grad_norm=grad_norm,
+            grad_norm=grad_norm_value,
             param_norm=param_norm,
             timestamp=current_time,
             samples_per_sec=samples_per_sec,
