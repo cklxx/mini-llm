@@ -235,37 +235,41 @@ class TinyConfig(BaseConfig):
 
 
 class SmallConfig(BaseConfig):
-    """小型模型配置 (~25M参数)"""
+    """小型模型配置 (~25M参数) - 瘦长架构优化内存"""
     def __init__(self):
         super().__init__()
         
         # 模型标识
         self.model_size = "small"
 
-        # 模型参数
+        # 模型参数 - 瘦长架构：更窄但更深，降低内存峰值
         self.vocab_size = 10000
-        self.d_model = 384
-        self.n_heads = 12
-        self.n_layers = 12
-        self.d_ff = 1536
+        self.d_model = 288        # 384 -> 288 (减少25%)
+        self.n_heads = 9          # 12 -> 9 (保持 d_model/n_heads = 32)
+        self.n_layers = 18        # 12 -> 18 (增加50%)
+        self.d_ff = 1152          # 1536 -> 1152 (4倍d_model)
         self.max_seq_len = 1024
         self.dropout = 0.1
 
-        # 训练参数
+        # 训练参数 - 优化内存使用
         if self.device == "cuda":
             gpu_memory = self.gpu_info['devices'][0]['memory_total'] if self.gpu_info else 8
-            if gpu_memory >= 24:
-                self.batch_size = 32
-                self.gradient_accumulation_steps = 4
-            elif gpu_memory >= 12:
+            if gpu_memory >= 40:
+                # 高端GPU（A6000等）：降低batch size以适应长序列
                 self.batch_size = 16
                 self.gradient_accumulation_steps = 8
-            else:
+            elif gpu_memory >= 24:
+                self.batch_size = 12
+                self.gradient_accumulation_steps = 10
+            elif gpu_memory >= 12:
                 self.batch_size = 8
                 self.gradient_accumulation_steps = 16
+            else:
+                self.batch_size = 4
+                self.gradient_accumulation_steps = 32
         else:
-            self.batch_size = 8
-            self.gradient_accumulation_steps = 16
+            self.batch_size = 4
+            self.gradient_accumulation_steps = 32
 
         self.learning_rate = 3e-4
         self.weight_decay = 0.01

@@ -184,15 +184,18 @@ def get_tiny_config() -> MiniGPTConfig:
 
 def get_small_config() -> MiniGPTConfig:
     """获取small模型配置 (~25M参数)
-    优化的深而窄架构 + 现代化技术栈
+    瘦长架构优化：更窄但更深，降低内存峰值
+    - 减少宽度(d_model)降低激活值内存占用
+    - 增加深度提升模型表达能力
+    - 保持总参数量基本不变
     """
     return MiniGPTConfig(
         vocab_size=10000,
-        hidden_size=384,  # 稍微减小宽度
-        num_hidden_layers=12,  # 增加深度
-        num_attention_heads=12,
-        num_key_value_heads=3,  # GQA优化：4:1比例
-        intermediate_size=1536,  # 调整FFN大小
+        hidden_size=288,       # 384 -> 288 (减少25%)，降低内存峰值
+        num_hidden_layers=18,  # 12 -> 18 (增加50%)，提升表达能力
+        num_attention_heads=9, # 保持 hidden_size/n_heads = 32
+        num_key_value_heads=3, # GQA优化：3:1比例 (9/3=3)
+        intermediate_size=1152, # 4倍hidden_size
         max_position_embeddings=1024,
         dropout=0.1,
         use_rope=True,         # ✅ RoPE位置编码
