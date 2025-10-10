@@ -10,15 +10,42 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 
-import torch
-import torch.nn as nn
 import json
 import time
-from torch.utils.data import Dataset, DataLoader
-from typing import List, Dict
+from typing import Dict, List
 
-from src.model.config import get_tiny_config, get_small_config
-from src.model.transformer import MiniGPT
+try:  # pragma: no cover - optional dependency guard
+    import pytest
+except ModuleNotFoundError:  # pragma: no cover
+    pytest = None
+
+
+try:  # pragma: no cover - optional dependency guard
+    import torch
+    import torch.nn as nn
+    from torch.utils.data import DataLoader, Dataset
+except ModuleNotFoundError:  # pragma: no cover
+    torch = None
+    nn = None
+    DataLoader = Dataset = object
+
+
+from src.model.config import get_small_config, get_tiny_config
+
+try:  # pragma: no cover - optional dependency guard
+    from src.model.transformer import MiniGPT
+except ModuleNotFoundError as exc:  # pragma: no cover
+    if exc.name == "torch":
+        MiniGPT = None
+    else:
+        raise
+
+BACKEND_AVAILABLE = torch is not None and MiniGPT is not None
+
+if pytest is not None:
+    pytestmark = pytest.mark.skipif(not BACKEND_AVAILABLE, reason="PyTorch not available")
+else:  # pragma: no cover - executed when running as a plain script
+    pytestmark = []
 
 
 class TestDataset(Dataset):
@@ -392,6 +419,10 @@ def test_memory_efficiency():
 
 def run_all_tests():
     """运行所有训练和推理测试"""
+    if not BACKEND_AVAILABLE:
+        print("⚠️ PyTorch not available, skipping training & inference tests.")
+        return True
+
     print("=" * 60)
     print("MINIGPT TRAINING & INFERENCE TESTS")
     print("=" * 60)

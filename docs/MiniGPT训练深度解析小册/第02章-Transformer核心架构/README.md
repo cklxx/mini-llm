@@ -4,7 +4,7 @@
 
 ## 2.1 配置驱动的模型构建
 - `MiniGPTConfig` 将所有结构化超参集中管理，初始化时自动校验 `hidden_size % num_attention_heads == 0` 等约束。
-- `get_tiny_config` / `get_small_config` 提供了可直接复现的参考设置，便于在实验中快速切换模型规模。
+- `get_tiny_config` / `get_small_config` / `get_small_30m_config` 提供了可直接复现的参考设置，便于在实验中快速切换模型规模。
 - 常用调参入口：`use_rope` 控制位置编码，`use_gqa`/`num_key_value_heads` 控制注意力头共享，`use_moe` 触发专家路由。
 
 ## 2.2 解码器堆叠

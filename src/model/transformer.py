@@ -11,6 +11,7 @@ from typing import Optional, Tuple
 from .config import MiniGPTConfig
 from .rope import RotaryPositionEmbedding, apply_rotary_pos_emb
 from .gqa import GroupedQueryAttention, OptimizedMultiHeadAttention
+from .moe import SparseMoE, SharedExpertMoE
 
 
 class RMSNorm(nn.Module):
@@ -211,11 +212,47 @@ class TransformerBlock(nn.Module):
                 config.attention_dropout
             )
 
-        self.feed_forward = SwiGLUFeedForward(
-            config.hidden_size,
-            config.intermediate_size,
-            config.dropout
-        )
+        self.has_moe = getattr(config, "use_moe", False)
+        self.aux_loss_weight = getattr(config, "aux_loss_alpha", 0.0)
+
+        if self.has_moe:
+            total_experts = max(getattr(config, "n_routed_experts", 0), 0)
+            shared_experts = max(getattr(config, "n_shared_experts", 0), 0)
+            shared_experts = min(shared_experts, total_experts) if total_experts > 0 else shared_experts
+            top_k = max(1, getattr(config, "num_experts_per_tok", 1))
+
+            if total_experts <= 0 and shared_experts <= 0:
+                # 没有有效的专家，回退为稠密前馈
+                self.has_moe = False
+            elif shared_experts > 0:
+                self.feed_forward = SharedExpertMoE(
+                    d_model=config.hidden_size,
+                    d_ff=config.intermediate_size,
+                    num_shared_experts=shared_experts,
+                    num_routed_experts=max(total_experts - shared_experts, 0),
+                    top_k=top_k,
+                    activation=config.hidden_act,
+                    dropout=config.dropout,
+                    load_balancing_weight=self.aux_loss_weight,
+                )
+            else:
+                self.feed_forward = SparseMoE(
+                    d_model=config.hidden_size,
+                    d_ff=config.intermediate_size,
+                    num_experts=total_experts,
+                    top_k=top_k,
+                    activation=config.hidden_act,
+                    dropout=config.dropout,
+                    load_balancing_weight=self.aux_loss_weight,
+                )
+
+        if not getattr(self, "feed_forward", None):
+            self.feed_forward = SwiGLUFeedForward(
+                config.hidden_size,
+                config.intermediate_size,
+                config.dropout
+            )
+            self.has_moe = False
 
         # 层归一化
         self.norm1 = RMSNorm(config.hidden_size, config.rms_norm_eps)
@@ -226,12 +263,14 @@ class TransformerBlock(nn.Module):
     def forward(self,
                 x: torch.Tensor,
                 mask: Optional[torch.Tensor] = None,
-                position_ids: Optional[torch.Tensor] = None) -> torch.Tensor:
+                position_ids: Optional[torch.Tensor] = None,
+                collect_moe_loss: bool = False):
         """
         Args:
             x: (batch_size, seq_len, hidden_size)
             mask: 注意力掩码
             position_ids: 位置ID
+            collect_moe_loss: 若为True，则返回MoE负载均衡损失
         """
         # Pre-norm架构：先归一化再计算
         normalized_x = self.norm1(x)
@@ -251,8 +290,18 @@ class TransformerBlock(nn.Module):
 
         # 前馈网络
         normalized_x = self.norm2(x)
-        ff_output = self.feed_forward(normalized_x)
+        moe_loss = None
+        if self.has_moe:
+            ff_output, moe_loss = self.feed_forward(normalized_x)
+            if moe_loss is not None and self.aux_loss_weight:
+                moe_loss = moe_loss * self.aux_loss_weight
+        else:
+            ff_output = self.feed_forward(normalized_x)
+            moe_loss = None
         x = x + self.dropout(ff_output)
+
+        if collect_moe_loss:
+            return x, moe_loss
 
         return x
 
@@ -324,7 +373,8 @@ class MiniGPT(nn.Module):
     def forward(self,
                 input_ids: torch.Tensor,
                 attention_mask: Optional[torch.Tensor] = None,
-                position_ids: Optional[torch.Tensor] = None) -> torch.Tensor:
+                position_ids: Optional[torch.Tensor] = None,
+                return_aux_loss: bool = False):
         """
         前向传播
 
@@ -332,9 +382,11 @@ class MiniGPT(nn.Module):
             input_ids: (batch_size, seq_len) token ID序列
             attention_mask: (batch_size, seq_len) 可选的注意力掩码
             position_ids: (batch_size, seq_len) 位置ID，用于RoPE
+            return_aux_loss: 启用MoE时是否返回负载均衡损失
 
         Returns:
             logits: (batch_size, seq_len, vocab_size) 预测概率
+            aux_loss: 若 `return_aux_loss=True` 且启用MoE，则返回负载均衡损失
         """
         batch_size, seq_len = input_ids.size()
 
@@ -355,8 +407,22 @@ class MiniGPT(nn.Module):
             position_ids = torch.arange(seq_len, device=input_ids.device).unsqueeze(0).expand(batch_size, -1)
 
         # 5. 通过Transformer块
+        total_moe_loss = None
         for transformer_block in self.transformer_blocks:
-            x = transformer_block(x, causal_mask, position_ids)
+            if return_aux_loss and getattr(self.config, "use_moe", False):
+                x, block_moe_loss = transformer_block(
+                    x,
+                    mask=causal_mask,
+                    position_ids=position_ids,
+                    collect_moe_loss=True
+                )
+                if block_moe_loss is not None:
+                    if total_moe_loss is None:
+                        total_moe_loss = block_moe_loss
+                    else:
+                        total_moe_loss = total_moe_loss + block_moe_loss
+            else:
+                x = transformer_block(x, causal_mask, position_ids)
 
         # 6. 层归一化
         x = self.layer_norm(x)
@@ -367,6 +433,11 @@ class MiniGPT(nn.Module):
         else:
             # 使用嵌入权重共享
             logits = F.linear(x, self.token_embedding.weight)
+
+        if return_aux_loss and getattr(self.config, "use_moe", False):
+            if total_moe_loss is None:
+                total_moe_loss = torch.tensor(0.0, device=logits.device)
+            return logits, total_moe_loss
 
         return logits
     

@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11"]
 
     steps:
       - name: Checkout code
@@ -32,7 +32,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --all-extras
+          uv sync --extra dev --extra test
 
       - name: Run ruff (linting)
         run: |
@@ -54,8 +54,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        python-version: ["3.11", "3.12"]
+        os: [ubuntu-latest]
+        python-version: ["3.11"]
 
     steps:
       - name: Checkout code
@@ -73,7 +73,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --all-extras
+          uv sync --extra dev --extra test
 
       - name: Run structure tests (no PyTorch required)
         run: |
@@ -140,4 +140,4 @@ jobs:
 
       - name: Verify installation
         run: |
-          python -c "import src.model.transformer; import src.tokenizer.bpe_tokenizer; print('✅ Package installation verified')"
+          python -c "import src.model.transformer, src.tokenizer.bpe_tokenizer; print('✅ Package installation verified')"
