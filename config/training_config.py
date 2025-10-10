@@ -194,6 +194,152 @@ class BaseConfig:
         os.makedirs(self.tensorboard_dir, exist_ok=True)
 
 
+class TinyConfig(BaseConfig):
+    """超小型模型配置 (~1M参数) - 快速实验"""
+    def __init__(self):
+        super().__init__()
+        
+        # 模型标识
+        self.model_size = "tiny"
+
+        # 模型参数
+        self.vocab_size = 10000
+        self.d_model = 128
+        self.n_heads = 4
+        self.n_layers = 8
+        self.d_ff = 384
+        self.max_seq_len = 512
+        self.dropout = 0.1
+
+        # 训练参数
+        self.batch_size = 32
+        self.gradient_accumulation_steps = 2
+        self.learning_rate = 3e-4
+        self.weight_decay = 0.01
+        self.warmup_steps = 500
+        self.max_steps = 10000
+        self.eval_steps = 500
+        self.save_steps = 1000
+
+        # 优化器
+        self.optimizer = "adamw"
+        self.beta1 = 0.9
+        self.beta2 = 0.95
+        self.eps = 1e-8
+
+        # 生成参数
+        self.max_generate_length = 512
+        self.temperature = 0.8
+        self.top_k = 50
+        self.top_p = 0.9
+
+
+class SmallConfig(BaseConfig):
+    """小型模型配置 (~25M参数)"""
+    def __init__(self):
+        super().__init__()
+        
+        # 模型标识
+        self.model_size = "small"
+
+        # 模型参数
+        self.vocab_size = 10000
+        self.d_model = 384
+        self.n_heads = 12
+        self.n_layers = 12
+        self.d_ff = 1536
+        self.max_seq_len = 1024
+        self.dropout = 0.1
+
+        # 训练参数
+        if self.device == "cuda":
+            gpu_memory = self.gpu_info['devices'][0]['memory_total'] if self.gpu_info else 8
+            if gpu_memory >= 24:
+                self.batch_size = 32
+                self.gradient_accumulation_steps = 4
+            elif gpu_memory >= 12:
+                self.batch_size = 16
+                self.gradient_accumulation_steps = 8
+            else:
+                self.batch_size = 8
+                self.gradient_accumulation_steps = 16
+        else:
+            self.batch_size = 8
+            self.gradient_accumulation_steps = 16
+
+        self.learning_rate = 3e-4
+        self.weight_decay = 0.01
+        self.warmup_steps = 2000
+        self.max_steps = 50000
+        self.eval_steps = 1000
+        self.save_steps = 2000
+
+        # 优化器
+        self.optimizer = "adamw"
+        self.beta1 = 0.9
+        self.beta2 = 0.95
+        self.eps = 1e-8
+
+        # 生成参数
+        self.max_generate_length = 1024
+        self.temperature = 0.8
+        self.top_k = 50
+        self.top_p = 0.9
+
+
+class Small30MConfig(BaseConfig):
+    """30M参数小型模型配置"""
+    def __init__(self):
+        super().__init__()
+        
+        # 模型标识
+        self.model_size = "small_30m"
+
+        # 模型参数
+        self.vocab_size = 12000
+        self.d_model = 384
+        self.n_heads = 12
+        self.n_layers = 13
+        self.d_ff = 1408
+        self.max_seq_len = 2048
+        self.dropout = 0.1
+
+        # 训练参数
+        if self.device == "cuda":
+            gpu_memory = self.gpu_info['devices'][0]['memory_total'] if self.gpu_info else 8
+            if gpu_memory >= 24:
+                self.batch_size = 24
+                self.gradient_accumulation_steps = 6
+            elif gpu_memory >= 12:
+                self.batch_size = 12
+                self.gradient_accumulation_steps = 12
+            else:
+                self.batch_size = 6
+                self.gradient_accumulation_steps = 24
+        else:
+            self.batch_size = 6
+            self.gradient_accumulation_steps = 24
+
+        self.learning_rate = 3e-4
+        self.weight_decay = 0.01
+        self.warmup_steps = 3000
+        self.max_steps = 60000
+        self.eval_steps = 1500
+        self.save_steps = 3000
+
+        # 优化器
+        self.optimizer = "adamw"
+        self.beta1 = 0.9
+        self.beta2 = 0.95
+        self.eps = 1e-8
+
+        # 生成参数
+        self.max_generate_length = 1024
+        self.temperature = 0.8
+        self.top_k = 50
+        self.top_p = 0.9
+
+
 class MediumConfig(BaseConfig):
     """中等模型配置 (~80M参数) - GPU优化 + Flash Attention"""
     def __init__(self):
@@ -252,35 +398,101 @@ class MediumConfig(BaseConfig):
         self.top_p = 0.9
 
 
+class FoundationConfig(BaseConfig):
+    """基础模型配置 (~200M参数) - 中型规模训练"""
+    def __init__(self):
+        super().__init__()
+        
+        # 模型标识
+        self.model_size = "foundation"
+
+        # 模型参数
+        self.vocab_size = 32000
+        self.d_model = 768
+        self.n_heads = 16
+        self.n_layers = 24
+        self.d_ff = 2688
+        self.max_seq_len = 4096
+        self.dropout = 0.1
+
+        # 训练参数 - GPU优化
+        if self.device == "cuda":
+            gpu_memory = self.gpu_info['devices'][0]['memory_total'] if self.gpu_info else 8
+            if gpu_memory >= 40:  # A6000等高端卡
+                self.batch_size = 12
+                self.gradient_accumulation_steps = 12
+            elif gpu_memory >= 24:  # RTX 3090/4090
+                self.batch_size = 6
+                self.gradient_accumulation_steps = 24
+            elif gpu_memory >= 12:
+                self.batch_size = 3
+                self.gradient_accumulation_steps = 48
+            else:
+                self.batch_size = 2
+                self.gradient_accumulation_steps = 64
+        else:
+            self.batch_size = 2
+            self.gradient_accumulation_steps = 64
+
+        self.learning_rate = 2e-4
+        self.weight_decay = 0.01
+        self.warmup_steps = 5000
+        self.max_steps = 150000
+        self.eval_steps = 3000
+        self.save_steps = 8000
+
+        # 强制启用内存优化
+        self.gradient_checkpointing = True
+
+        # 优化器
+        self.optimizer = "adamw"
+        self.beta1 = 0.9
+        self.beta2 = 0.95
+        self.eps = 1e-8
+
+        # 生成参数
+        self.max_generate_length = 2048
+        self.temperature = 0.8
+        self.top_k = 50
+        self.top_p = 0.9
+
+
 class LargeConfig(BaseConfig):
-    """大模型配置 (~500M参数) - 高端 GPU 优化"""
+    """大模型配置 (~350M参数) - 高端 GPU 优化"""
     def __init__(self):
         super().__init__()
         
         # 模型标识
         self.model_size = "large"
 
-        # 模型参数
-        self.vocab_size = 50000
-        self.d_model = 1280
-        self.n_heads = 20
-        self.n_layers = 24
-        self.d_ff = 5120
-        self.max_seq_len = 2048
+        # 模型参数 (更新为与src/model/config.py一致)
+        self.vocab_size = 32000
+        self.d_model = 768
+        self.n_heads = 24
+        self.n_layers = 32
+        self.d_ff = 3072
+        self.max_seq_len = 4096
         self.dropout = 0.1
 
         # 只在高端 GPU 上运行
         if self.device == "cuda":
             gpu_memory = self.gpu_info['devices'][0]['memory_total'] if self.gpu_info else 8
-            if gpu_memory >= 24:  # RTX 3090/4090
+            if gpu_memory >= 40:  # A6000等高端卡
                 self.batch_size = 8
-            elif gpu_memory >= 16:  # RTX 4080
+                self.gradient_accumulation_steps = 16
+            elif gpu_memory >= 24:  # RTX 3090/4090
                 self.batch_size = 4
-            else:
+                self.gradient_accumulation_steps = 32
+            elif gpu_memory >= 16:  # RTX 4080
                 self.batch_size = 2
+                self.gradient_accumulation_steps = 64
+            else:
+                self.batch_size = 1
+                self.gradient_accumulation_steps = 128
                 print("警告: 显存不足，建议使用更小的模型配置")
         else:
             self.batch_size = 1
+            self.gradient_accumulation_steps = 128
             print("警告: 大模型建议使用 CUDA GPU")
 
         self.learning_rate = 2e-4
@@ -290,11 +502,67 @@ class LargeConfig(BaseConfig):
         self.eval_steps = 5000
         self.save_steps = 10000
 
-        # 梯度累积
-        self.gradient_accumulation_steps = max(1, 128 // self.batch_size)
-
         # 强制启用内存优化
         self.gradient_checkpointing = True
+
+        # 优化器
+        self.optimizer = "adamw"
+        self.beta1 = 0.9
+        self.beta2 = 0.95
+        self.eps = 1e-8
+
+        # 生成参数
+        self.max_generate_length = 2048
+        self.temperature = 0.8
+        self.top_k = 50
+        self.top_p = 0.9
+
+
+class MOEConfig(BaseConfig):
+    """MOE (Mixture of Experts) 模型配置"""
+    def __init__(self):
+        super().__init__()
+        
+        # 模型标识
+        self.model_size = "moe"
+
+        # 模型参数
+        self.vocab_size = 10000
+        self.d_model = 384
+        self.n_heads = 12
+        self.n_layers = 12
+        self.d_ff = 1536
+        self.max_seq_len = 1024
+        self.dropout = 0.1
+
+        # MOE特有参数
+        self.use_moe = True
+        self.num_experts_per_tok = 2
+        self.n_routed_experts = 4
+        self.n_shared_experts = 1
+
+        # 训练参数
+        if self.device == "cuda":
+            gpu_memory = self.gpu_info['devices'][0]['memory_total'] if self.gpu_info else 8
+            if gpu_memory >= 24:
+                self.batch_size = 16
+                self.gradient_accumulation_steps = 8
+            elif gpu_memory >= 12:
+                self.batch_size = 8
+                self.gradient_accumulation_steps = 16
+            else:
+                self.batch_size = 4
+                self.gradient_accumulation_steps = 32
+        else:
+            self.batch_size = 4
+            self.gradient_accumulation_steps = 32
+
+        self.learning_rate = 3e-4
+        self.weight_decay = 0.01
+        self.warmup_steps = 2000
+        self.max_steps = 50000
+        self.eval_steps = 1000
+        self.save_steps = 2000
 
         # 优化器
         self.optimizer = "adamw"
@@ -312,8 +580,13 @@ class LargeConfig(BaseConfig):
 def get_config(model_size="medium"):
     """获取指定大小的配置"""
     configs = {
+        "tiny": TinyConfig,
+        "small": SmallConfig,
+        "small_30m": Small30MConfig,
         "medium": MediumConfig,
-        "large": LargeConfig
+        "foundation": FoundationConfig,
+        "large": LargeConfig,
+        "moe": MOEConfig
     }
 
     if model_size not in configs:
@@ -348,7 +621,7 @@ def get_large_config():
 
 if __name__ == "__main__":
     # 测试所有配置
-    configs = ["medium", "large"]
+    configs = ["tiny", "small", "small_30m", "medium", "foundation", "large", "moe"]
 
     for config_name in configs:
         print(f"\n{'='*50}")
