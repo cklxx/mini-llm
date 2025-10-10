@@ -202,12 +202,12 @@ class MediumConfig(BaseConfig):
         # 模型标识
         self.model_size = "medium"
 
-        # 模型参数 (与src/model/config.py保持一致)
-        self.vocab_size = 20000  # 更新为与模型配置一致
-        self.d_model = 512       # 减小维度以降低内存
-        self.n_heads = 16
-        self.n_layers = 16
-        self.d_ff = 1536         # 减小FFN以降低内存
+        # 模型参数 (与 src/model/config.py 中的 medium 预设保持一致)
+        self.vocab_size = 20000
+        self.d_model = 384       # 瘦长架构：降低宽度
+        self.n_heads = 12
+        self.n_layers = 20       # 提升深度以补足表达能力
+        self.d_ff = 1536         # 4 × hidden 的 FFN 设计
         self.max_seq_len = 2048
         self.dropout = 0.1
 
@@ -232,9 +232,11 @@ class MediumConfig(BaseConfig):
             self.batch_size = 2
             self.gradient_accumulation_steps = 64
 
-        self.learning_rate = 3e-4
+        # 采用与 MiniMind 相近的较高学习率，加速瘦长模型收敛
+        self.learning_rate = 5e-4
         self.weight_decay = 0.01
-        self.warmup_steps = 4000
+        # MiniMind 默认 warmup 比例约为 10%，在此保持一致
+        self.warmup_steps = 10000
         self.max_steps = 100000
         self.eval_steps = 2000
         self.save_steps = 5000

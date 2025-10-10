@@ -110,13 +110,17 @@ def apply_rotary_pos_emb(q: torch.Tensor, k: torch.Tensor,
     """
     # 如果提供了position_ids，则根据位置选择对应的cos和sin
     if position_ids is not None:
-        cos = cos[position_ids]
+        # 根据提供的位置索引采样cos/sin，保持batch对齐
+        cos = cos[position_ids]  # (batch_size, seq_len, head_dim)
         sin = sin[position_ids]
 
-    # 确保cos和sin的形状与q、k兼容
-    # 添加num_heads维度
-    cos = cos.unsqueeze(1)  # (seq_len, 1, head_dim)
-    sin = sin.unsqueeze(1)  # (seq_len, 1, head_dim)
+        # 插入注意力头维度，使其与查询/键张量广播兼容
+        cos = cos.unsqueeze(1)  # (batch_size, 1, seq_len, head_dim)
+        sin = sin.unsqueeze(1)
+    else:
+        # 默认情况下广播到(batch, heads, seq_len, head_dim)
+        cos = cos.unsqueeze(0).unsqueeze(0)  # (1, 1, seq_len, head_dim)
+        sin = sin.unsqueeze(0).unsqueeze(0)
 
     # 应用旋转变换
     # RoPE公式: R * x = x * cos + rotate_half(x) * sin

@@ -225,33 +225,30 @@ def get_small_30m_config() -> MiniGPTConfig:
 
 
 def get_medium_config() -> MiniGPTConfig:
-    """获取medium模型配置 (优化~80M参数，降低内存占用)
-    深度优化的架构设计 + Flash Attention内存优化
+    """获取 medium 模型配置 (≈75M 参数，瘦长架构)
 
-    参数计算：
-    - 词嵌入: ~10.2M (20000 × 512) [tie_word_embeddings=True，节省输出层]
-    - Transformer层: ~66M (16层 × 4.1M/层)
-    - 层归一化等: ~1.8M
-    - 总计: ≈78M参数
+    最新版本采用“瘦长”（narrow & deep）的结构策略：
+    - 隐藏维度压缩至 384，使单层计算与显存开销更低
+    - 层数提升至 20 层，以深度弥补宽度带来的表达能力下降
+    - 12 个注意力头 + 3 个 KV 头保持 4:1 的 GQA 比例，head_dim=32 确保稳定性
+    - FFN 宽度 1536 (= 4 × hidden)，兼顾收敛速度与实现简洁
 
-    内存优化：
-    - Flash Attention：线性内存复杂度，大幅降低GPU显存占用
-    - GQA优化：16个Q头 → 4个KV头，节省约25%的注意力参数
-    - 适中架构：16层×512维，平衡性能与资源占用
+    在保持 2K 上下文的同时，Flash Attention 与权重共享仍默认启用，用于保证推理吞吐与显存友好性。
     """
+
     return MiniGPTConfig(
-        vocab_size=20000,     # 保持词汇表大小
-        hidden_size=512,      # 减小隐藏维度降低内存 (512 = 16 × 32)
-        num_hidden_layers=16, # 保持合理层数
-        num_attention_heads=16,
-        num_key_value_heads=4,  # GQA优化：4:1比例
-        intermediate_size=1536, # FFN大小 (512 × 3)，减小内存
+        vocab_size=20000,
+        hidden_size=384,
+        num_hidden_layers=20,
+        num_attention_heads=12,
+        num_key_value_heads=3,   # GQA 4:1
+        intermediate_size=1536,
         max_position_embeddings=2048,
         dropout=0.1,
-        use_rope=True,         # ✅ RoPE位置编码
-        use_gqa=True,          # ✅ 分组查询注意力
-        flash_attn=True,       # ✅ Flash Attention内存优化
-        tie_word_embeddings=True  # ✅ 权重共享优化
+        use_rope=True,
+        use_gqa=True,
+        flash_attn=True,
+        tie_word_embeddings=True
     )
 
 
