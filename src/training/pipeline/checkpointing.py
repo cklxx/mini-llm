@@ -95,35 +95,46 @@ class CheckpointManager:
     def load(self, path: str, model, optimizer) -> int:
         return self._load_checkpoint(path, model, optimizer)
 
-    def save(self, model, optimizer, step: int, loss: float) -> str:
+    def save(self, model, optimizer, step: int, loss: float, tokenizer=None) -> str:
         self._remove_old_checkpoints()
         checkpoint_path = os.path.join(self.output_dir, f"checkpoint_step_{step}.pt")
-        torch.save(
-            {
-                "step": step,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "loss": loss,
-                "config": self.config,
-                "mode": self.mode,
-            },
-            checkpoint_path,
-        )
+        payload = {
+            "step": step,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "loss": loss,
+            "config": self.config,
+            "mode": self.mode,
+        }
+        if tokenizer is not None:
+            try:
+                payload.update(
+                    {
+                        "tokenizer_vocab_size": tokenizer.vocab_size,
+                        "tokenizer_config": tokenizer.get_config(),
+                        "tokenizer_checksum": tokenizer.checksum(),
+                        "tokenizer_special_tokens": tokenizer.special_tokens_map(),
+                    }
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                print(f"⚠️  无法附加分词器信息到checkpoint: {exc}")
+        torch.save(payload, checkpoint_path)
         print(f"💾 检查点已保存: {checkpoint_path}")
         return checkpoint_path
 
     def save_final(self, model, tokenizer, step: int) -> str:
         final_path = os.path.join(self.output_dir, "final_model.pt")
-        torch.save(
-            {
-                "model_state_dict": model.state_dict(),
-                "tokenizer_vocab_size": tokenizer.vocab_size,
-                "config": self.config,
-                "mode": self.mode,
-                "step": step,
-            },
-            final_path,
-        )
+        payload = {
+            "model_state_dict": model.state_dict(),
+            "tokenizer_vocab_size": tokenizer.vocab_size,
+            "tokenizer_config": tokenizer.get_config(),
+            "tokenizer_checksum": tokenizer.checksum(),
+            "tokenizer_special_tokens": tokenizer.special_tokens_map(),
+            "config": self.config,
+            "mode": self.mode,
+            "step": step,
+        }
+        torch.save(payload, final_path)
         return final_path
 
     # ------------------------------------------------------------------

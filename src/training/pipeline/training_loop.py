@@ -101,7 +101,9 @@ class TrainingLoopRunner:
                     raise
 
                 if (batch_idx + 1) % accumulation_steps == 0 or (batch_idx + 1) == len(train_loader):
-                    step = self._optimizer_step(model, optimizer, scheduler, scaler, step)
+                    step, grad_norm = self._optimizer_step(
+                        model, optimizer, scheduler, scaler, step
+                    )
 
                     actual_loss = loss.item() * accumulation_steps
                     epoch_loss += actual_loss
@@ -114,6 +116,7 @@ class TrainingLoopRunner:
                         loss=actual_loss,
                         learning_rate=optimizer.param_groups[0]["lr"],
                         batch_size=current_batch_size * accumulation_steps,
+                        grad_norm=grad_norm,
                     )
 
                     if memory_hooks is not None:
@@ -134,7 +137,7 @@ class TrainingLoopRunner:
                     )
 
                     if step % 100 == 0:
-                        self.checkpoints.save(model, optimizer, step, actual_loss)
+                        self.checkpoints.save(model, optimizer, step, actual_loss, tokenizer)
 
                     if step % self.config.eval_steps == 0:
                         eval_metrics = self._evaluate(
@@ -150,6 +153,7 @@ class TrainingLoopRunner:
                             best_val_loss, no_improve_steps = self._maybe_update_best(
                                 model,
                                 optimizer,
+                                tokenizer,
                                 step,
                                 eval_metrics["val_loss"],
                                 best_val_loss,
@@ -170,6 +174,7 @@ class TrainingLoopRunner:
                 optimizer,
                 step,
                 epoch_loss / max(epoch_steps, 1) if epoch_steps else 0.0,
+                tokenizer,
             )
             print("💡 可使用 --auto-resume 从此处恢复训练")
 
@@ -231,24 +236,31 @@ class TrainingLoopRunner:
             self._handle_oom(batch, tokenizer)
             raise
 
-    def _optimizer_step(self, model, optimizer, scheduler, scaler, step: int) -> int:
+    def _optimizer_step(self, model, optimizer, scheduler, scaler, step: int) -> tuple[int, float]:
         if scaler is not None:
             scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             scaler.step(optimizer)
             scaler.update()
         else:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
         scheduler.step()
         optimizer.zero_grad()
-        return step + 1
+
+        if isinstance(grad_norm, torch.Tensor):
+            grad_norm_value = float(grad_norm.detach().cpu().item())
+        else:
+            grad_norm_value = float(grad_norm)
+
+        return step + 1, grad_norm_value
 
     def _maybe_update_best(
         self,
         model,
         optimizer,
+        tokenizer,
         step: int,
         val_loss: float,
         best_val_loss: float,
@@ -261,7 +273,7 @@ class TrainingLoopRunner:
         if val_loss + delta < best_val_loss:
             best_val_loss = val_loss
             no_improve_steps = 0
-            self.checkpoints.save(model, optimizer, step, val_loss)
+            self.checkpoints.save(model, optimizer, step, val_loss, tokenizer)
             print("💾 验证集指标提升，已保存最佳模型")
         else:
             no_improve_steps += 1
