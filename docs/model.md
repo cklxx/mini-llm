@@ -13,7 +13,7 @@ Mini-LLM 的核心模型定义在 `src/model` 目录下，围绕 `MiniGPTConfig`
 - **训练辅助**：`dropout`、`attention_dropout`、`gradient_checkpointing`、`flash_attn`
 - **生成参数**：`max_generate_length`、`temperature`、`top_k`、`top_p`
 
-框架额外提供 `get_tiny_config()` 与 `get_small_config()` 方便快速构建不同容量的模型。
+框架额外提供多种预设（`tiny`/`small`/`medium`/`foundation`/`large`/`moe`），便于按资源快速选择合适的规模。其中 `foundation` 配置采用 24 层 × 768 宽度的架构（约 2.1 亿参数），在 GQA (16Q→4KV)、Flash Attention 与梯度检查点的配合下兼顾训练吞吐与显存占用。
 
 ## MiniGPT 模型结构
 `MiniGPT` 继承自 `torch.nn.Module`，实现了标准的 Transformer Decoder 结构：
