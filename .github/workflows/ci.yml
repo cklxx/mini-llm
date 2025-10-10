@@ -136,7 +136,7 @@ jobs:
       - name: Test build
         run: |
           uv build
-          uv pip install dist/*.whl
+          uv pip install --system dist/*.whl
 
       - name: Verify installation
         run: |
