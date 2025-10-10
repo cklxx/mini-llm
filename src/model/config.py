@@ -201,6 +201,29 @@ def get_small_config() -> MiniGPTConfig:
     )
 
 
+def get_small_30m_config() -> MiniGPTConfig:
+    """获取约 30M 参数量的小型模型配置
+
+    相比 `small` 预设略微加深网络并提升上下文长度，适合作为轻量级对话/推理模型的起点。
+    """
+
+    return MiniGPTConfig(
+        vocab_size=12000,          # 略扩的词表覆盖范围
+        hidden_size=384,
+        num_hidden_layers=13,      # 比 small 略深增强表示能力
+        num_attention_heads=12,
+        num_key_value_heads=3,     # 维持 4:1 的 GQA 比例
+        intermediate_size=1408,    # ≈3.67× hidden，兼顾算力与表达力
+        max_position_embeddings=2048,
+        dropout=0.1,
+        attention_dropout=0.1,
+        use_rope=True,
+        use_gqa=True,
+        flash_attn=True,
+        tie_word_embeddings=True
+    )
+
+
 def get_medium_config() -> MiniGPTConfig:
     """获取medium模型配置 (优化~80M参数，降低内存占用)
     深度优化的架构设计 + Flash Attention内存优化
@@ -251,6 +274,33 @@ def get_large_config() -> MiniGPTConfig:
     )
 
 
+def get_foundation_config() -> MiniGPTConfig:
+    """获取foundation模型配置 (~200M参数)
+
+    为训练具备基础智能能力的中型模型量身定制：
+    - 24层 Transformer，配合更宽的隐藏维度 768，平衡深度与计算吞吐
+    - 16 头注意力 + 4 个KV头（GQA 4:1）保证稳定性与高效显存利用
+    - FFN 宽度 2688 (= 3.5 × hidden_size) 在计算和表达力之间折衷
+    - 约 2.09 亿参数，适配 32GB 级别单卡或两卡训练
+    """
+    return MiniGPTConfig(
+        vocab_size=32000,
+        hidden_size=768,
+        num_hidden_layers=24,
+        num_attention_heads=16,
+        num_key_value_heads=4,
+        intermediate_size=2688,
+        max_position_embeddings=4096,
+        dropout=0.1,
+        attention_dropout=0.1,
+        use_rope=True,
+        use_gqa=True,
+        flash_attn=True,
+        gradient_checkpointing=True,
+        tie_word_embeddings=True
+    )
+
+
 def get_moe_config() -> MiniGPTConfig:
     """获取MOE模型配置
     结合现代架构优化的专家混合模型
@@ -278,8 +328,10 @@ def get_moe_config() -> MiniGPTConfig:
 CONFIG_MAPPING = {
     "tiny": get_tiny_config,
     "small": get_small_config,
+    "small_30m": get_small_30m_config,
     "medium": get_medium_config,
     "large": get_large_config,
+    "foundation": get_foundation_config,
     "moe": get_moe_config,
 }
 
@@ -294,7 +346,7 @@ def get_config(config_name: str) -> MiniGPTConfig:
 
 if __name__ == "__main__":
     # 测试配置
-    configs = ["tiny", "small", "medium", "large", "moe"]
+    configs = ["tiny", "small", "small_30m", "medium", "foundation", "large", "moe"]
 
     for config_name in configs:
         config = get_config(config_name)
