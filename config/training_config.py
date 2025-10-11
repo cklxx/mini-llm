@@ -254,13 +254,21 @@ class SmallConfig(BaseConfig):
         # 训练参数 - 优化内存使用
         if self.device == "cuda":
             gpu_memory = self.gpu_info['devices'][0]['memory_total'] if self.gpu_info else 8
+            gpu_name = self.gpu_info['devices'][0]['name'] if self.gpu_info else ""
+            
             if gpu_memory >= 40:
-                # 高端GPU（A6000等）：降低batch size以适应长序列
+                # 高端GPU（A6000/A100等）：降低batch size以适应长序列
                 self.batch_size = 16
                 self.gradient_accumulation_steps = 8
             elif gpu_memory >= 24:
-                self.batch_size = 12
-                self.gradient_accumulation_steps = 10
+                # RTX 4090/3090/A6000等24GB显存
+                # RTX 4090 (Ada架构) 性能更优，可以使用稍大的batch size
+                if "4090" in gpu_name or "Ada" in gpu_name:
+                    self.batch_size = 16  # RTX 4090优化
+                    self.gradient_accumulation_steps = 9  # 有效批量 = 144
+                else:
+                    self.batch_size = 12  # RTX 3090/其他24GB卡
+                    self.gradient_accumulation_steps = 10  # 有效批量 = 120
             elif gpu_memory >= 12:
                 self.batch_size = 8
                 self.gradient_accumulation_steps = 16
