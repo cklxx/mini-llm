@@ -1,4 +1,5 @@
 """Runtime environment helpers used by the training pipeline."""
+
 from __future__ import annotations
 
 import json
@@ -21,7 +22,9 @@ class TrainingEnvironment:
     dataset_stats: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        self.output_dir = os.path.join(self.config.checkpoint_dir, f"{self.mode}_{self.config.model_size}")
+        self.output_dir = os.path.join(
+            self.config.checkpoint_dir, f"{self.mode}_{self.config.model_size}"
+        )
         os.makedirs(self.output_dir, exist_ok=True)
         self._set_random_seed(getattr(self.config, "random_seed", 42))
         self.device = self._setup_device()

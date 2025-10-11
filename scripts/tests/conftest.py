@@ -1,4 +1,5 @@
 """Test configuration helpers for MiniGPT."""
+
 from __future__ import annotations
 
 import warnings

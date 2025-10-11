@@ -1,4 +1,5 @@
 """High-level training orchestration for MiniGPT."""
+
 from __future__ import annotations
 
 import math
@@ -136,8 +137,8 @@ class MiniGPTTrainer:
 
         # Set initial_lr for scheduler (required when resuming from checkpoint)
         for param_group in optimizer.param_groups:
-            if 'initial_lr' not in param_group:
-                param_group['initial_lr'] = param_group['lr']
+            if "initial_lr" not in param_group:
+                param_group["initial_lr"] = param_group["lr"]
 
         scheduler = self._build_scheduler(optimizer, start_step=start_step)
         self._log_scheduler_state(optimizer, start_step)
@@ -190,9 +191,11 @@ class MiniGPTTrainer:
             current_lr = optimizer.param_groups[0]["lr"]
             if start_step >= self.config.warmup_steps:
                 phase = "Cosine Decay"
-                progress = (start_step - self.config.warmup_steps) / (
-                    self.config.max_steps - self.config.warmup_steps
-                ) * 100
+                progress = (
+                    (start_step - self.config.warmup_steps)
+                    / (self.config.max_steps - self.config.warmup_steps)
+                    * 100
+                )
             else:
                 phase = "Warmup"
                 progress = start_step / self.config.warmup_steps * 100
@@ -201,7 +204,9 @@ class MiniGPTTrainer:
             print(f"   当前学习率: {current_lr:.2e}")
         else:
             warmup_ratio = self.config.warmup_steps / self.config.max_steps * 100
-            print(f"✅ 学习率调度器: Warmup({self.config.warmup_steps}步, {warmup_ratio:.1f}%) + Cosine Decay")
+            print(
+                f"✅ 学习率调度器: Warmup({self.config.warmup_steps}步, {warmup_ratio:.1f}%) + Cosine Decay"
+            )
             print(
                 f"   初始LR: 0 -> 峰值LR: {self.config.learning_rate:.2e} -> "
                 f"最低LR: {self.config.learning_rate * 0.1:.2e}"

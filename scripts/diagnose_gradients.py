@@ -22,7 +22,7 @@ def analyze_checkpoint_gradients(checkpoint_path):
     print(f"📊 分析Checkpoint: {checkpoint_path}")
     print(f"{'='*60}\n")
 
-    checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
 
     # 基本信息
     print("📋 基本信息:")
@@ -32,8 +32,8 @@ def analyze_checkpoint_gradients(checkpoint_path):
 
     # 分析参数范数
     print("\n🔍 参数统计:")
-    if 'model_state_dict' in checkpoint:
-        state_dict = checkpoint['model_state_dict']
+    if "model_state_dict" in checkpoint:
+        state_dict = checkpoint["model_state_dict"]
 
         total_params = 0
         layer_stats = {}
@@ -42,31 +42,26 @@ def analyze_checkpoint_gradients(checkpoint_path):
             total_params += param.numel()
 
             # 按层统计
-            layer_name = name.split('.')[0]
+            layer_name = name.split(".")[0]
             if layer_name not in layer_stats:
-                layer_stats[layer_name] = {
-                    'params': 0,
-                    'mean_norm': 0,
-                    'count': 0
-                }
+                layer_stats[layer_name] = {"params": 0, "mean_norm": 0, "count": 0}
 
             param_norm = param.norm().item()
-            layer_stats[layer_name]['params'] += param.numel()
-            layer_stats[layer_name]['mean_norm'] += param_norm
-            layer_stats[layer_name]['count'] += 1
+            layer_stats[layer_name]["params"] += param.numel()
+            layer_stats[layer_name]["mean_norm"] += param_norm
+            layer_stats[layer_name]["count"] += 1
 
         print(f"   总参数量: {total_params:,}")
 
         print("\n   各层参数范数:")
         for layer, stats in sorted(layer_stats.items()):
-            avg_norm = stats['mean_norm'] / stats['count']
-            print(f"   • {layer:20s}: 参数={stats['params']:>10,}, "
-                  f"平均范数={avg_norm:>8.4f}")
+            avg_norm = stats["mean_norm"] / stats["count"]
+            print(f"   • {layer:20s}: 参数={stats['params']:>10,}, " f"平均范数={avg_norm:>8.4f}")
 
     # 优化器状态
-    if 'optimizer_state_dict' in checkpoint:
+    if "optimizer_state_dict" in checkpoint:
         print("\n⚙️  优化器状态:")
-        opt_state = checkpoint['optimizer_state_dict']
+        opt_state = checkpoint["optimizer_state_dict"]
         print(f"   学习率: {opt_state.get('param_groups', [{}])[0].get('lr', 'N/A')}")
 
 
@@ -96,10 +91,10 @@ def analyze_training_logs(log_dir):
                 for line in f:
                     try:
                         data = json.loads(line.strip())
-                        if 'grad_norm' in data:
-                            grad_norms.append(data['grad_norm'])
-                            losses.append(data.get('loss', 0))
-                            steps.append(data.get('step', len(steps)))
+                        if "grad_norm" in data:
+                            grad_norms.append(data["grad_norm"])
+                            losses.append(data.get("loss", 0))
+                            steps.append(data.get("step", len(steps)))
                     except json.JSONDecodeError:
                         continue
         except Exception as e:
@@ -111,6 +106,7 @@ def analyze_training_logs(log_dir):
 
     # 统计分析
     import numpy as np
+
     grad_norms = np.array(grad_norms)
     losses = np.array(losses)
 
@@ -165,31 +161,31 @@ def check_model_architecture(checkpoint_path):
     print("🏗️  模型架构健康检查")
     print(f"{'='*60}\n")
 
-    checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
 
-    if 'config' in checkpoint:
-        config = checkpoint['config']
+    if "config" in checkpoint:
+        config = checkpoint["config"]
 
         print("✅ 已实现的梯度保护机制:")
 
         checks = []
 
         # 检查残差连接
-        if hasattr(config, 'num_hidden_layers'):
+        if hasattr(config, "num_hidden_layers"):
             checks.append(("残差连接 (Residual)", True, "Transformer标准配置"))
 
         # 检查归一化
-        if hasattr(config, 'rms_norm_eps'):
+        if hasattr(config, "rms_norm_eps"):
             checks.append(("RMSNorm归一化", True, "现代LLM标配"))
 
         # 检查dropout
-        if hasattr(config, 'dropout') and config.dropout > 0:
+        if hasattr(config, "dropout") and config.dropout > 0:
             checks.append(("Dropout正则化", True, f"dropout={config.dropout}"))
 
         # 检查激活函数
-        if hasattr(config, 'hidden_act'):
+        if hasattr(config, "hidden_act"):
             act = config.hidden_act
-            if act in ['swiglu', 'silu', 'gelu']:
+            if act in ["swiglu", "silu", "gelu"]:
                 checks.append(("现代激活函数", True, f"{act.upper()}"))
             else:
                 checks.append(("激活函数", False, f"{act} (建议使用SwiGLU/GELU)"))
@@ -229,12 +225,12 @@ def main():
     parser = argparse.ArgumentParser(description="梯度诊断工具")
     parser.add_argument("--checkpoint", type=str, help="Checkpoint文件路径")
     parser.add_argument("--log-dir", type=str, help="日志目录路径")
-    parser.add_argument("--mode", type=str, default="pretrain",
-                       choices=["pretrain", "sft", "dpo"],
-                       help="训练模式")
-    parser.add_argument("--config", type=str, default="medium",
-                       choices=["tiny", "small", "medium"],
-                       help="模型配置")
+    parser.add_argument(
+        "--mode", type=str, default="pretrain", choices=["pretrain", "sft", "dpo"], help="训练模式"
+    )
+    parser.add_argument(
+        "--config", type=str, default="medium", choices=["tiny", "small", "medium"], help="模型配置"
+    )
 
     args = parser.parse_args()
 
@@ -268,8 +264,7 @@ def main():
 
     # 提供建议
     if args.checkpoint or args.log_dir:
-        checkpoint_dir = (Path(args.checkpoint).parent if args.checkpoint
-                         else args.log_dir)
+        checkpoint_dir = Path(args.checkpoint).parent if args.checkpoint else args.log_dir
         provide_recommendations(str(checkpoint_dir))
     else:
         print("\n❌ 未找到checkpoint或日志文件")

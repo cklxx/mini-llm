@@ -156,7 +156,9 @@ def main() -> None:
     print(f"UNK率: {stats['unk_rate']*100:.4f}%")
 
     if stats["unk_rate"] > 0.001:
-        print("⚠️  UNK率偏高，建议检查 tokenizer 配置、训练/推理规范化流程或是否启用 byte fallback。")
+        print(
+            "⚠️  UNK率偏高，建议检查 tokenizer 配置、训练/推理规范化流程或是否启用 byte fallback。"
+        )
     else:
         print("✅ UNK率处于正常范围")
 

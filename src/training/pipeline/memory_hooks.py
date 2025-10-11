@@ -1,4 +1,5 @@
 """Lightweight integration of the legacy memory optimizer helpers."""
+
 from __future__ import annotations
 
 import os
@@ -58,7 +59,10 @@ class MemoryHooks:
         self._steps_since_cleanup += 1
 
         should_cleanup = False
-        if self._hook_config.cleanup_interval > 0 and self._steps_since_cleanup >= self._hook_config.cleanup_interval:
+        if (
+            self._hook_config.cleanup_interval > 0
+            and self._steps_since_cleanup >= self._hook_config.cleanup_interval
+        ):
             should_cleanup = True
         elif self._monitor.check_memory_pressure(self._hook_config.threshold):
             should_cleanup = True
@@ -72,7 +76,10 @@ class MemoryHooks:
             )
             self._steps_since_cleanup = 0
 
-        if self._hook_config.log_interval > 0 and self._steps_since_log >= self._hook_config.log_interval:
+        if (
+            self._hook_config.log_interval > 0
+            and self._steps_since_log >= self._hook_config.log_interval
+        ):
             summary = self._monitor.get_memory_summary()
             print(summary)
             self._steps_since_log = 0

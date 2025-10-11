@@ -1,4 +1,5 @@
 """Command-line entry point for MiniGPT training."""
+
 from __future__ import annotations
 
 import argparse
@@ -60,7 +61,9 @@ def apply_mode_defaults(config, mode: str, overrides) -> None:
         config.warmup_steps = min(500, int(config.max_steps * 0.05))
         print("📚 预训练模式：建立基础语言理解能力")
         print(f"   学习率: {config.learning_rate:.2e}")
-        print(f"   Warmup steps: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)")
+        print(
+            f"   Warmup steps: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)"
+        )
     elif mode == "sft":
         config.max_steps = overrides.max_steps or config.max_steps or 10000
         if overrides.learning_rate is None:
@@ -68,7 +71,9 @@ def apply_mode_defaults(config, mode: str, overrides) -> None:
         config.warmup_steps = min(200, int(config.max_steps * 0.02))
         print("🎯 监督微调模式：训练对话和特定任务能力")
         print(f"   学习率: {config.learning_rate:.2e} (比预训练低，保护已学知识)")
-        print(f"   Warmup steps: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)")
+        print(
+            f"   Warmup steps: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)"
+        )
         print("   💡 模型已有预训练基础，使用短warmup快速进入衰减阶段")
     elif mode == "dpo":
         config.max_steps = overrides.max_steps or config.max_steps or 5000
@@ -77,7 +82,9 @@ def apply_mode_defaults(config, mode: str, overrides) -> None:
         config.warmup_steps = min(100, int(config.max_steps * 0.02))
         print("⚖️  直接偏好优化模式：根据人类偏好调整响应")
         print(f"   学习率: {config.learning_rate:.2e}")
-        print(f"   Warmup steps: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)")
+        print(
+            f"   Warmup steps: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)"
+        )
         print("   💡 在SFT基础上优化，使用极短warmup")
     elif mode == "rlhf":
         config.max_steps = overrides.max_steps or config.max_steps or 3000
@@ -86,7 +93,9 @@ def apply_mode_defaults(config, mode: str, overrides) -> None:
         config.warmup_steps = min(100, int(config.max_steps * 0.02))
         print("🔄 强化学习微调模式：通过奖励模型优化")
         print(f"   学习率: {config.learning_rate:.2e}")
-        print(f"   Warmup steps: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)")
+        print(
+            f"   Warmup steps: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)"
+        )
         print("   💡 在已训练模型上强化学习，使用极短warmup")
     else:
         raise ValueError(f"不支持的训练模式: {mode}")
@@ -109,7 +118,9 @@ def run_cli(argv: list[str] | None = None) -> str:
 
     if args.warmup_steps is not None:
         config.warmup_steps = args.warmup_steps
-        print(f"⚙️  使用自定义warmup步数: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)")
+        print(
+            f"⚙️  使用自定义warmup步数: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)"
+        )
 
     trainer = MiniGPTTrainer(config, mode=args.mode)
 
@@ -128,9 +139,13 @@ def run_cli(argv: list[str] | None = None) -> str:
 
     if args.mode == "pretrain":
         print("\n💡 建议下一步运行SFT训练:")
-        print(f"uv run python scripts/train.py --mode sft --config {args.config} --resume {final_model_path}")
+        print(
+            f"uv run python scripts/train.py --mode sft --config {args.config} --resume {final_model_path}"
+        )
     elif args.mode == "sft":
         print("\n💡 建议下一步运行DPO训练:")
-        print(f"uv run python scripts/train.py --mode dpo --config {args.config} --resume {final_model_path}")
+        print(
+            f"uv run python scripts/train.py --mode dpo --config {args.config} --resume {final_model_path}"
+        )
 
     return final_model_path

@@ -7,7 +7,7 @@
 import os
 import sys
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), "../.."))
 
 try:  # pragma: no cover - optional dependency guard
     import pytest
@@ -62,8 +62,14 @@ def test_rope_implementation():
     # 获取cos和sin
     cos, sin = rope(hidden_states)
 
-    assert cos.shape == (seq_len, head_dim), f"Expected cos shape ({seq_len}, {head_dim}), got {cos.shape}"
-    assert sin.shape == (seq_len, head_dim), f"Expected sin shape ({seq_len}, {head_dim}), got {sin.shape}"
+    assert cos.shape == (
+        seq_len,
+        head_dim,
+    ), f"Expected cos shape ({seq_len}, {head_dim}), got {cos.shape}"
+    assert sin.shape == (
+        seq_len,
+        head_dim,
+    ), f"Expected sin shape ({seq_len}, {head_dim}), got {sin.shape}"
 
     # 测试应用RoPE
     q = torch.randn(batch_size, 8, seq_len, head_dim)
@@ -77,7 +83,9 @@ def test_rope_implementation():
     # 验证旋转不变性（长度应该保持不变）
     q_norm_before = torch.norm(q, dim=-1)
     q_norm_after = torch.norm(q_rot, dim=-1)
-    assert torch.allclose(q_norm_before, q_norm_after, atol=1e-6), "RoPE should preserve vector norms"
+    assert torch.allclose(
+        q_norm_before, q_norm_after, atol=1e-6
+    ), "RoPE should preserve vector norms"
 
     print("✅ RoPE implementation test passed!")
     return True
@@ -95,10 +103,7 @@ def test_gqa_implementation():
 
     # 创建GQA
     gqa = GroupedQueryAttention(
-        d_model=d_model,
-        num_heads=num_heads,
-        num_key_value_heads=num_kv_heads,
-        use_rope=True
+        d_model=d_model, num_heads=num_heads, num_key_value_heads=num_kv_heads, use_rope=True
     )
 
     # 测试输入
@@ -107,10 +112,14 @@ def test_gqa_implementation():
     # 前向传播
     output, _ = gqa(hidden_states)
 
-    assert output.shape == hidden_states.shape, f"GQA output shape mismatch: {hidden_states.shape} vs {output.shape}"
+    assert (
+        output.shape == hidden_states.shape
+    ), f"GQA output shape mismatch: {hidden_states.shape} vs {output.shape}"
 
     # 验证KV头数配置
-    assert gqa.num_queries_per_kv == num_heads // num_kv_heads, "Incorrect queries per KV head ratio"
+    assert (
+        gqa.num_queries_per_kv == num_heads // num_kv_heads
+    ), "Incorrect queries per KV head ratio"
 
     # 测试参数数量减少
     total_params = sum(p.numel() for p in gqa.parameters())
@@ -148,7 +157,9 @@ def test_deep_thin_architecture():
     print(f"New architecture (deep-thin): {new_params:,} parameters")
 
     # 验证新架构确实更深
-    assert new_config.num_hidden_layers > old_config.num_hidden_layers, "New config should be deeper"
+    assert (
+        new_config.num_hidden_layers > old_config.num_hidden_layers
+    ), "New config should be deeper"
 
     # 创建模型测试
     model = MiniGPT(new_config)
@@ -162,7 +173,9 @@ def test_deep_thin_architecture():
         logits = model(input_ids)
 
     expected_shape = (batch_size, seq_len, new_config.vocab_size)
-    assert logits.shape == expected_shape, f"Model output shape mismatch: {logits.shape} vs {expected_shape}"
+    assert (
+        logits.shape == expected_shape
+    ), f"Model output shape mismatch: {logits.shape} vs {expected_shape}"
 
     print("✅ Deep-thin architecture test passed!")
     return True
@@ -190,7 +203,9 @@ def test_weight_sharing():
 
     # 验证输出维度正确
     expected_shape = (batch_size, seq_len, config.vocab_size)
-    assert logits.shape == expected_shape, f"Weight sharing model output shape: {logits.shape} vs {expected_shape}"
+    assert (
+        logits.shape == expected_shape
+    ), f"Weight sharing model output shape: {logits.shape} vs {expected_shape}"
 
     # 计算参数节省
     params_with_sharing = estimate_params(config)

@@ -14,6 +14,7 @@
 - Lion: https://arxiv.org/abs/2302.06675
 - WSD: https://arxiv.org/abs/2410.05192
 """
+
 import math
 from collections.abc import Callable
 
@@ -50,11 +51,11 @@ class Lion(Optimizer):
             raise ValueError(f"Invalid weight_decay value: {weight_decay}")
 
         defaults = {
-            'lr': lr,
-            'betas': betas,
-            'weight_decay': weight_decay,
-            'maximize': maximize,
-            'foreach': foreach,
+            "lr": lr,
+            "betas": betas,
+            "weight_decay": weight_decay,
+            "maximize": maximize,
+            "foreach": foreach,
         }
         super().__init__(params, defaults)
 
@@ -134,13 +135,13 @@ class Sophia(Optimizer):
             raise ValueError(f"Invalid weight_decay value: {weight_decay}")
 
         defaults = {
-            'lr': lr,
-            'betas': betas,
-            'rho': rho,
-            'weight_decay': weight_decay,
-            'maximize': maximize,
-            'capturable': capturable,
-            'eps': eps,
+            "lr": lr,
+            "betas": betas,
+            "rho": rho,
+            "weight_decay": weight_decay,
+            "maximize": maximize,
+            "capturable": capturable,
+            "eps": eps,
         }
         super().__init__(params, defaults)
 
@@ -167,7 +168,9 @@ class Sophia(Optimizer):
 
                 # State initialization
                 if len(state) == 0:
-                    state["step"] = torch.zeros((1,), dtype=torch.float, device=p.device, requires_grad=False)
+                    state["step"] = torch.zeros(
+                        (1,), dtype=torch.float, device=p.device, requires_grad=False
+                    )
                     state["exp_avg"] = torch.zeros_like(p)
                     state["hessian_diag_sq"] = torch.zeros_like(p)
 
@@ -188,16 +191,16 @@ class Sophia(Optimizer):
                     hessian_diag_sq = state["hessian_diag_sq"]
 
                 # Update Hessian diagonal estimate
-                k = group.get('k', 10)
-                update_period = group.get('update_period', k)
+                k = group.get("k", 10)
+                update_period = group.get("update_period", k)
 
                 if step_t % update_period == 1:
                     # Approximation using gradient auto-correlation
                     hessian_diag_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
 
                 # Bias correction
-                bias_correction1 = 1 - beta1 ** step_t
-                bias_correction2 = 1 - beta2 ** step_t
+                bias_correction1 = 1 - beta1**step_t
+                bias_correction2 = 1 - beta2**step_t
 
                 # Clipped update
                 h = hessian_diag_sq.sqrt() / math.sqrt(bias_correction2)
@@ -227,12 +230,12 @@ class AdamWScheduleFree(Optimizer):
         r: float = 0.0,
     ):
         defaults = {
-            'lr': lr,
-            'betas': betas,
-            'eps': eps,
-            'weight_decay': weight_decay,
-            'warmup_steps': warmup_steps,
-            'r': r,
+            "lr": lr,
+            "betas": betas,
+            "eps": eps,
+            "weight_decay": weight_decay,
+            "warmup_steps": warmup_steps,
+            "r": r,
         }
         super().__init__(params, defaults)
 
@@ -282,8 +285,8 @@ class AdamWScheduleFree(Optimizer):
                 exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
 
                 # Bias correction
-                bias_correction1 = 1 - beta1 ** step
-                bias_correction2 = 1 - beta2 ** step
+                bias_correction1 = 1 - beta1**step
+                bias_correction2 = 1 - beta2**step
 
                 denom = (exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(group["eps"])
                 step_size = lr_t / bias_correction1
@@ -298,11 +301,7 @@ class AdamWScheduleFree(Optimizer):
 
 
 def get_optimizer(
-    optimizer_name: str,
-    parameters,
-    lr: float = 1e-4,
-    weight_decay: float = 0.01,
-    **kwargs
+    optimizer_name: str, parameters, lr: float = 1e-4, weight_decay: float = 0.01, **kwargs
 ) -> Optimizer:
     """
     获取优化器实例
@@ -320,57 +319,32 @@ def get_optimizer(
     optimizer_name = optimizer_name.lower()
 
     if optimizer_name == "adamw":
-        return torch.optim.AdamW(
-            parameters,
-            lr=lr,
-            weight_decay=weight_decay,
-            **kwargs
-        )
+        return torch.optim.AdamW(parameters, lr=lr, weight_decay=weight_decay, **kwargs)
     elif optimizer_name == "adam":
-        return torch.optim.Adam(
-            parameters,
-            lr=lr,
-            weight_decay=weight_decay,
-            **kwargs
-        )
+        return torch.optim.Adam(parameters, lr=lr, weight_decay=weight_decay, **kwargs)
     elif optimizer_name == "sgd":
         return torch.optim.SGD(
             parameters,
             lr=lr,
             weight_decay=weight_decay,
             momentum=kwargs.get("momentum", 0.9),
-            **{k: v for k, v in kwargs.items() if k != "momentum"}
+            **{k: v for k, v in kwargs.items() if k != "momentum"},
         )
     elif optimizer_name == "lion":
-        return Lion(
-            parameters,
-            lr=lr,
-            weight_decay=weight_decay,
-            **kwargs
-        )
+        return Lion(parameters, lr=lr, weight_decay=weight_decay, **kwargs)
     elif optimizer_name == "sophia":
-        return Sophia(
-            parameters,
-            lr=lr,
-            weight_decay=weight_decay,
-            **kwargs
-        )
+        return Sophia(parameters, lr=lr, weight_decay=weight_decay, **kwargs)
     elif optimizer_name == "adamw_schedule_free":
-        return AdamWScheduleFree(
-            parameters,
-            lr=lr,
-            weight_decay=weight_decay,
-            **kwargs
-        )
+        return AdamWScheduleFree(parameters, lr=lr, weight_decay=weight_decay, **kwargs)
     else:
-        raise ValueError(f"Unsupported optimizer: {optimizer_name}. "
-                        f"Supported optimizers: ['adamw', 'adam', 'sgd', 'lion', 'sophia', 'adamw_schedule_free']")
+        raise ValueError(
+            f"Unsupported optimizer: {optimizer_name}. "
+            f"Supported optimizers: ['adamw', 'adam', 'sgd', 'lion', 'sophia', 'adamw_schedule_free']"
+        )
 
 
 def get_scheduler(
-    scheduler_name: str,
-    optimizer: Optimizer,
-    **kwargs
+    scheduler_name: str, optimizer: Optimizer, **kwargs
 ) -> torch.optim.lr_scheduler._LRScheduler | None:
     """
     获取学习率调度器
@@ -393,12 +367,11 @@ def get_scheduler(
         return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=T_max)
     elif scheduler_name == "warmup_cosine":
         from transformers import get_cosine_schedule_with_warmup
+
         num_warmup_steps = kwargs.get("num_warmup_steps", 1000)
         num_training_steps = kwargs.get("num_training_steps", 10000)
         return get_cosine_schedule_with_warmup(
-            optimizer,
-            num_warmup_steps=num_warmup_steps,
-            num_training_steps=num_training_steps
+            optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=num_training_steps
         )
     elif scheduler_name == "linear":
         gamma = kwargs.get("gamma", 0.95)
@@ -408,8 +381,10 @@ def get_scheduler(
         gamma = kwargs.get("gamma", 0.1)
         return torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
     else:
-        raise ValueError(f"Unsupported scheduler: {scheduler_name}. "
-                        f"Supported schedulers: ['cosine', 'warmup_cosine', 'linear', 'step', 'inverse_sqrt', 'wsd', 'none']")
+        raise ValueError(
+            f"Unsupported scheduler: {scheduler_name}. "
+            f"Supported schedulers: ['cosine', 'warmup_cosine', 'linear', 'step', 'inverse_sqrt', 'wsd', 'none']"
+        )
 
 
 class Muon(Optimizer):
@@ -449,7 +424,7 @@ class Muon(Optimizer):
         momentum: float = 0.95,
         nesterov: bool = True,
         ns_steps: int = 5,
-        weight_decay: float = 0.0
+        weight_decay: float = 0.0,
     ):
         if lr < 0.0:
             raise ValueError(f"Invalid learning rate: {lr}")
@@ -457,11 +432,11 @@ class Muon(Optimizer):
             raise ValueError(f"Invalid momentum: {momentum}")
 
         defaults = {
-            'lr': lr,
-            'momentum': momentum,
-            'nesterov': nesterov,
-            'ns_steps': ns_steps,
-            'weight_decay': weight_decay,
+            "lr": lr,
+            "momentum": momentum,
+            "nesterov": nesterov,
+            "ns_steps": ns_steps,
+            "weight_decay": weight_decay,
         }
         super().__init__(params, defaults)
 
@@ -492,43 +467,42 @@ class Muon(Optimizer):
                 loss = closure()
 
         for group in self.param_groups:
-            for p in group['params']:
+            for p in group["params"]:
                 if p.grad is None:
                     continue
 
                 grad = p.grad
 
                 # 权重衰减
-                if group['weight_decay'] != 0:
-                    grad = grad.add(p, alpha=group['weight_decay'])
+                if group["weight_decay"] != 0:
+                    grad = grad.add(p, alpha=group["weight_decay"])
 
                 state = self.state[p]
 
                 # 状态初始化
                 if len(state) == 0:
-                    state['momentum_buffer'] = torch.zeros_like(grad)
+                    state["momentum_buffer"] = torch.zeros_like(grad)
 
-                buf = state['momentum_buffer']
+                buf = state["momentum_buffer"]
 
                 # 动量更新
-                buf.mul_(group['momentum']).add_(grad)
+                buf.mul_(group["momentum"]).add_(grad)
 
                 # Muon核心: 对2D参数应用Newton-Schulz正交化
                 if len(p.shape) == 2:
                     update = self.newton_schulz_iteration(
-                        buf.view(p.shape),
-                        steps=group['ns_steps']
+                        buf.view(p.shape), steps=group["ns_steps"]
                     )
                 else:
                     # 1D参数使用标准动量
                     update = buf
 
                 # Nesterov加速
-                if group['nesterov']:
-                    update = grad + group['momentum'] * update
+                if group["nesterov"]:
+                    update = grad + group["momentum"] * update
 
                 # 应用更新
-                p.add_(update, alpha=-group['lr'])
+                p.add_(update, alpha=-group["lr"])
 
         return loss
 
@@ -538,7 +512,7 @@ def get_warmup_cosine_schedule(
     num_warmup_steps: int,
     num_training_steps: int,
     num_cycles: float = 0.5,
-    min_lr_ratio: float = 0.1
+    min_lr_ratio: float = 0.1,
 ):
     """
     Warmup + Cosine退火调度器 (推荐用于LLM训练)
@@ -555,13 +529,16 @@ def get_warmup_cosine_schedule(
     Returns:
         LambdaLR调度器
     """
+
     def lr_lambda(current_step: int):
         # Warmup阶段: 线性增长
         if current_step < num_warmup_steps:
             return float(current_step) / float(max(1, num_warmup_steps))
 
         # Cosine退火阶段
-        progress = float(current_step - num_warmup_steps) / float(max(1, num_training_steps - num_warmup_steps))
+        progress = float(current_step - num_warmup_steps) / float(
+            max(1, num_training_steps - num_warmup_steps)
+        )
         cosine_decay = 0.5 * (1.0 + math.cos(math.pi * num_cycles * 2.0 * progress))
 
         # 确保不低于min_lr_ratio
@@ -570,11 +547,7 @@ def get_warmup_cosine_schedule(
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
-def get_inverse_sqrt_schedule(
-    optimizer: Optimizer,
-    num_warmup_steps: int,
-    timescale: int = 10000
-):
+def get_inverse_sqrt_schedule(optimizer: Optimizer, num_warmup_steps: int, timescale: int = 10000):
     """
     Inverse Sqrt调度器 (Transformer论文原始调度器)
 
@@ -590,6 +563,7 @@ def get_inverse_sqrt_schedule(
     Returns:
         LambdaLR调度器
     """
+
     def lr_lambda(current_step: int):
         current_step += 1  # 避免除以0
         if current_step < num_warmup_steps:
@@ -597,7 +571,7 @@ def get_inverse_sqrt_schedule(
             return float(current_step) / float(num_warmup_steps)
         else:
             # Inverse sqrt decay
-            return float(num_warmup_steps) ** 0.5 / (current_step ** 0.5)
+            return float(num_warmup_steps) ** 0.5 / (current_step**0.5)
 
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
@@ -607,7 +581,7 @@ def get_wsd_schedule(
     num_warmup_steps: int,
     num_stable_steps: int,
     num_decay_steps: int,
-    min_lr_ratio: float = 0.1
+    min_lr_ratio: float = 0.1,
 ):
     """
     Warmup-Stable-Decay调度器 (2024最新)
@@ -631,6 +605,7 @@ def get_wsd_schedule(
     Returns:
         LambdaLR调度器
     """
+
     def lr_lambda(current_step: int):
         # 1. Warmup阶段
         if current_step < num_warmup_steps:
@@ -641,7 +616,9 @@ def get_wsd_schedule(
             return 1.0
 
         # 3. Decay阶段
-        progress = float(current_step - num_warmup_steps - num_stable_steps) / float(max(1, num_decay_steps))
+        progress = float(current_step - num_warmup_steps - num_stable_steps) / float(
+            max(1, num_decay_steps)
+        )
         progress = min(progress, 1.0)  # 限制在[0, 1]
         cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
 
@@ -655,11 +632,7 @@ _original_get_optimizer = get_optimizer
 
 
 def get_optimizer(
-    optimizer_name: str,
-    parameters,
-    lr: float = 1e-4,
-    weight_decay: float = 0.01,
-    **kwargs
+    optimizer_name: str, parameters, lr: float = 1e-4, weight_decay: float = 0.01, **kwargs
 ) -> Optimizer:
     """
     获取优化器实例 (2024更新)
@@ -677,19 +650,11 @@ def get_optimizer(
     optimizer_name = optimizer_name.lower()
 
     if optimizer_name == "muon":
-        return Muon(
-            parameters,
-            lr=lr,
-            momentum=0.95,
-            weight_decay=weight_decay,
-            **kwargs
-        )
+        return Muon(parameters, lr=lr, momentum=0.95, weight_decay=weight_decay, **kwargs)
     elif optimizer_name == "muon_adamw":
         # 混合模式: 需要传入model而不是parameters
         # 这里返回提示信息
-        raise ValueError(
-            "muon_adamw需要使用get_hybrid_optimizer(model, ...)函数创建"
-        )
+        raise ValueError("muon_adamw需要使用get_hybrid_optimizer(model, ...)函数创建")
     else:
         # 调用原始函数处理其他优化器
         return _original_get_optimizer(optimizer_name, parameters, lr, weight_decay, **kwargs)
@@ -700,7 +665,7 @@ def get_hybrid_optimizer(
     muon_lr: float = 0.02,
     adamw_lr: float = 1e-3,
     weight_decay: float = 0.01,
-    betas: tuple = (0.9, 0.95)
+    betas: tuple = (0.9, 0.95),
 ):
     """
     创建Muon+AdamW混合优化器 (2024最优配置)
@@ -741,16 +706,6 @@ def get_hybrid_optimizer(
     print(f"   - AdamW: {len(params_1d)} 个1D参数, lr={adamw_lr}")
 
     return {
-        'muon': Muon(
-            params_2d,
-            lr=muon_lr,
-            momentum=0.95,
-            weight_decay=weight_decay
-        ),
-        'adamw': torch.optim.AdamW(
-            params_1d,
-            lr=adamw_lr,
-            betas=betas,
-            weight_decay=weight_decay
-        )
+        "muon": Muon(params_2d, lr=muon_lr, momentum=0.95, weight_decay=weight_decay),
+        "adamw": torch.optim.AdamW(params_1d, lr=adamw_lr, betas=betas, weight_decay=weight_decay),
     }

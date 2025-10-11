@@ -55,7 +55,7 @@ class RewardHead(nn.Module):
             nn.Linear(d_model // 2, d_model // 4),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(d_model // 4, 1)  # 输出标量奖励
+            nn.Linear(d_model // 4, 1),  # 输出标量奖励
         )
 
         # 初始化权重
@@ -68,8 +68,9 @@ class RewardHead(nn.Module):
                 nn.init.xavier_uniform_(layer.weight)
                 nn.init.zeros_(layer.bias)
 
-    def forward(self, hidden_states: torch.Tensor,
-                attention_mask: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(
+        self, hidden_states: torch.Tensor, attention_mask: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """
         前向传播
 
@@ -126,8 +127,9 @@ class RewardModel(nn.Module):
             for param in self.backbone.parameters():
                 param.requires_grad = False
 
-    def forward(self, input_ids: torch.Tensor,
-                attention_mask: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(
+        self, input_ids: torch.Tensor, attention_mask: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """
         前向传播
 
@@ -150,21 +152,23 @@ class RewardModel(nn.Module):
 class RewardTrainer:
     """奖励模型训练器"""
 
-    def __init__(self,
-                 model: RewardModel,
-                 tokenizer,
-                 device: str = 'cpu',
-                 # 损失函数参数
-                 ranking_weight: float = 1.0,
-                 contrastive_weight: float = 0.0,
-                 margin: float = 0.0,
-                 temperature: float = 1.0,
-                 reg_coef: float = 0.01,
-                 # 训练参数
-                 learning_rate: float = 5e-5,
-                 weight_decay: float = 0.01,
-                 max_grad_norm: float = 1.0,
-                 warmup_steps: int = 100):
+    def __init__(
+        self,
+        model: RewardModel,
+        tokenizer,
+        device: str = "cpu",
+        # 损失函数参数
+        ranking_weight: float = 1.0,
+        contrastive_weight: float = 0.0,
+        margin: float = 0.0,
+        temperature: float = 1.0,
+        reg_coef: float = 0.01,
+        # 训练参数
+        learning_rate: float = 5e-5,
+        weight_decay: float = 0.01,
+        max_grad_norm: float = 1.0,
+        warmup_steps: int = 100,
+    ):
         """
         初始化奖励训练器
 
@@ -191,21 +195,17 @@ class RewardTrainer:
             ranking_weight=ranking_weight,
             contrastive_weight=contrastive_weight,
             margin=margin,
-            temperature=temperature
+            temperature=temperature,
         )
         self.regularization = RewardRegularization(reg_coef)
 
         # 优化器
         self.optimizer = optim.AdamW(
-            model.parameters(),
-            lr=learning_rate,
-            weight_decay=weight_decay
+            model.parameters(), lr=learning_rate, weight_decay=weight_decay
         )
 
         # 学习率调度器
-        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(
-            self.optimizer, T_max=1000
-        )
+        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=1000)
 
         # 训练参数
         self.max_grad_norm = max_grad_norm
@@ -234,14 +234,8 @@ class RewardTrainer:
                 batch[key] = batch[key].to(self.device)
 
         # 前向传播
-        chosen_rewards = self.model(
-            batch['chosen_input_ids'],
-            batch['chosen_attention_mask']
-        )
-        rejected_rewards = self.model(
-            batch['rejected_input_ids'],
-            batch['rejected_attention_mask']
-        )
+        chosen_rewards = self.model(batch["chosen_input_ids"], batch["chosen_attention_mask"])
+        rejected_rewards = self.model(batch["rejected_input_ids"], batch["rejected_attention_mask"])
 
         # 计算偏好损失
         loss_dict = self.preference_loss(chosen_rewards, rejected_rewards)
@@ -249,12 +243,12 @@ class RewardTrainer:
         # 添加正则化
         all_rewards = torch.cat([chosen_rewards, rejected_rewards])
         reg_loss = self.regularization(all_rewards)
-        loss_dict['reg_loss'] = reg_loss
-        loss_dict['total_loss'] += reg_loss
+        loss_dict["reg_loss"] = reg_loss
+        loss_dict["total_loss"] += reg_loss
 
         # 反向传播
         self.optimizer.zero_grad()
-        loss_dict['total_loss'].backward()
+        loss_dict["total_loss"].backward()
 
         # 梯度裁剪
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
@@ -266,15 +260,17 @@ class RewardTrainer:
         if self.step < self.warmup_steps:
             lr_scale = min(1.0, float(self.step + 1) / self.warmup_steps)
             for pg in self.optimizer.param_groups:
-                pg['lr'] = pg['lr'] * lr_scale
+                pg["lr"] = pg["lr"] * lr_scale
         else:
             self.scheduler.step()
 
         self.step += 1
 
         # 返回损失统计
-        return {key: value.item() if torch.is_tensor(value) else value
-                for key, value in loss_dict.items()}
+        return {
+            key: value.item() if torch.is_tensor(value) else value
+            for key, value in loss_dict.items()
+        }
 
     def validate_step(self, batch: dict[str, torch.Tensor]) -> dict[str, float]:
         """
@@ -295,13 +291,9 @@ class RewardTrainer:
                     batch[key] = batch[key].to(self.device)
 
             # 前向传播
-            chosen_rewards = self.model(
-                batch['chosen_input_ids'],
-                batch['chosen_attention_mask']
-            )
+            chosen_rewards = self.model(batch["chosen_input_ids"], batch["chosen_attention_mask"])
             rejected_rewards = self.model(
-                batch['rejected_input_ids'],
-                batch['rejected_attention_mask']
+                batch["rejected_input_ids"], batch["rejected_attention_mask"]
             )
 
             # 计算损失
@@ -310,11 +302,13 @@ class RewardTrainer:
             # 添加正则化
             all_rewards = torch.cat([chosen_rewards, rejected_rewards])
             reg_loss = self.regularization(all_rewards)
-            loss_dict['reg_loss'] = reg_loss
-            loss_dict['total_loss'] += reg_loss
+            loss_dict["reg_loss"] = reg_loss
+            loss_dict["total_loss"] += reg_loss
 
-        return {key: value.item() if torch.is_tensor(value) else value
-                for key, value in loss_dict.items()}
+        return {
+            key: value.item() if torch.is_tensor(value) else value
+            for key, value in loss_dict.items()
+        }
 
     def train_epoch(self, train_dataloader: DataLoader) -> dict[str, float]:
         """
@@ -339,11 +333,13 @@ class RewardTrainer:
                 epoch_stats[key].append(value)
 
             # 更新进度条
-            progress_bar.set_postfix({
-                'loss': f"{step_stats['total_loss']:.4f}",
-                'acc': f"{step_stats['accuracy']:.4f}",
-                'lr': f"{self.optimizer.param_groups[0]['lr']:.6f}"
-            })
+            progress_bar.set_postfix(
+                {
+                    "loss": f"{step_stats['total_loss']:.4f}",
+                    "acc": f"{step_stats['accuracy']:.4f}",
+                    "lr": f"{self.optimizer.param_groups[0]['lr']:.6f}",
+                }
+            )
 
         # 计算平均统计
         return {key: np.mean(values) for key, values in epoch_stats.items()}
@@ -371,20 +367,21 @@ class RewardTrainer:
                 epoch_stats[key].append(value)
 
             # 更新进度条
-            progress_bar.set_postfix({
-                'loss': f"{step_stats['total_loss']:.4f}",
-                'acc': f"{step_stats['accuracy']:.4f}"
-            })
+            progress_bar.set_postfix(
+                {"loss": f"{step_stats['total_loss']:.4f}", "acc": f"{step_stats['accuracy']:.4f}"}
+            )
 
         # 计算平均统计
         return {key: np.mean(values) for key, values in epoch_stats.items()}
 
-    def train(self,
-              train_dataloader: DataLoader,
-              val_dataloader: DataLoader | None = None,
-              num_epochs: int = 10,
-              save_interval: int = 1,
-              save_dir: str = "reward_model_checkpoints"):
+    def train(
+        self,
+        train_dataloader: DataLoader,
+        val_dataloader: DataLoader | None = None,
+        num_epochs: int = 10,
+        save_interval: int = 1,
+        save_dir: str = "reward_model_checkpoints",
+    ):
         """
         完整训练流程
 
@@ -397,7 +394,7 @@ class RewardTrainer:
         """
         os.makedirs(save_dir, exist_ok=True)
 
-        best_val_loss = float('inf')
+        best_val_loss = float("inf")
 
         for epoch in range(num_epochs):
             print(f"\\nEpoch {epoch + 1}/{num_epochs}")
@@ -424,8 +421,8 @@ class RewardTrainer:
                 print(f"验证准确率: {val_stats['accuracy']:.4f}")
 
                 # 保存最佳模型
-                if val_stats['total_loss'] < best_val_loss:
-                    best_val_loss = val_stats['total_loss']
+                if val_stats["total_loss"] < best_val_loss:
+                    best_val_loss = val_stats["total_loss"]
                     self.save_checkpoint(os.path.join(save_dir, "best_model.pt"))
                     print("保存最佳模型")
 
@@ -438,24 +435,27 @@ class RewardTrainer:
 
     def save_checkpoint(self, path: str):
         """保存模型checkpoint"""
-        torch.save({
-            'model_state_dict': self.model.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
-            'scheduler_state_dict': self.scheduler.state_dict(),
-            'train_stats': dict(self.train_stats),
-            'val_stats': dict(self.val_stats),
-            'step': self.step
-        }, path)
+        torch.save(
+            {
+                "model_state_dict": self.model.state_dict(),
+                "optimizer_state_dict": self.optimizer.state_dict(),
+                "scheduler_state_dict": self.scheduler.state_dict(),
+                "train_stats": dict(self.train_stats),
+                "val_stats": dict(self.val_stats),
+                "step": self.step,
+            },
+            path,
+        )
 
     def load_checkpoint(self, path: str):
         """加载模型checkpoint"""
         checkpoint = torch.load(path, map_location=self.device)
-        self.model.load_state_dict(checkpoint['model_state_dict'])
-        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-        self.train_stats = defaultdict(list, checkpoint.get('train_stats', {}))
-        self.val_stats = defaultdict(list, checkpoint.get('val_stats', {}))
-        self.step = checkpoint.get('step', 0)
+        self.model.load_state_dict(checkpoint["model_state_dict"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        self.train_stats = defaultdict(list, checkpoint.get("train_stats", {}))
+        self.val_stats = defaultdict(list, checkpoint.get("val_stats", {}))
+        self.step = checkpoint.get("step", 0)
 
     def plot_training_curves(self, save_dir: str):
         """绘制训练曲线"""
@@ -464,46 +464,46 @@ class RewardTrainer:
 
         fig, axes = plt.subplots(2, 2, figsize=(15, 10))
 
-        epochs = range(1, len(self.train_stats['total_loss']) + 1)
+        epochs = range(1, len(self.train_stats["total_loss"]) + 1)
 
         # 总损失
-        axes[0, 0].plot(epochs, self.train_stats['total_loss'], 'b-', label='训练')
-        if self.val_stats['total_loss']:
-            axes[0, 0].plot(epochs, self.val_stats['total_loss'], 'r-', label='验证')
-        axes[0, 0].set_title('Total Loss')
-        axes[0, 0].set_ylabel('Loss')
+        axes[0, 0].plot(epochs, self.train_stats["total_loss"], "b-", label="训练")
+        if self.val_stats["total_loss"]:
+            axes[0, 0].plot(epochs, self.val_stats["total_loss"], "r-", label="验证")
+        axes[0, 0].set_title("Total Loss")
+        axes[0, 0].set_ylabel("Loss")
         axes[0, 0].legend()
         axes[0, 0].grid(True)
 
         # 准确率
-        axes[0, 1].plot(epochs, self.train_stats['accuracy'], 'b-', label='训练')
-        if self.val_stats['accuracy']:
-            axes[0, 1].plot(epochs, self.val_stats['accuracy'], 'r-', label='验证')
-        axes[0, 1].set_title('Accuracy')
-        axes[0, 1].set_ylabel('Accuracy')
+        axes[0, 1].plot(epochs, self.train_stats["accuracy"], "b-", label="训练")
+        if self.val_stats["accuracy"]:
+            axes[0, 1].plot(epochs, self.val_stats["accuracy"], "r-", label="验证")
+        axes[0, 1].set_title("Accuracy")
+        axes[0, 1].set_ylabel("Accuracy")
         axes[0, 1].legend()
         axes[0, 1].grid(True)
 
         # 奖励差异
-        axes[1, 0].plot(epochs, self.train_stats['reward_diff'], 'b-', label='训练')
-        if self.val_stats['reward_diff']:
-            axes[1, 0].plot(epochs, self.val_stats['reward_diff'], 'r-', label='验证')
-        axes[1, 0].set_title('Reward Difference')
-        axes[1, 0].set_ylabel('Reward Diff')
+        axes[1, 0].plot(epochs, self.train_stats["reward_diff"], "b-", label="训练")
+        if self.val_stats["reward_diff"]:
+            axes[1, 0].plot(epochs, self.val_stats["reward_diff"], "r-", label="验证")
+        axes[1, 0].set_title("Reward Difference")
+        axes[1, 0].set_ylabel("Reward Diff")
         axes[1, 0].legend()
         axes[1, 0].grid(True)
 
         # 排序损失
-        axes[1, 1].plot(epochs, self.train_stats['ranking_loss'], 'b-', label='训练')
-        if self.val_stats['ranking_loss']:
-            axes[1, 1].plot(epochs, self.val_stats['ranking_loss'], 'r-', label='验证')
-        axes[1, 1].set_title('Ranking Loss')
-        axes[1, 1].set_ylabel('Loss')
+        axes[1, 1].plot(epochs, self.train_stats["ranking_loss"], "b-", label="训练")
+        if self.val_stats["ranking_loss"]:
+            axes[1, 1].plot(epochs, self.val_stats["ranking_loss"], "r-", label="验证")
+        axes[1, 1].set_title("Ranking Loss")
+        axes[1, 1].set_ylabel("Loss")
         axes[1, 1].legend()
         axes[1, 1].grid(True)
 
         plt.tight_layout()
-        plt.savefig(os.path.join(save_dir, 'reward_training_curves.png'))
+        plt.savefig(os.path.join(save_dir, "reward_training_curves.png"))
         plt.close()
 
 
@@ -521,10 +521,9 @@ def create_reward_model(backbone_model, freeze_backbone: bool = False) -> Reward
     return RewardModel(backbone_model, freeze_backbone)
 
 
-def create_reward_trainer(model: RewardModel,
-                         tokenizer,
-                         device: str = 'cpu',
-                         **kwargs) -> RewardTrainer:
+def create_reward_trainer(
+    model: RewardModel, tokenizer, device: str = "cpu", **kwargs
+) -> RewardTrainer:
     """
     创建奖励训练器
 

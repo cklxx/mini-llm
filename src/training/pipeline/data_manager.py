@@ -1,4 +1,5 @@
 """Utilities for resolving training data and building loaders."""
+
 from __future__ import annotations
 
 import json
@@ -152,9 +153,7 @@ class DatasetPreparer:
 
             sample_ratio = sampling_cfg.get("sample_ratio", 1.0) or 1.0
             max_samples = sampling_cfg.get("max_samples")
-            val_split = sampling_cfg.get(
-                "val_split", getattr(self.config, "validation_split", 0.0)
-            )
+            val_split = sampling_cfg.get("val_split", getattr(self.config, "validation_split", 0.0))
 
             sample_size = int(round(original_count * sample_ratio))
             if max_samples is not None:
@@ -207,9 +206,7 @@ class DatasetPreparer:
         if not train_records:
             raise RuntimeError("采样后训练集为空，请调整数据配额或检查数据文件内容。")
 
-        train_dataset, val_dataset = self._build_mode_specific_datasets(
-            train_records, val_records
-        )
+        train_dataset, val_dataset = self._build_mode_specific_datasets(train_records, val_records)
         train_loader = self._build_train_loader(train_dataset)
         val_loader = self._build_val_loader(val_dataset)
 
@@ -235,9 +232,7 @@ class DatasetPreparer:
                     train_records,
                     augmentation=getattr(self.config, "conversation_augmentation", None),
                 ),
-                self._create_sft_dataset(val_records, augmentation=None)
-                if val_records
-                else None,
+                self._create_sft_dataset(val_records, augmentation=None) if val_records else None,
             )
         if self.mode == "dpo":
             return (

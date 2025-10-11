@@ -28,18 +28,18 @@ def analyze_memory():
     print("🔍 GPU内存分析报告")
     print("=" * 60)
 
-    for device in gpu_info['devices']:
+    for device in gpu_info["devices"]:
         print(f"\n📊 GPU {device['id']}: {device['name']}")
         print(f"   计算能力: {device['compute_capability']}")
         print(f"   显存总量: {device['memory_total']:.2f} GB")
         print(f"   已分配: {device['memory_allocated']:.2f} GB")
         print(f"   已保留: {device['memory_reserved']:.2f} GB")
 
-        available = device['memory_total'] - device['memory_allocated']
+        available = device["memory_total"] - device["memory_allocated"]
         print(f"   可用显存: {available:.2f} GB")
 
         # 计算建议配置
-        total_mem = device['memory_total']
+        total_mem = device["memory_total"]
 
         print(f"\n💡 针对 {device['name']} 的优化建议:")
 
@@ -88,8 +88,8 @@ def suggest_config(model_size="medium"):
         return
 
     gpu_info = get_gpu_info()
-    device = gpu_info['devices'][0]
-    total_mem = device['memory_total']
+    device = gpu_info["devices"][0]
+    total_mem = device["memory_total"]
 
     print("\n" + "=" * 60)
     print(f"📋 {model_size.upper()}模型推荐训练命令")
@@ -163,7 +163,8 @@ def check_oom_solutions():
     print("📝 实际操作步骤:")
     print("=" * 60)
 
-    print("""
+    print(
+        """
 1. 立即尝试 (无需重启):
    python scripts/train.py --mode pretrain --config medium --batch-size 8
 
@@ -176,14 +177,16 @@ def check_oom_solutions():
 
 4. 终极方案 - 使用small配置:
    python scripts/train.py --mode pretrain --config small --batch-size 8
-""")
+"""
+    )
 
 
 def main():
     parser = argparse.ArgumentParser(description="GPU内存优化工具")
     parser.add_argument("--analyze", action="store_true", help="分析当前GPU内存")
-    parser.add_argument("--suggest", type=str, choices=["tiny", "small", "medium"],
-                       help="建议指定模型的配置")
+    parser.add_argument(
+        "--suggest", type=str, choices=["tiny", "small", "medium"], help="建议指定模型的配置"
+    )
     parser.add_argument("--oom-help", action="store_true", help="显示OOM解决方案")
 
     args = parser.parse_args()

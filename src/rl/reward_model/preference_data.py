@@ -28,6 +28,7 @@ from torch.utils.data import DataLoader, Dataset
 @dataclass
 class PreferenceExample:
     """偏好数据样例"""
+
     prompt: str
     chosen: str
     rejected: str
@@ -39,6 +40,7 @@ class PreferenceExample:
 @dataclass
 class MultiPreferenceExample:
     """多候选偏好数据样例"""
+
     prompt: str
     responses: list[str]
     rankings: list[int]  # 排序，越小越好
@@ -72,31 +74,31 @@ class PreferenceDataProcessor:
         """
         examples = []
 
-        with open(file_path, encoding='utf-8') as f:
+        with open(file_path, encoding="utf-8") as f:
             for line in f:
                 data = json.loads(line.strip())
 
                 # 处理不同的数据格式
-                if 'chosen' in data and 'rejected' in data:
+                if "chosen" in data and "rejected" in data:
                     # 简单格式
                     example = PreferenceExample(
-                        prompt=data['prompt'],
-                        chosen=data['chosen'],
-                        rejected=data['rejected'],
-                        chosen_score=data.get('chosen_score'),
-                        rejected_score=data.get('rejected_score'),
-                        metadata=data.get('metadata', {})
+                        prompt=data["prompt"],
+                        chosen=data["chosen"],
+                        rejected=data["rejected"],
+                        chosen_score=data.get("chosen_score"),
+                        rejected_score=data.get("rejected_score"),
+                        metadata=data.get("metadata", {}),
                     )
                     examples.append(example)
 
-                elif 'responses' in data and 'rankings' in data:
+                elif "responses" in data and "rankings" in data:
                     # 复杂格式：转换为多个简单样例
                     multi_example = MultiPreferenceExample(
-                        prompt=data['prompt'],
-                        responses=data['responses'],
-                        rankings=data['rankings'],
-                        scores=data.get('scores'),
-                        metadata=data.get('metadata', {})
+                        prompt=data["prompt"],
+                        responses=data["responses"],
+                        rankings=data["rankings"],
+                        scores=data.get("scores"),
+                        metadata=data.get("metadata", {}),
                     )
 
                     # 转换为简单格式
@@ -105,7 +107,9 @@ class PreferenceDataProcessor:
 
         return examples
 
-    def _convert_multi_to_simple(self, multi_example: MultiPreferenceExample) -> list[PreferenceExample]:
+    def _convert_multi_to_simple(
+        self, multi_example: MultiPreferenceExample
+    ) -> list[PreferenceExample]:
         """
         将多候选样例转换为简单样例
 
@@ -140,7 +144,7 @@ class PreferenceDataProcessor:
                     rejected=rejected,
                     chosen_score=chosen_score,
                     rejected_score=rejected_score,
-                    metadata=multi_example.metadata
+                    metadata=multi_example.metadata,
                 )
                 examples.append(example)
 
@@ -189,7 +193,7 @@ class PreferenceDataProcessor:
 
         # 截断或填充
         if len(tokens) > self.max_length:
-            tokens = tokens[:self.max_length]
+            tokens = tokens[: self.max_length]
 
         # 创建注意力掩码
         attention_mask = [1] * len(tokens)
@@ -200,12 +204,13 @@ class PreferenceDataProcessor:
             attention_mask.append(0)
 
         return {
-            'input_ids': torch.tensor(tokens, dtype=torch.long),
-            'attention_mask': torch.tensor(attention_mask, dtype=torch.long)
+            "input_ids": torch.tensor(tokens, dtype=torch.long),
+            "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
         }
 
-    def augment_data(self, examples: list[PreferenceExample],
-                    augment_ratio: float = 0.2) -> list[PreferenceExample]:
+    def augment_data(
+        self, examples: list[PreferenceExample], augment_ratio: float = 0.2
+    ) -> list[PreferenceExample]:
         """
         数据增强
 
@@ -231,7 +236,7 @@ class PreferenceDataProcessor:
                     rejected=example.chosen,
                     chosen_score=example.rejected_score,
                     rejected_score=example.chosen_score,
-                    metadata=example.metadata
+                    metadata=example.metadata,
                 )
                 augmented.append(swapped)
 
@@ -301,12 +306,12 @@ class PreferenceDataset(Dataset):
         rejected_tokens = self.processor.tokenize_pair(example.prompt, example.rejected)
 
         return {
-            'chosen_input_ids': chosen_tokens['input_ids'],
-            'chosen_attention_mask': chosen_tokens['attention_mask'],
-            'rejected_input_ids': rejected_tokens['input_ids'],
-            'rejected_attention_mask': rejected_tokens['attention_mask'],
-            'chosen_score': example.chosen_score or 0.0,
-            'rejected_score': example.rejected_score or 0.0
+            "chosen_input_ids": chosen_tokens["input_ids"],
+            "chosen_attention_mask": chosen_tokens["attention_mask"],
+            "rejected_input_ids": rejected_tokens["input_ids"],
+            "rejected_attention_mask": rejected_tokens["attention_mask"],
+            "chosen_score": example.chosen_score or 0.0,
+            "rejected_score": example.rejected_score or 0.0,
         }
 
 
@@ -333,30 +338,32 @@ class PreferenceCollator:
             整理后的批次数据
         """
         # 收集所有字段
-        chosen_input_ids = [item['chosen_input_ids'] for item in batch]
-        chosen_attention_mask = [item['chosen_attention_mask'] for item in batch]
-        rejected_input_ids = [item['rejected_input_ids'] for item in batch]
-        rejected_attention_mask = [item['rejected_attention_mask'] for item in batch]
-        chosen_scores = [item['chosen_score'] for item in batch]
-        rejected_scores = [item['rejected_score'] for item in batch]
+        chosen_input_ids = [item["chosen_input_ids"] for item in batch]
+        chosen_attention_mask = [item["chosen_attention_mask"] for item in batch]
+        rejected_input_ids = [item["rejected_input_ids"] for item in batch]
+        rejected_attention_mask = [item["rejected_attention_mask"] for item in batch]
+        chosen_scores = [item["chosen_score"] for item in batch]
+        rejected_scores = [item["rejected_score"] for item in batch]
 
         return {
-            'chosen_input_ids': torch.stack(chosen_input_ids),
-            'chosen_attention_mask': torch.stack(chosen_attention_mask),
-            'rejected_input_ids': torch.stack(rejected_input_ids),
-            'rejected_attention_mask': torch.stack(rejected_attention_mask),
-            'chosen_scores': torch.tensor(chosen_scores, dtype=torch.float),
-            'rejected_scores': torch.tensor(rejected_scores, dtype=torch.float)
+            "chosen_input_ids": torch.stack(chosen_input_ids),
+            "chosen_attention_mask": torch.stack(chosen_attention_mask),
+            "rejected_input_ids": torch.stack(rejected_input_ids),
+            "rejected_attention_mask": torch.stack(rejected_attention_mask),
+            "chosen_scores": torch.tensor(chosen_scores, dtype=torch.float),
+            "rejected_scores": torch.tensor(rejected_scores, dtype=torch.float),
         }
 
 
-def create_preference_dataloader(data_file: str,
-                               tokenizer,
-                               batch_size: int = 32,
-                               max_length: int = 512,
-                               shuffle: bool = True,
-                               augment_ratio: float = 0.0,
-                               balance_data: bool = False) -> DataLoader:
+def create_preference_dataloader(
+    data_file: str,
+    tokenizer,
+    batch_size: int = 32,
+    max_length: int = 512,
+    shuffle: bool = True,
+    augment_ratio: float = 0.0,
+    balance_data: bool = False,
+) -> DataLoader:
     """
     创建偏好数据加载器
 
@@ -398,7 +405,7 @@ def create_preference_dataloader(data_file: str,
         batch_size=batch_size,
         shuffle=shuffle,
         collate_fn=collator,
-        num_workers=0  # 可以根据需要调整
+        num_workers=0,  # 可以根据需要调整
     )
 
 
@@ -413,51 +420,51 @@ def validate_preference_data(data_file: str) -> dict[str, any]:
         验证结果统计
     """
     stats = {
-        'total_examples': 0,
-        'valid_examples': 0,
-        'avg_prompt_length': 0,
-        'avg_chosen_length': 0,
-        'avg_rejected_length': 0,
-        'score_distribution': {'with_scores': 0, 'without_scores': 0}
+        "total_examples": 0,
+        "valid_examples": 0,
+        "avg_prompt_length": 0,
+        "avg_chosen_length": 0,
+        "avg_rejected_length": 0,
+        "score_distribution": {"with_scores": 0, "without_scores": 0},
     }
 
     prompt_lengths = []
     chosen_lengths = []
     rejected_lengths = []
 
-    with open(data_file, encoding='utf-8') as f:
+    with open(data_file, encoding="utf-8") as f:
         for line in f:
             try:
                 data = json.loads(line.strip())
-                stats['total_examples'] += 1
+                stats["total_examples"] += 1
 
                 # 检查必要字段
-                if 'prompt' in data and ('chosen' in data or 'responses' in data):
-                    stats['valid_examples'] += 1
+                if "prompt" in data and ("chosen" in data or "responses" in data):
+                    stats["valid_examples"] += 1
 
                     # 统计长度
-                    prompt_lengths.append(len(data['prompt']))
+                    prompt_lengths.append(len(data["prompt"]))
 
-                    if 'chosen' in data:
-                        chosen_lengths.append(len(data['chosen']))
-                        rejected_lengths.append(len(data['rejected']))
+                    if "chosen" in data:
+                        chosen_lengths.append(len(data["chosen"]))
+                        rejected_lengths.append(len(data["rejected"]))
 
                         # 统计分数
-                        if 'chosen_score' in data and 'rejected_score' in data:
-                            stats['score_distribution']['with_scores'] += 1
+                        if "chosen_score" in data and "rejected_score" in data:
+                            stats["score_distribution"]["with_scores"] += 1
                         else:
-                            stats['score_distribution']['without_scores'] += 1
+                            stats["score_distribution"]["without_scores"] += 1
 
             except json.JSONDecodeError:
                 continue
 
     # 计算平均长度
     if prompt_lengths:
-        stats['avg_prompt_length'] = np.mean(prompt_lengths)
+        stats["avg_prompt_length"] = np.mean(prompt_lengths)
     if chosen_lengths:
-        stats['avg_chosen_length'] = np.mean(chosen_lengths)
+        stats["avg_chosen_length"] = np.mean(chosen_lengths)
     if rejected_lengths:
-        stats['avg_rejected_length'] = np.mean(rejected_lengths)
+        stats["avg_rejected_length"] = np.mean(rejected_lengths)
 
     return stats
 

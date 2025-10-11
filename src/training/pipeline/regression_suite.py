@@ -1,4 +1,5 @@
 """Prompt regression harness for the MiniGPT training pipeline."""
+
 from __future__ import annotations
 
 import json
@@ -50,7 +51,9 @@ class RegressionSuite:
                 payload = json.loads(line)
                 prompt_id = payload.get("id") or payload.get("prompt_id")
                 prompt_text = payload["prompt"]
-                expected = payload.get("expect_substrings") or payload.get("expected_substrings") or []
+                expected = (
+                    payload.get("expect_substrings") or payload.get("expected_substrings") or []
+                )
                 if isinstance(expected, str):
                     expected = [expected]
                 max_new_tokens = int(payload.get("max_new_tokens", self.max_new_tokens))
@@ -127,7 +130,9 @@ class RegressionSuite:
                 indent=2,
                 ensure_ascii=False,
             )
-        print(f"🧪 Regression suite completed @ step {step}: pass_rate={pass_rate:.2%} -> {timestamp_path}")
+        print(
+            f"🧪 Regression suite completed @ step {step}: pass_rate={pass_rate:.2%} -> {timestamp_path}"
+        )
         if monitor is not None and hasattr(monitor, "log_regression"):
             monitor.log_regression(step, pass_rate, results)
 

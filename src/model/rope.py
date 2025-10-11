@@ -3,6 +3,7 @@ RoPE (Rotary Position Embedding) Implementation
 Rotary Position Embedding是2024年主流LLM架构的标准选择
 相比传统位置编码具有更好的长序列外推能力
 """
+
 import math
 
 import torch
@@ -21,8 +22,9 @@ class RotaryPositionEmbedding(nn.Module):
     - 旋转角度随位置呈指数衰减
     """
 
-    def __init__(self, dim: int, max_position_embeddings: int = 2048,
-                 base: float = 10000.0, device=None):
+    def __init__(
+        self, dim: int, max_position_embeddings: int = 2048, base: float = 10000.0, device=None
+    ):
         """
         Args:
             dim: 注意力头的维度 (head_dim)
@@ -93,9 +95,13 @@ def rotate_half(x: torch.Tensor) -> torch.Tensor:
     return torch.cat((-x2, x1), dim=-1)
 
 
-def apply_rotary_pos_emb(q: torch.Tensor, k: torch.Tensor,
-                        cos: torch.Tensor, sin: torch.Tensor,
-                        position_ids: torch.Tensor = None) -> tuple[torch.Tensor, torch.Tensor]:
+def apply_rotary_pos_emb(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    cos: torch.Tensor,
+    sin: torch.Tensor,
+    position_ids: torch.Tensor = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
     """应用RoPE位置编码到查询和键张量
 
     Args:
@@ -133,8 +139,14 @@ def apply_rotary_pos_emb(q: torch.Tensor, k: torch.Tensor,
 class RoPEAttention(nn.Module):
     """集成RoPE的多头注意力机制"""
 
-    def __init__(self, d_model: int, n_heads: int, dropout: float = 0.1,
-                 max_position_embeddings: int = 2048, rope_base: float = 10000.0):
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        dropout: float = 0.1,
+        max_position_embeddings: int = 2048,
+        rope_base: float = 10000.0,
+    ):
         super().__init__()
         assert d_model % n_heads == 0, "d_model必须能被n_heads整除"
 
@@ -149,18 +161,17 @@ class RoPEAttention(nn.Module):
         self.w_o = nn.Linear(d_model, d_model, bias=False)
 
         # RoPE位置编码
-        self.rope = RotaryPositionEmbedding(
-            self.head_dim,
-            max_position_embeddings,
-            rope_base
-        )
+        self.rope = RotaryPositionEmbedding(self.head_dim, max_position_embeddings, rope_base)
 
         self.dropout = nn.Dropout(dropout)
         self.scale = math.sqrt(self.head_dim)
 
-    def forward(self, hidden_states: torch.Tensor,
-                attention_mask: torch.Tensor = None,
-                position_ids: torch.Tensor = None) -> torch.Tensor:
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: torch.Tensor = None,
+        position_ids: torch.Tensor = None,
+    ) -> torch.Tensor:
         """
         Args:
             hidden_states: (batch_size, seq_len, d_model)
