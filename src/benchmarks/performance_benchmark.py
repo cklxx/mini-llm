@@ -2,39 +2,36 @@
 综合性能基准测试和分析工具
 提供训练、推理、数据加载等各方面的性能测试和优化建议
 """
-import os
-import time
 import json
-import warnings
-from typing import Dict, List, Any, Optional, Tuple, Callable
-from dataclasses import dataclass, asdict
-from pathlib import Path
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
+import os
 
+# 导入我们的优化模块
+import sys
+import time
+from dataclasses import asdict, dataclass
+from typing import Any
+
+import matplotlib.pyplot as plt
+import numpy as np
+import psutil
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
-import psutil
 
-# 导入我们的优化模块
-import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from training.memory_optimizer import MemoryOptimizer, MemoryConfig
-from training.training_monitor import TrainingMonitor
-from data.high_performance_loader import DataLoadingConfig, create_high_performance_dataloader
+from data.high_performance_loader import DataLoadingConfig
+from training.memory_optimizer import MemoryConfig, MemoryOptimizer
 
 
 @dataclass
 class BenchmarkConfig:
     """基准测试配置"""
     # 测试范围
-    test_batch_sizes: List[int] = None
-    test_sequence_lengths: List[int] = None
-    test_model_sizes: List[str] = None
+    test_batch_sizes: list[int] = None
+    test_sequence_lengths: list[int] = None
+    test_model_sizes: list[str] = None
 
     # 测试参数
     warmup_steps: int = 5
@@ -65,13 +62,13 @@ class BenchmarkConfig:
 class BenchmarkResult:
     """基准测试结果"""
     test_name: str
-    config: Dict[str, Any]
-    metrics: Dict[str, float]
+    config: dict[str, Any]
+    metrics: dict[str, float]
     timestamp: float
     device: str
-    error: Optional[str] = None
+    error: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -131,7 +128,7 @@ class TrainingBenchmark:
         self.device = device
 
     def benchmark_training_speed(self, model: nn.Module, batch_size: int,
-                                seq_len: int, steps: int = 50) -> Dict[str, float]:
+                                seq_len: int, steps: int = 50) -> dict[str, float]:
         """测试训练速度"""
         model.train()
         optimizer = optim.AdamW(model.parameters(), lr=1e-4)
@@ -159,7 +156,7 @@ class TrainingBenchmark:
         start_time = time.time()
         start_memory = self._get_memory_usage()
 
-        for step in range(steps):
+        for _ in range(steps):
             optimizer.zero_grad()
             output = model(dummy_input)
             loss = criterion(output.reshape(-1, vocab_size), dummy_target.reshape(-1))
@@ -185,7 +182,7 @@ class TrainingBenchmark:
         }
 
     def benchmark_with_optimizations(self, model: nn.Module, batch_size: int,
-                                   seq_len: int, config: MemoryConfig) -> Dict[str, float]:
+                                   seq_len: int, config: MemoryConfig) -> dict[str, float]:
         """测试带优化的训练性能"""
         optimizer = optim.AdamW(model.parameters(), lr=1e-4)
         memory_optimizer = MemoryOptimizer(model, config, self.device)
@@ -198,9 +195,9 @@ class TrainingBenchmark:
         start_memory = self._get_memory_usage()
 
         steps = 50
-        for step in range(steps):
+        for _ in range(steps):
             try:
-                with memory_optimizer.optimize_step_context(optimizer) as ctx:
+                with memory_optimizer.optimize_step_context(optimizer):
                     output = model(dummy_input)
                     loss = nn.CrossEntropyLoss()(
                         output.reshape(-1, vocab_size),
@@ -249,8 +246,8 @@ class InferenceBenchmark:
     def __init__(self, device: torch.device):
         self.device = device
 
-    def benchmark_inference_speed(self, model: nn.Module, batch_sizes: List[int],
-                                 seq_len: int = 512) -> Dict[int, Dict[str, float]]:
+    def benchmark_inference_speed(self, model: nn.Module, batch_sizes: list[int],
+                                 seq_len: int = 512) -> dict[int, dict[str, float]]:
         """测试不同批处理大小的推理速度"""
         model.eval()
         results = {}
@@ -277,7 +274,7 @@ class InferenceBenchmark:
                     start_memory = self._get_memory_usage()
 
                     for _ in range(steps):
-                        output = model(dummy_input)
+                        model(dummy_input)
 
                     if self.device.type == 'cuda':
                         torch.cuda.synchronize()
@@ -321,7 +318,7 @@ class DataLoadingBenchmark:
     def __init__(self, device: torch.device):
         self.device = device
 
-    def benchmark_data_loading(self, config: DataLoadingConfig) -> Dict[str, float]:
+    def benchmark_data_loading(self, config: DataLoadingConfig) -> dict[str, float]:
         """测试数据加载性能"""
         # 创建虚拟tokenizer
         class DummyTokenizer:
@@ -430,11 +427,11 @@ class PerformanceBenchmarkSuite:
         # 创建输出目录
         os.makedirs(config.output_dir, exist_ok=True)
 
-        print(f"🔬 Performance Benchmark Suite initialized")
+        print("🔬 Performance Benchmark Suite initialized")
         print(f"   Device: {self.device}")
         print(f"   Output: {config.output_dir}")
 
-    def run_all_benchmarks(self) -> List[BenchmarkResult]:
+    def run_all_benchmarks(self) -> list[BenchmarkResult]:
         """运行所有基准测试"""
         print("🚀 Starting comprehensive performance benchmarks...")
 
@@ -637,7 +634,7 @@ class PerformanceBenchmarkSuite:
         if opt_results:
             self._plot_optimization_effects(opt_results)
 
-    def _plot_training_performance(self, results: List[BenchmarkResult]):
+    def _plot_training_performance(self, results: list[BenchmarkResult]):
         """绘制训练性能图表"""
         fig, axes = plt.subplots(2, 2, figsize=(15, 10))
         fig.suptitle('Training Performance Analysis', fontsize=16)
@@ -668,7 +665,7 @@ class PerformanceBenchmarkSuite:
         plt.savefig(os.path.join(self.config.output_dir, 'training_performance.png'), dpi=300)
         plt.close()
 
-    def _plot_inference_performance(self, results: List[BenchmarkResult]):
+    def _plot_inference_performance(self, results: list[BenchmarkResult]):
         """绘制推理性能图表"""
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
         fig.suptitle('Inference Performance Analysis', fontsize=16)
@@ -696,7 +693,7 @@ class PerformanceBenchmarkSuite:
         plt.savefig(os.path.join(self.config.output_dir, 'inference_performance.png'), dpi=300)
         plt.close()
 
-    def _plot_optimization_effects(self, results: List[BenchmarkResult]):
+    def _plot_optimization_effects(self, results: list[BenchmarkResult]):
         """绘制优化效果图表"""
         if not results:
             return
@@ -782,7 +779,7 @@ class PerformanceBenchmarkSuite:
         else:
             return psutil.virtual_memory().total / 1024**3
 
-    def _generate_recommendations(self) -> List[str]:
+    def _generate_recommendations(self) -> list[str]:
         """生成性能优化建议"""
         recommendations = []
 
@@ -830,7 +827,7 @@ if __name__ == "__main__":
     training_results = [r for r in results if r.test_name == "training_baseline"]
     if training_results:
         best_result = max(training_results, key=lambda x: x.metrics['samples_per_sec'])
-        print(f"\n🏆 Best training configuration:")
+        print("\n🏆 Best training configuration:")
         print(f"   Model: {best_result.config['model_size']}")
         print(f"   Batch size: {best_result.config['batch_size']}")
         print(f"   Sequence length: {best_result.config['seq_len']}")

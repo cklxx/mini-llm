@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import glob
 import os
-from typing import Optional, Tuple
 
 import torch
 
@@ -18,7 +17,7 @@ class CheckpointManager:
         self.device = device
 
     # ------------------------------------------------------------------
-    def find_latest(self) -> Optional[str]:
+    def find_latest(self) -> str | None:
         pattern = os.path.join(self.output_dir, "checkpoint_step_*.pt")
         checkpoints = glob.glob(pattern)
         if not checkpoints:
@@ -26,7 +25,7 @@ class CheckpointManager:
         checkpoints.sort(key=os.path.getmtime, reverse=True)
         return checkpoints[0]
 
-    def find_pretrain_source(self) -> Optional[str]:
+    def find_pretrain_source(self) -> str | None:
         pretrain_dir = os.path.join(self.config.checkpoint_dir, f"pretrain_{self.config.model_size}")
         search_patterns = [
             os.path.join(pretrain_dir, "checkpoint_step_*.pt"),
@@ -47,9 +46,9 @@ class CheckpointManager:
         model,
         optimizer,
         *,
-        resume_from: Optional[str] = None,
+        resume_from: str | None = None,
         auto_resume: bool = False,
-    ) -> Tuple[int, bool]:
+    ) -> tuple[int, bool]:
         start_step = 0
         checkpoint_loaded = False
 

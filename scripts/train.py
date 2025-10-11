@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """MiniGPT training entrypoint that delegates to the pipeline package."""
 
 import os

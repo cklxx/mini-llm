@@ -6,13 +6,12 @@
 - 支持多种tokenizer配置的管理
 - 提供标准化的加载和训练接口
 """
-import os
-import json
 import hashlib
-import pickle
+import json
+import os
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, Any, Optional, Union, List
-from dataclasses import dataclass, asdict
+from typing import Any
 
 from .bpe_tokenizer import BPETokenizer, train_tokenizer_from_data
 
@@ -31,7 +30,7 @@ class TokenizerConfig:
         if self.tokenizer_type not in ["bpe"]:
             raise ValueError(f"Unsupported tokenizer_type: {self.tokenizer_type}")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典"""
         return asdict(self)
 
@@ -81,7 +80,7 @@ class TokenizerManager:
         hash_obj = hashlib.md5()
 
         try:
-            with open(data_path, 'r', encoding='utf-8') as f:
+            with open(data_path, encoding='utf-8') as f:
                 line_count = 0
                 for line in f:
                     if line_count >= max_lines:
@@ -133,10 +132,10 @@ class TokenizerManager:
         with open(metadata_path, 'w', encoding='utf-8') as f:
             json.dump(metadata, f, indent=2, ensure_ascii=False)
 
-    def _load_metadata(self, metadata_path: Path) -> Optional[Dict[str, Any]]:
+    def _load_metadata(self, metadata_path: Path) -> dict[str, Any] | None:
         """加载tokenizer元数据"""
         try:
-            with open(metadata_path, 'r', encoding='utf-8') as f:
+            with open(metadata_path, encoding='utf-8') as f:
                 return json.load(f)
         except Exception:
             return None
@@ -164,7 +163,7 @@ class TokenizerManager:
     def get_or_train_tokenizer(
         self,
         data_path: str,
-        config: Optional[Union[TokenizerConfig, Dict[str, Any]]] = None,
+        config: TokenizerConfig | dict[str, Any] | None = None,
         force_retrain: bool = False
     ) -> BPETokenizer:
         """
@@ -228,7 +227,7 @@ class TokenizerManager:
 
         return tokenizer
 
-    def list_cached_tokenizers(self) -> List[Dict[str, Any]]:
+    def list_cached_tokenizers(self) -> list[dict[str, Any]]:
         """列出所有缓存的tokenizer"""
         cached_tokenizers = []
 
@@ -307,7 +306,7 @@ def get_tokenizer(
     vocab_size: int = 30000,
     tokenizer_type: str = "bpe",
     force_retrain: bool = False,
-    cache_dir: Optional[str] = None
+    cache_dir: str | None = None
 ) -> BPETokenizer:
     """
     通用tokenizer获取API（推荐使用）
@@ -344,7 +343,7 @@ def get_tokenizer(
     return manager.get_or_train_tokenizer(data_path, config, force_retrain)
 
 
-def list_tokenizers() -> List[Dict[str, Any]]:
+def list_tokenizers() -> list[dict[str, Any]]:
     """列出所有缓存的tokenizer"""
     manager = get_global_tokenizer_manager()
     return manager.list_cached_tokenizers()

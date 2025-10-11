@@ -2,22 +2,20 @@
 高性能数据加载系统
 支持流式加载、智能缓存、并行处理、内存优化
 """
-import os
-import json
-import pickle
 import hashlib
-import mmap
-import threading
-import queue
+import json
+import os
+import pickle
 import time
-from typing import List, Dict, Any, Optional, Iterator, Tuple, Union
-from dataclasses import dataclass, asdict
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from typing import Any
+
 import torch
-from torch.utils.data import Dataset, DataLoader, IterableDataset
+from torch.utils.data import DataLoader, IterableDataset
 from tqdm import tqdm
-import numpy as np
 
 
 @dataclass
@@ -56,9 +54,9 @@ class StreamingJsonLoader:
         self.chunk_size = chunk_size
         self.file_size = os.path.getsize(file_path)
 
-    def __iter__(self) -> Iterator[Dict[str, Any]]:
+    def __iter__(self) -> Iterator[dict[str, Any]]:
         """流式迭代JSON行"""
-        with open(self.file_path, 'r', encoding='utf-8') as f:
+        with open(self.file_path, encoding='utf-8') as f:
             buffer = []
             for line_num, line in enumerate(f, 1):
                 line = line.strip()
@@ -81,7 +79,7 @@ class StreamingJsonLoader:
             if buffer:
                 yield from buffer
 
-    def get_chunks(self) -> Iterator[List[Dict[str, Any]]]:
+    def get_chunks(self) -> Iterator[list[dict[str, Any]]]:
         """以chunk形式返回数据"""
         buffer = []
         for item in self:
@@ -105,11 +103,11 @@ class IntelligentDataCache:
         self.metadata_file = self.cache_dir / "cache_metadata.json"
         self.metadata = self._load_metadata()
 
-    def _load_metadata(self) -> Dict[str, Any]:
+    def _load_metadata(self) -> dict[str, Any]:
         """加载缓存元数据"""
         if self.metadata_file.exists():
             try:
-                with open(self.metadata_file, 'r', encoding='utf-8') as f:
+                with open(self.metadata_file, encoding='utf-8') as f:
                     return json.load(f)
             except Exception:
                 pass
@@ -129,7 +127,7 @@ class IntelligentDataCache:
         hash_obj.update(f"{stat.st_size}_{stat.st_mtime}".encode())
 
         # 采样文件内容
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding='utf-8') as f:
             for i, line in enumerate(f):
                 if i >= sample_lines:
                     break
@@ -171,7 +169,7 @@ class IntelligentDataCache:
 
         return True
 
-    def load_cache(self, config: DataLoadingConfig) -> Optional[List[Dict[str, Any]]]:
+    def load_cache(self, config: DataLoadingConfig) -> list[dict[str, Any]] | None:
         """加载缓存数据"""
         if not self.is_cache_valid(config):
             return None
@@ -194,7 +192,7 @@ class IntelligentDataCache:
             print(f"⚠️  Cache loading failed: {e}")
             return None
 
-    def save_cache(self, config: DataLoadingConfig, data: List[Dict[str, Any]]):
+    def save_cache(self, config: DataLoadingConfig, data: list[dict[str, Any]]):
         """保存数据到缓存"""
         cache_key = self._get_cache_key(config)
         cache_path = self.get_cache_path(cache_key)
@@ -251,8 +249,8 @@ class ParallelDataProcessor:
     def __init__(self, max_workers: int = 8):
         self.max_workers = max_workers
 
-    def process_conversations(self, data_chunks: List[List[Dict]],
-                            max_length: int) -> List[Dict[str, Any]]:
+    def process_conversations(self, data_chunks: list[list[dict]],
+                            max_length: int) -> list[dict[str, Any]]:
         """并行处理对话数据"""
         if len(data_chunks) == 1:
             # 单个chunk，直接处理
@@ -271,8 +269,8 @@ class ParallelDataProcessor:
 
             return results
 
-    def _process_conversation_chunk(self, chunk: List[Dict],
-                                  max_length: int) -> List[Dict[str, Any]]:
+    def _process_conversation_chunk(self, chunk: list[dict],
+                                  max_length: int) -> list[dict[str, Any]]:
         """处理单个对话数据chunk"""
         processed = []
 
@@ -301,8 +299,8 @@ class ParallelDataProcessor:
 
         return processed
 
-    def process_pretrain_texts(self, data_chunks: List[List[Dict]],
-                             max_length: int) -> List[str]:
+    def process_pretrain_texts(self, data_chunks: list[list[dict]],
+                             max_length: int) -> list[str]:
         """并行处理预训练文本数据"""
         if len(data_chunks) == 1:
             return self._process_pretrain_chunk(data_chunks[0], max_length)
@@ -319,8 +317,8 @@ class ParallelDataProcessor:
 
             return results
 
-    def _process_pretrain_chunk(self, chunk: List[Dict],
-                              max_length: int) -> List[str]:
+    def _process_pretrain_chunk(self, chunk: list[dict],
+                              max_length: int) -> list[str]:
         """处理单个预训练文本chunk"""
         texts = []
 
@@ -348,7 +346,7 @@ class HighPerformanceDataset(IterableDataset):
         # 加载或处理数据
         self.data = self._load_or_process_data()
 
-    def _load_or_process_data(self) -> List[Dict[str, Any]]:
+    def _load_or_process_data(self) -> list[dict[str, Any]]:
         """加载或处理数据"""
         # 尝试从缓存加载
         if self.cache and self.cache.is_cache_valid(self.config):
@@ -392,7 +390,7 @@ class HighPerformanceDataset(IterableDataset):
             for item in self.data:
                 yield self._process_item(item)
 
-    def _process_item(self, item: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+    def _process_item(self, item: dict[str, Any]) -> dict[str, torch.Tensor]:
         """处理单个数据项"""
         if self.data_type == "sft":
             return self._process_conversation_item(item)
@@ -401,7 +399,7 @@ class HighPerformanceDataset(IterableDataset):
         else:
             raise ValueError(f"Unsupported data type: {self.data_type}")
 
-    def _process_conversation_item(self, item: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+    def _process_conversation_item(self, item: dict[str, Any]) -> dict[str, torch.Tensor]:
         """处理对话数据项"""
         input_text = item['input']
         output_text = item['output']
@@ -476,7 +474,7 @@ def create_high_performance_dataloader(
 
 def benchmark_data_loading(config: DataLoadingConfig, tokenizer, iterations: int = 100):
     """基准测试数据加载性能"""
-    print(f"🔬 Benchmarking data loading performance...")
+    print("🔬 Benchmarking data loading performance...")
     print(f"   Config: batch_size={config.batch_size}, num_workers={config.num_workers}")
     print(f"   Cache: {'enabled' if config.enable_cache else 'disabled'}")
 
@@ -485,7 +483,7 @@ def benchmark_data_loading(config: DataLoadingConfig, tokenizer, iterations: int
 
     # 预热
     print("🔥 Warming up...")
-    for i, batch in enumerate(dataloader):
+    for i, _batch in enumerate(dataloader):
         if i >= 5:
             break
 
@@ -504,7 +502,7 @@ def benchmark_data_loading(config: DataLoadingConfig, tokenizer, iterations: int
 
     # 结果
     throughput = samples_processed / elapsed
-    print(f"📊 Benchmark Results:")
+    print("📊 Benchmark Results:")
     print(f"   Processed: {samples_processed} samples in {elapsed:.2f}s")
     print(f"   Throughput: {throughput:.1f} samples/sec")
     print(f"   Avg batch time: {elapsed / iterations * 1000:.1f}ms")

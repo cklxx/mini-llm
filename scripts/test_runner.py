@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 MiniGPT架构升级测试运行器
 自动运行所有测试并生成报告
 """
 
-import sys
 import os
 import subprocess
+import sys
 import time
 from datetime import datetime
 

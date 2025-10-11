@@ -2,11 +2,11 @@
 Mixture of Experts (MoE) 架构实现
 支持稀疏专家系统，提高模型容量同时保持计算效率
 """
-import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Tuple, Optional, List
+
 from .activation_functions import SwiGLUFeedForward, get_feedforward_layer
 
 
@@ -65,7 +65,7 @@ class Router(nn.Module):
         prob = torch.where(is_in, prob_if_in, prob_if_out)
         return prob
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         前向传播
 
@@ -174,7 +174,7 @@ class SparseMoE(nn.Module):
             for _ in range(num_experts)
         ])
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         前向传播
 
@@ -267,7 +267,7 @@ class SharedExpertMoE(nn.Module):
         if self.routed_moe is not None:
             self.routed_weight = nn.Parameter(torch.ones(1))
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         前向传播
 
@@ -352,7 +352,7 @@ class MoETransformerBlock(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         """
         前向传播
 
@@ -459,7 +459,7 @@ def create_moe_model(
                         nn.init.zeros_(module.bias)
                 elif isinstance(module, nn.Embedding):
                     nn.init.normal_(module.weight, mean=0.0, std=0.02)
-                elif isinstance(module, (nn.LayerNorm, nn.RMSNorm)):
+                elif isinstance(module, nn.LayerNorm | nn.RMSNorm):
                     nn.init.ones_(module.weight)
                     if hasattr(module, 'bias') and module.bias is not None:
                         nn.init.zeros_(module.bias)
@@ -469,7 +469,7 @@ def create_moe_model(
             mask = torch.tril(torch.ones(seq_len, seq_len))
             return mask
 
-        def forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None) -> dict:
+        def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor | None = None) -> dict:
             """
             前向传播
 

@@ -2,11 +2,9 @@
 现代激活函数实现
 支持业界主流的激活函数：SwiGLU、GELU、Mish、xIELU等
 """
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional
 
 
 class GELU(nn.Module):

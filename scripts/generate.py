@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 MiniGPT 推理脚本
 支持多种生成模式：chat, single, ultra_think
 """
+import argparse
+import json
 import os
 import sys
-import argparse
+
 import torch
-import json
 
 # 添加项目根目录和src目录到路径
 project_root = os.path.dirname(os.path.dirname(__file__))
@@ -38,7 +38,7 @@ class MiniGPTInference:
             defaults.update({k: v for k, v in generation_kwargs.items() if v is not None})
         self.generation_defaults = defaults
 
-        print(f"=== MiniGPT 推理引擎 ===")
+        print("=== MiniGPT 推理引擎 ===")
         print(f"模型路径: {model_path}")
         print(f"设备: {self.device}")
         print(f"词汇表大小: {self.tokenizer.vocab_size}")
@@ -132,7 +132,7 @@ class MiniGPTInference:
         model.to(self.device)
         model.eval()
 
-        print(f"✅ 模型加载成功")
+        print("✅ 模型加载成功")
         return model, tokenizer
 
     def generate_text(self, prompt, **overrides):
@@ -301,7 +301,7 @@ class MiniGPTInference:
             print(f"❌ 文件不存在: {prompts_file}")
             return
 
-        with open(prompts_file, 'r', encoding='utf-8') as f:
+        with open(prompts_file, encoding='utf-8') as f:
             prompts = [line.strip() for line in f if line.strip()]
 
         results = []

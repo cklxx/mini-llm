@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 训练和推理测试脚本
 验证升级后的架构在实际训练和推理中的表现
 包括工具调用、ultra think等新能力
 """
 
-import sys
 import os
+import sys
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 
 import json
 import time
-from typing import Dict, List
 
 try:  # pragma: no cover - optional dependency guard
     import pytest
@@ -64,11 +63,11 @@ class TestDataset(Dataset):
         # 加载数据
         self._load_data(data_path)
 
-    def _build_vocab(self, data_path: str) -> List[str]:
+    def _build_vocab(self, data_path: str) -> list[str]:
         """构建字符级词汇表"""
         chars = set()
         try:
-            with open(data_path, 'r', encoding='utf-8') as f:
+            with open(data_path, encoding='utf-8') as f:
                 for line in f:
                     if line.strip():
                         data = json.loads(line)
@@ -79,13 +78,13 @@ class TestDataset(Dataset):
             chars = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,!?;:()[]{}"\'-\n你我他的是在有一个这那了和为')
 
         # 添加特殊token
-        vocab = ['<pad>', '<unk>', '<bos>', '<eos>'] + sorted(list(chars))
+        vocab = ['<pad>', '<unk>', '<bos>', '<eos>'] + sorted(chars)
         return vocab
 
     def _load_data(self, data_path: str):
         """加载训练数据"""
         try:
-            with open(data_path, 'r', encoding='utf-8') as f:
+            with open(data_path, encoding='utf-8') as f:
                 for line in f:
                     if line.strip():
                         data = json.loads(line)
@@ -98,7 +97,7 @@ class TestDataset(Dataset):
             # 生成合成数据用于测试
             self._generate_synthetic_data()
 
-    def _extract_text(self, data: Dict) -> str:
+    def _extract_text(self, data: dict) -> str:
         """从对话数据中提取文本"""
         text = ""
         conversations = data.get('conversations', [])
@@ -108,7 +107,7 @@ class TestDataset(Dataset):
             text += f"{role}: {content}\n"
         return text.strip()
 
-    def _tokenize(self, text: str) -> List[int]:
+    def _tokenize(self, text: str) -> list[int]:
         """简单的字符级tokenization"""
         tokens = [self.char_to_id.get('<bos>', 2)]  # BOS token
         for char in text[:self.max_length - 2]:  # 留出BOS和EOS的空间
@@ -391,7 +390,7 @@ def test_memory_efficiency():
             input_ids = input_ids.cuda()
 
             with torch.no_grad():
-                logits = model(input_ids)
+                model(input_ids)
 
             memory_used = torch.cuda.max_memory_allocated() / 1024 / 1024  # MB
         else:

@@ -1,9 +1,8 @@
 """Conversation dataset helpers."""
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
-
 import random
+from typing import Any
 
 import torch
 from torch.utils.data import Dataset
@@ -14,11 +13,11 @@ class ConversationDataset(Dataset):
 
     def __init__(
         self,
-        conversations: List[Any],
+        conversations: list[Any],
         tokenizer,
         max_length: int = 512,
-        role_tokens: Optional[Dict[str, str]] = None,
-        augmentation: Optional[Dict[str, Any]] = None,
+        role_tokens: dict[str, str] | None = None,
+        augmentation: dict[str, Any] | None = None,
         seed: int = 42,
     ):
         self.conversations = conversations
@@ -46,7 +45,7 @@ class ConversationDataset(Dataset):
     def __len__(self) -> int:
         return len(self.conversations)
 
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         messages = self._normalize_conversation(self.conversations[idx])
         messages = self._apply_augmentation(messages, idx)
 
@@ -54,9 +53,9 @@ class ConversationDataset(Dataset):
         eos_id = self.tokenizer.eos_id
         pad_id = self.tokenizer.pad_id
 
-        input_ids: List[int] = [bos_id]
-        labels: List[int] = [pad_id]
-        attention_mask: List[int] = [1]
+        input_ids: list[int] = [bos_id]
+        labels: list[int] = [pad_id]
+        attention_mask: list[int] = [1]
 
         last_role = None
 
@@ -109,8 +108,8 @@ class ConversationDataset(Dataset):
             "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
         }
 
-    def _normalize_conversation(self, conv: Any) -> List[Dict[str, str]]:
-        messages: List[Dict[str, str]] = []
+    def _normalize_conversation(self, conv: Any) -> list[dict[str, str]]:
+        messages: list[dict[str, str]] = []
 
         if isinstance(conv, dict) and "input" in conv and "output" in conv:
             user_content = str(conv.get("input", "")).strip()
@@ -146,7 +145,7 @@ class ConversationDataset(Dataset):
             return "system"
         return "user"
 
-    def _apply_augmentation(self, messages: List[Dict[str, str]], idx: int) -> List[Dict[str, str]]:
+    def _apply_augmentation(self, messages: list[dict[str, str]], idx: int) -> list[dict[str, str]]:
         if not messages or self.max_turn_truncate == 0 or self.turn_truncate_prob <= 0.0:
             return messages
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """分词器健康度诊断工具。
 
 功能：
@@ -11,11 +10,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import pprint
 import os
+import pprint
 import random
 import sys
-from typing import Iterable, Iterator, List
+from collections.abc import Iterable, Iterator
 
 # 添加项目根目录和src目录到路径
 PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -31,7 +30,7 @@ except ImportError:  # pragma: no cover - fallback for minimal environments
 
 
 def iter_texts_from_jsonl(path: str) -> Iterator[str]:
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
             if not line:
@@ -54,14 +53,14 @@ def iter_texts_from_jsonl(path: str) -> Iterator[str]:
 
 
 def iter_texts_from_plain(path: str) -> Iterator[str]:
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
             if line:
                 yield line
 
 
-def collect_texts(path: str, sample_size: int, seed: int) -> List[str]:
+def collect_texts(path: str, sample_size: int, seed: int) -> list[str]:
     if path.endswith(".jsonl"):
         iterator: Iterable[str] = iter_texts_from_jsonl(path)
     else:
@@ -70,7 +69,7 @@ def collect_texts(path: str, sample_size: int, seed: int) -> List[str]:
     if sample_size <= 0:
         return list(iterator)
 
-    reservoir: List[str] = []
+    reservoir: list[str] = []
     rng = random.Random(seed)
     for idx, text in enumerate(iterator):
         if not text:

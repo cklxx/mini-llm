@@ -15,9 +15,10 @@
 - WSD: https://arxiv.org/abs/2410.05192
 """
 import math
+from collections.abc import Callable
+
 import torch
 from torch.optim.optimizer import Optimizer
-from typing import Dict, Any, Optional, List, Callable
 
 
 class Lion(Optimizer):
@@ -37,7 +38,7 @@ class Lion(Optimizer):
         betas: tuple = (0.9, 0.99),
         weight_decay: float = 0.0,
         maximize: bool = False,
-        foreach: Optional[bool] = None,
+        foreach: bool | None = None,
     ):
         if not 0.0 <= lr:
             raise ValueError(f"Invalid learning rate: {lr}")
@@ -48,13 +49,13 @@ class Lion(Optimizer):
         if not 0.0 <= weight_decay:
             raise ValueError(f"Invalid weight_decay value: {weight_decay}")
 
-        defaults = dict(
-            lr=lr,
-            betas=betas,
-            weight_decay=weight_decay,
-            maximize=maximize,
-            foreach=foreach,
-        )
+        defaults = {
+            'lr': lr,
+            'betas': betas,
+            'weight_decay': weight_decay,
+            'maximize': maximize,
+            'foreach': foreach,
+        }
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -132,15 +133,15 @@ class Sophia(Optimizer):
         if not 0.0 <= weight_decay:
             raise ValueError(f"Invalid weight_decay value: {weight_decay}")
 
-        defaults = dict(
-            lr=lr,
-            betas=betas,
-            rho=rho,
-            weight_decay=weight_decay,
-            maximize=maximize,
-            capturable=capturable,
-            eps=eps,
-        )
+        defaults = {
+            'lr': lr,
+            'betas': betas,
+            'rho': rho,
+            'weight_decay': weight_decay,
+            'maximize': maximize,
+            'capturable': capturable,
+            'eps': eps,
+        }
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -225,14 +226,14 @@ class AdamWScheduleFree(Optimizer):
         warmup_steps: int = 10000,
         r: float = 0.0,
     ):
-        defaults = dict(
-            lr=lr,
-            betas=betas,
-            eps=eps,
-            weight_decay=weight_decay,
-            warmup_steps=warmup_steps,
-            r=r,
-        )
+        defaults = {
+            'lr': lr,
+            'betas': betas,
+            'eps': eps,
+            'weight_decay': weight_decay,
+            'warmup_steps': warmup_steps,
+            'r': r,
+        }
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -370,7 +371,7 @@ def get_scheduler(
     scheduler_name: str,
     optimizer: Optimizer,
     **kwargs
-) -> Optional[torch.optim.lr_scheduler._LRScheduler]:
+) -> torch.optim.lr_scheduler._LRScheduler | None:
     """
     获取学习率调度器
 
@@ -455,13 +456,13 @@ class Muon(Optimizer):
         if not 0.0 <= momentum < 1.0:
             raise ValueError(f"Invalid momentum: {momentum}")
 
-        defaults = dict(
-            lr=lr,
-            momentum=momentum,
-            nesterov=nesterov,
-            ns_steps=ns_steps,
-            weight_decay=weight_decay
-        )
+        defaults = {
+            'lr': lr,
+            'momentum': momentum,
+            'nesterov': nesterov,
+            'ns_steps': ns_steps,
+            'weight_decay': weight_decay,
+        }
         super().__init__(params, defaults)
 
     def newton_schulz_iteration(self, G, steps=5):
@@ -483,7 +484,7 @@ class Muon(Optimizer):
         return X
 
     @torch.no_grad()
-    def step(self, closure: Optional[Callable] = None):
+    def step(self, closure: Callable | None = None):
         """执行单步优化"""
         loss = None
         if closure is not None:
@@ -728,14 +729,14 @@ def get_hybrid_optimizer(
     params_2d = []  # 权重矩阵
     params_1d = []  # bias, norm等
 
-    for name, param in model.named_parameters():
+    for _name, param in model.named_parameters():
         if param.requires_grad:
             if len(param.shape) >= 2:
                 params_2d.append(param)
             else:
                 params_1d.append(param)
 
-    print(f"🔧 创建混合优化器:")
+    print("🔧 创建混合优化器:")
     print(f"   - Muon: {len(params_2d)} 个2D参数, lr={muon_lr}")
     print(f"   - AdamW: {len(params_1d)} 个1D参数, lr={adamw_lr}")
 

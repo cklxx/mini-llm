@@ -1,7 +1,7 @@
 """Datasets used across MiniGPT training pipelines."""
 
-from .language_modeling import LanguageModelingDataset
 from .conversation import ConversationDataset
+from .language_modeling import LanguageModelingDataset
 
 __all__ = [
     "LanguageModelingDataset",

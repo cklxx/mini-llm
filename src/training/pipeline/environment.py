@@ -5,7 +5,7 @@ import json
 import os
 import random
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any
 
 import torch
 
@@ -18,7 +18,7 @@ class TrainingEnvironment:
     mode: str
     output_dir: str = field(init=False)
     device: str = field(init=False)
-    dataset_stats: List[Dict[str, Any]] = field(default_factory=list)
+    dataset_stats: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.output_dir = os.path.join(self.config.checkpoint_dir, f"{self.mode}_{self.config.model_size}")
@@ -55,9 +55,9 @@ class TrainingEnvironment:
 
     # ------------------------------------------------------------------
     def _serialize_config_value(self, value: Any):
-        if isinstance(value, (int, float, str, bool)) or value is None:
+        if isinstance(value, int | float | str | bool) or value is None:
             return value
-        if isinstance(value, (list, tuple)):
+        if isinstance(value, list | tuple):
             return [self._serialize_config_value(v) for v in value]
         if isinstance(value, dict):
             return {str(k): self._serialize_config_value(v) for k, v in value.items()}

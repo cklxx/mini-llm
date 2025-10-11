@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 MiniGPT 一键推理验证脚本
 支持自动化测试模型的各项能力，包括自我认知、推理能力、知识问答等
 """
-import os
-import sys
 import argparse
 import json
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
 import torch
 
 # 添加项目根目录到路径
@@ -19,15 +18,15 @@ sys.path.append(str(project_root))
 sys.path.append(str(project_root / 'src'))
 sys.path.append(str(project_root / 'scripts'))
 
-from model.transformer import create_model
-from tokenizer.bpe_tokenizer import BPETokenizer
 from eval_questions import (
-    EVAL_QUESTION_SETS,
-    get_question_set,
+    check_keywords,
     get_all_categories,
     get_category_info,
-    check_keywords
+    get_question_set,
 )
+
+from model.transformer import create_model
+from tokenizer.bpe_tokenizer import BPETokenizer
 
 
 class QuickEvaluator:
@@ -40,7 +39,7 @@ class QuickEvaluator:
         self.temperature = temperature
         self.top_p = top_p
 
-        print(f"🚀 初始化MiniGPT评估器...")
+        print("🚀 初始化MiniGPT评估器...")
         print(f"   模型路径: {model_path}")
         print(f"   设备: {self.device}")
         print(f"   最大长度: {max_length}")
@@ -64,7 +63,7 @@ class QuickEvaluator:
 
     def _load_model(self):
         """加载模型和分词器"""
-        print(f"📦 加载模型...")
+        print("📦 加载模型...")
 
         # 加载checkpoint
         checkpoint = torch.load(self.model_path, map_location=self.device, weights_only=False)
@@ -85,7 +84,7 @@ class QuickEvaluator:
             tokenizer.load(str(tokenizer_path))
             print(f"✅ 分词器已加载: {tokenizer_path}")
         else:
-            print(f"⚠️  未找到分词器文件，使用默认分词器")
+            print("⚠️  未找到分词器文件，使用默认分词器")
             tokenizer = BPETokenizer(vocab_size=vocab_size)
 
         # 创建模型
@@ -260,11 +259,11 @@ class QuickEvaluator:
 
                 if verbose:
                     if passed:
-                        print(f"✅ 通过")
+                        print("✅ 通过")
                         if matched_keywords:
                             print(f"   匹配关键词: {', '.join(matched_keywords)}")
                     else:
-                        print(f"❌ 未通过")
+                        print("❌ 未通过")
 
             except Exception as e:
                 print(f"❌ 生成失败: {e}")
@@ -302,7 +301,7 @@ class QuickEvaluator:
             categories = get_all_categories()
 
         print(f"\n{'#'*60}")
-        print(f"# MiniGPT 模型全面评估")
+        print("# MiniGPT 模型全面评估")
         print(f"# 模型: {self.model_path}")
         print(f"# 评估类别: {len(categories)}")
         print(f"# 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -359,18 +358,18 @@ class QuickEvaluator:
         summary = self.results.get("summary", {})
 
         print(f"\n{'='*60}")
-        print(f"📊 评估总结报告")
+        print("📊 评估总结报告")
         print(f"{'='*60}")
         print(f"模型路径: {self.results['model_path']}")
         print(f"评估时间: {self.results['timestamp']}")
-        print(f"\n整体统计:")
+        print("\n整体统计:")
         print(f"  评估类别数: {summary.get('total_categories', 0)}")
         print(f"  总问题数: {summary.get('total_questions', 0)}")
         print(f"  通过问题数: {summary.get('total_passed', 0)}")
         print(f"  整体通过率: {summary.get('overall_pass_rate', 0)*100:.1f}%")
 
-        print(f"\n各类别详情:")
-        for category, results in self.results["categories"].items():
+        print("\n各类别详情:")
+        for _category, results in self.results["categories"].items():
             print(f"  {results['name']}:")
             print(f"    问题数: {results['total_questions']}")
             print(f"    通过数: {results['passed_questions']}")

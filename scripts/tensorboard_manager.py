@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 TensorBoard管理脚本
 提供TensorBoard的启动、停止、清理等功能
 """
-import os
-import sys
 import argparse
-import subprocess
-import signal
-import time
+import os
 import shutil
-from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 # 添加项目根目录到路径
 project_root = Path(__file__).parent.parent
@@ -40,7 +39,7 @@ class TensorBoardManager:
         if self.is_running():
             print("❌ TensorBoard已经在运行中")
             print(f"   PID: {self.get_pid()}")
-            print(f"   使用 'python scripts/tensorboard_manager.py stop' 停止服务")
+            print("   使用 'python scripts/tensorboard_manager.py stop' 停止服务")
             return False
 
         logdir = logdir or str(self.tensorboard_dir)
@@ -51,8 +50,8 @@ class TensorBoardManager:
         # 检查日志目录是否有内容
         if not any(Path(logdir).iterdir()):
             print(f"⚠️  警告: 日志目录为空: {logdir}")
-            print(f"   请先运行训练脚本生成TensorBoard日志")
-            print(f"   或指定其他日志目录: --logdir <path>")
+            print("   请先运行训练脚本生成TensorBoard日志")
+            print("   或指定其他日志目录: --logdir <path>")
 
         # 构建命令
         cmd = [
@@ -64,7 +63,7 @@ class TensorBoardManager:
             "--bind_all"  # 允许所有网络接口访问
         ]
 
-        print(f"🚀 启动TensorBoard服务...")
+        print("🚀 启动TensorBoard服务...")
         print(f"   日志目录: {logdir}")
         print(f"   访问地址: http://{host if host != '0.0.0.0' else 'localhost'}:{port}")
         print(f"   重载间隔: {reload_interval}秒")
@@ -87,8 +86,8 @@ class TensorBoardManager:
 
             if process.poll() is None:
                 print(f"✅ TensorBoard已启动 (PID: {process.pid})")
-                print(f"💡 使用以下命令停止:")
-                print(f"   python scripts/tensorboard_manager.py stop")
+                print("💡 使用以下命令停止:")
+                print("   python scripts/tensorboard_manager.py stop")
                 return True
             else:
                 print("❌ TensorBoard启动失败")
@@ -162,7 +161,7 @@ class TensorBoardManager:
         """查看TensorBoard状态"""
         if self.is_running():
             pid = self.get_pid()
-            print(f"✅ TensorBoard正在运行")
+            print("✅ TensorBoard正在运行")
             print(f"   PID: {pid}")
 
             # 尝试获取端口信息
@@ -180,7 +179,7 @@ class TensorBoardManager:
                             port = port_info[8].split(':')[-1]
                             print(f"   端口: {port}")
                             print(f"   访问: http://localhost:{port}")
-            except:
+            except Exception:
                 pass
 
             return True
@@ -209,9 +208,9 @@ class TensorBoardManager:
             return None
 
         try:
-            with open(self.pid_file, 'r') as f:
+            with open(self.pid_file) as f:
                 return int(f.read().strip())
-        except:
+        except Exception:
             return None
 
     def list_logs(self):
