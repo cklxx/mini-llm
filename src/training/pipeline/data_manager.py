@@ -4,8 +4,9 @@ from __future__ import annotations
 import json
 import os
 import random
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any
 
 from torch.utils.data import DataLoader
 
@@ -20,7 +21,7 @@ class DatasetStats:
     sampled_samples: int
     train_samples: int
     val_samples: int
-    sampling_config: Dict[str, Any]
+    sampling_config: dict[str, Any]
 
 
 class DataResolver:
@@ -30,7 +31,7 @@ class DataResolver:
         self.config = config
         self.mode = mode
 
-    def resolve_data_path(self, filename: str) -> Optional[str]:
+    def resolve_data_path(self, filename: str) -> str | None:
         search_dirs = [self.config.data_dir]
 
         dataset_dir = os.path.join(self.config.data_dir, "dataset")
@@ -47,7 +48,7 @@ class DataResolver:
                 return candidate
         return None
 
-    def resolve_dataset_file(self, *candidates: str) -> Optional[str]:
+    def resolve_dataset_file(self, *candidates: str) -> str | None:
         for name in candidates:
             path = self.resolve_data_path(name)
             if path:
@@ -78,9 +79,9 @@ class DataResolver:
             ]
         raise ValueError(f"不支持的训练模式: {self.mode}")
 
-    def get_data_paths(self) -> List[str]:
+    def get_data_paths(self) -> list[str]:
         seen_paths = set()
-        resolved: List[str] = []
+        resolved: list[str] = []
         for option in self.dataset_candidates():
             path = self.resolve_dataset_file(*option)
             if not path:
@@ -96,9 +97,9 @@ class DataResolver:
         return resolved
 
     @staticmethod
-    def load_records(path: str) -> List[Any]:
-        records: List[Any] = []
-        with open(path, "r", encoding="utf-8") as handle:
+    def load_records(path: str) -> list[Any]:
+        records: list[Any] = []
+        with open(path, encoding="utf-8") as handle:
             for line in handle:
                 line = line.strip()
                 if not line:
@@ -120,14 +121,14 @@ class DatasetPreparer:
         self.resolver = resolver
         self.rng = random.Random(seed)
 
-    def build(self) -> Tuple[DataLoader, Optional[DataLoader], List[Dict[str, Any]]]:
+    def build(self) -> tuple[DataLoader, DataLoader | None, list[dict[str, Any]]]:
         data_paths = self.resolver.get_data_paths()
         if not data_paths:
             raise RuntimeError("未能解析到任何数据集路径，请检查配置或数据文件是否存在。")
 
-        train_records: List[Any] = []
-        val_records: List[Any] = []
-        stats: List[Dict[str, Any]] = []
+        train_records: list[Any] = []
+        val_records: list[Any] = []
+        stats: list[dict[str, Any]] = []
 
         default_sampling = (
             self.config.dataset_sampling.get("default", {})
@@ -309,7 +310,7 @@ class DatasetPreparer:
         )
 
     @staticmethod
-    def _extract_text(data: Any) -> Optional[str]:
+    def _extract_text(data: Any) -> str | None:
         if "text" in data:
             return data["text"]
         if "conversations" in data:

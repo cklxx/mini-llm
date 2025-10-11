@@ -4,20 +4,21 @@
 全面评估架构升级后的模型性能：困惑度、生成质量、工具调用、ultra think等
 """
 
-import sys
 import os
+import sys
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
+
+import argparse
+import json
+import math
+import time
+from collections import defaultdict
+from pathlib import Path
+from typing import Any
 
 import torch
 import torch.nn.functional as F
-import json
-import argparse
-import time
-import math
-from pathlib import Path
-from typing import List, Dict, Any
-import numpy as np
-from collections import defaultdict
 
 from src.model.config import MiniGPTConfig
 from src.model.transformer import MiniGPT
@@ -81,7 +82,7 @@ class ModelEvaluator:
             'id_to_char': {i: char for char, i in enumerate(vocab)}
         }
 
-    def tokenize(self, text: str) -> List[int]:
+    def tokenize(self, text: str) -> list[int]:
         """文本分词"""
         tokens = [self.tokenizer['char_to_id'].get('<bos>', 2)]
         for char in text:
@@ -89,7 +90,7 @@ class ModelEvaluator:
         tokens.append(self.tokenizer['char_to_id'].get('<eos>', 3))
         return tokens
 
-    def detokenize(self, tokens: List[int]) -> str:
+    def detokenize(self, tokens: list[int]) -> str:
         """token解码"""
         text = ""
         for token in tokens:
@@ -99,7 +100,7 @@ class ModelEvaluator:
                     text += char
         return text
 
-    def calculate_perplexity(self, test_data: List[str]) -> float:
+    def calculate_perplexity(self, test_data: list[str]) -> float:
         """计算困惑度"""
         print("Calculating perplexity...")
 
@@ -137,7 +138,7 @@ class ModelEvaluator:
         print(f"Perplexity: {perplexity:.2f} (lower is better)")
         return perplexity
 
-    def evaluate_generation_quality(self, prompts: List[str]) -> Dict[str, Any]:
+    def evaluate_generation_quality(self, prompts: list[str]) -> dict[str, Any]:
         """评估生成质量"""
         print("Evaluating generation quality...")
 
@@ -253,7 +254,7 @@ class ModelEvaluator:
 
         return overlap / total_unique if total_unique > 0 else 0.0
 
-    def evaluate_tool_calling(self, tool_queries: List[str]) -> Dict[str, Any]:
+    def evaluate_tool_calling(self, tool_queries: list[str]) -> dict[str, Any]:
         """评估工具调用能力"""
         print("Evaluating tool calling capabilities...")
 
@@ -290,7 +291,7 @@ class ModelEvaluator:
 
         return results
 
-    def _detect_tools_in_response(self, response: str) -> List[str]:
+    def _detect_tools_in_response(self, response: str) -> list[str]:
         """从响应中检测工具调用"""
         tools = []
         response_lower = response.lower()
@@ -311,7 +312,7 @@ class ModelEvaluator:
 
         return tools
 
-    def _get_expected_tools(self, query: str) -> List[str]:
+    def _get_expected_tools(self, query: str) -> list[str]:
         """获取查询的预期工具"""
         query_lower = query.lower()
         expected = []
@@ -327,7 +328,7 @@ class ModelEvaluator:
 
         return expected
 
-    def evaluate_ultra_think(self, thinking_problems: List[str]) -> Dict[str, Any]:
+    def evaluate_ultra_think(self, thinking_problems: list[str]) -> dict[str, Any]:
         """评估ultra think能力"""
         print("Evaluating ultra think capabilities...")
 
@@ -389,13 +390,13 @@ class ModelEvaluator:
         ]
 
         score = 0
-        for feature_name, keywords in quality_features:
+        for _feature_name, keywords in quality_features:
             if any(keyword in response for keyword in keywords):
                 score += 1
 
         return score / len(quality_features)
 
-    def benchmark_performance(self) -> Dict[str, Any]:
+    def benchmark_performance(self) -> dict[str, Any]:
         """性能基准测试"""
         print("Running performance benchmark...")
 
@@ -448,7 +449,7 @@ class ModelEvaluator:
         return results
 
 
-def load_test_data(data_dir: str) -> Dict[str, List[str]]:
+def load_test_data(data_dir: str) -> dict[str, list[str]]:
     """加载测试数据"""
     test_data = {
         'general_text': [],

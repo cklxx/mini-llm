@@ -12,10 +12,10 @@ import re
 import time
 import unicodedata
 from collections import defaultdict
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from collections.abc import Iterable
+from typing import Any
 
-
-CJK_RANGES: List[Tuple[str, str]] = [
+CJK_RANGES: list[tuple[str, str]] = [
     ("\u4e00", "\u9fff"),  # CJK Unified Ideographs
     ("\u3400", "\u4dbf"),  # CJK Extension A
     ("\u3040", "\u309f"),  # Hiragana
@@ -91,10 +91,10 @@ class BPETokenizer:
         self.strip_spaces = strip_spaces
         self.enable_byte_fallback = enable_byte_fallback
 
-        self.word_freqs: Dict[str, int] = {}
-        self.splits: Dict[str, List[str]] = {}
-        self.merges: Dict[Tuple[str, str], int] = {}
-        self.vocab: Dict[str, int] = {}
+        self.word_freqs: dict[str, int] = {}
+        self.splits: dict[str, list[str]] = {}
+        self.merges: dict[tuple[str, str], int] = {}
+        self.vocab: dict[str, int] = {}
 
         # 特殊token
         self.pad_token = "<PAD>"
@@ -122,7 +122,7 @@ class BPETokenizer:
     def _normalizer_signature(self) -> str:
         """Return a stable signature that describes the normalization pipeline."""
 
-        stages: List[str] = []
+        stages: list[str] = []
         if self.normalize_nfkc:
             stages.append("nfkc")
         if self.strip_spaces:
@@ -158,7 +158,7 @@ class BPETokenizer:
     def _sync_internal_state(self) -> None:
         """重建内部映射信息。"""
 
-        self._id_to_token: Dict[int, str] = {v: k for k, v in self.vocab.items()}
+        self._id_to_token: dict[int, str] = {v: k for k, v in self.vocab.items()}
         if self.enable_byte_fallback and self.vocab:
             self.byte_token_to_id = {}
             self.id_to_byte = {}
@@ -202,7 +202,7 @@ class BPETokenizer:
                         f"特殊token {token} 的ID不匹配: 期望 {expected_id}, 实际 {actual_id}"
                     )
 
-    def _checksum_payload(self) -> Dict[str, Any]:
+    def _checksum_payload(self) -> dict[str, Any]:
         return {
             "vocab": sorted(self.vocab.items()),
             "merges": sorted(self.merges.items()),
@@ -232,14 +232,14 @@ class BPETokenizer:
         text = re.sub(r"\s+([,.!?;:，。！？；：])", r"\1", text)
         return text.strip()
 
-    def _encode_as_bytes(self, text: str) -> List[int]:
+    def _encode_as_bytes(self, text: str) -> list[int]:
         if not self.enable_byte_fallback:
             return [self.unk_id]
         try:
             data = text.encode("utf-8")
         except Exception:
             data = text.encode("utf-8", errors="ignore")
-        token_ids: List[int] = []
+        token_ids: list[int] = []
         for byte in data:
             token = self._format_byte_token(byte)
             if token in self.vocab:
@@ -252,11 +252,11 @@ class BPETokenizer:
         return token_ids or [self.unk_id]
 
     # ------------------------------------------------------------------
-    def pre_tokenize(self, text: str) -> List[str]:
+    def pre_tokenize(self, text: str) -> list[str]:
         """预分词：改进中文处理"""
 
         text = self._normalize(text)
-        words: List[str] = []
+        words: list[str] = []
         current_word = ""
 
         for char in text:
@@ -283,7 +283,7 @@ class BPETokenizer:
 
         return [w for w in words if w.strip()]
 
-    def compute_word_frequencies(self, texts: List[str]) -> None:
+    def compute_word_frequencies(self, texts: list[str]) -> None:
         """计算词频"""
 
         word_freqs = defaultdict(int)
@@ -313,7 +313,7 @@ class BPETokenizer:
         min_freq_chinese = 1
         min_freq_other = 2 if len(other_words) <= 30000 else max(2, len(other_words) // 15000)
 
-        filtered_word_freqs: Dict[str, int] = {}
+        filtered_word_freqs: dict[str, int] = {}
         filtered_word_freqs.update({word: freq for word, freq in chinese_chars.items() if freq >= min_freq_chinese})
         filtered_word_freqs.update({word: freq for word, freq in other_words.items() if freq >= min_freq_other})
 
@@ -329,16 +329,16 @@ class BPETokenizer:
     def initialize_splits(self) -> None:
         """初始化分割：将每个词分割成字符"""
 
-        splits: Dict[str, List[str]] = {}
+        splits: dict[str, list[str]] = {}
         for word in self.word_freqs:
             if len(word) == 1 and is_chinese_char(word):
                 splits[word] = [word, "</w>"]
             else:
-                splits[word] = [c for c in word] + ["</w>"]
+                splits[word] = list(word) + ["</w>"]
         self.splits = splits
         print(f"✅ 初始化分割完成! {len(splits):,}个词")
 
-    def compute_pair_frequencies(self) -> Dict[Tuple[str, str], int]:
+    def compute_pair_frequencies(self) -> dict[tuple[str, str], int]:
         """计算相邻字符对的频率"""
 
         pair_freqs = defaultdict(int)
@@ -349,14 +349,14 @@ class BPETokenizer:
                 pair_freqs[pair] += freq
         return dict(pair_freqs)
 
-    def merge_vocab(self, pair: Tuple[str, str]) -> int:
+    def merge_vocab(self, pair: tuple[str, str]) -> int:
         """合并词汇表中的字符对"""
 
-        new_splits: Dict[str, List[str]] = {}
+        new_splits: dict[str, list[str]] = {}
         merge_count = 0
         for word in self.word_freqs:
             split = self.splits[word]
-            new_split: List[str] = []
+            new_split: list[str] = []
             i = 0
             while i < len(split):
                 if i < len(split) - 1 and (split[i], split[i + 1]) == pair:
@@ -370,7 +370,7 @@ class BPETokenizer:
         self.splits = new_splits
         return merge_count
 
-    def train(self, texts: List[str]) -> None:
+    def train(self, texts: list[str]) -> None:
         """训练BPE分词器"""
 
         print("🚀 开始训练BPE分词器（中文优化版）...")
@@ -385,7 +385,7 @@ class BPETokenizer:
         self.compute_word_frequencies(texts)
         self.initialize_splits()
 
-        merges: Dict[Tuple[str, str], int] = {}
+        merges: dict[tuple[str, str], int] = {}
         vocab_target = self.vocab_size - self._reserved_token_count
         if vocab_target <= 0:
             raise ValueError(
@@ -469,7 +469,7 @@ class BPETokenizer:
     def build_vocab(self) -> None:
         """构建词汇表"""
 
-        vocab: Dict[str, int] = {}
+        vocab: dict[str, int] = {}
         vocab[self.pad_token] = self.pad_id
         vocab[self.unk_token] = self.unk_id
         vocab[self.bos_token] = self.bos_id
@@ -493,15 +493,15 @@ class BPETokenizer:
         self._validate_special_tokens(require_presence=True)
         self._update_checksum()
 
-    def encode_word(self, word: str) -> List[str]:
+    def encode_word(self, word: str) -> list[str]:
         """编码单个词"""
 
         if len(word) == 1 and is_chinese_char(word):
             return [word + "</w>"]
 
-        tokens = [c for c in word] + ["</w>"]
+        tokens = list(word) + ["</w>"]
         for pair, _ in sorted(self.merges.items(), key=lambda x: x[1]):
-            new_tokens: List[str] = []
+            new_tokens: list[str] = []
             i = 0
             while i < len(tokens):
                 if i < len(tokens) - 1 and (tokens[i], tokens[i + 1]) == pair:
@@ -513,11 +513,11 @@ class BPETokenizer:
             tokens = new_tokens
         return tokens
 
-    def encode(self, text: str, add_special_tokens: bool = True) -> List[int]:
+    def encode(self, text: str, add_special_tokens: bool = True) -> list[int]:
         """编码文本为token ID列表"""
 
         words = self.pre_tokenize(text)
-        token_ids: List[int] = []
+        token_ids: list[int] = []
 
         if add_special_tokens:
             token_ids.append(self.bos_id)
@@ -528,7 +528,7 @@ class BPETokenizer:
             except Exception:
                 tokens = []
 
-            mapped_ids: List[int] = []
+            mapped_ids: list[int] = []
             for token in tokens:
                 token_id = self.vocab.get(token)
                 if token_id is None:
@@ -547,17 +547,17 @@ class BPETokenizer:
 
         return token_ids
 
-    def decode(self, token_ids: List[int]) -> str:
+    def decode(self, token_ids: list[int]) -> str:
         """解码token ID列表为文本"""
 
         if not token_ids:
             return ""
 
         id_to_token = self._id_to_token or {v: k for k, v in self.vocab.items()}
-        output: List[str] = []
+        output: list[str] = []
         byte_buffer: bytearray = bytearray()
 
-        def flush_byte_buffer() -> Optional[str]:
+        def flush_byte_buffer() -> str | None:
             if not byte_buffer:
                 return None
             try:
@@ -680,7 +680,7 @@ class BPETokenizer:
 
         return len(self.vocab)
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         return {
             "vocab_size": self.vocab_size,
             "lowercase": self.lowercase,
@@ -694,9 +694,9 @@ class BPETokenizer:
     def checksum(self) -> str:
         return self._checksum
 
-    def special_tokens_map(self, *, require_presence: bool = True) -> Dict[str, Dict[str, Any]]:
+    def special_tokens_map(self, *, require_presence: bool = True) -> dict[str, dict[str, Any]]:
         self._validate_special_tokens(require_presence=require_presence, strict=require_presence)
-        mapping: Dict[str, Dict[str, Any]] = {}
+        mapping: dict[str, dict[str, Any]] = {}
         for name, token, fallback_id in [
             ("pad", self.pad_token, self.pad_id),
             ("unk", self.unk_token, self.unk_id),
@@ -718,11 +718,11 @@ class BPETokenizer:
             }
         return mapping
 
-    def diff_special_tokens(self, expected: Dict[str, Dict[str, Any]]) -> Dict[str, tuple[Any, Any]]:
+    def diff_special_tokens(self, expected: dict[str, dict[str, Any]]) -> dict[str, tuple[Any, Any]]:
         if not expected:
             return {}
         actual = self.special_tokens_map(require_presence=False)
-        mismatches: Dict[str, tuple[Any, Any]] = {}
+        mismatches: dict[str, tuple[Any, Any]] = {}
         for name, expected_info in expected.items():
             actual_info = actual.get(name)
             if actual_info is None:
@@ -741,7 +741,7 @@ class BPETokenizer:
 
     def compute_unk_statistics(
         self, texts: Iterable[str], sample_size: int = 1000
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         total_tokens = 0
         unk_tokens = 0
         sampled = 0
@@ -769,9 +769,9 @@ def train_tokenizer_from_data(data_path: str, vocab_size: int = 30000) -> BPETok
 
     print(f"📁 加载数据: {data_path}, 目标词汇表: {vocab_size:,}")
 
-    texts: List[str] = []
+    texts: list[str] = []
     start_time = time.time()
-    with open(data_path, "r", encoding="utf-8") as f:
+    with open(data_path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:

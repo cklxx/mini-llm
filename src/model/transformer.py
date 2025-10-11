@@ -4,14 +4,14 @@
 用于新手理解Transformer原理
 """
 import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, Tuple
+
 from .config import MiniGPTConfig
-from .rope import RotaryPositionEmbedding, apply_rotary_pos_emb
-from .gqa import GroupedQueryAttention, OptimizedMultiHeadAttention
-from .moe import SparseMoE, SharedExpertMoE
+from .gqa import GroupedQueryAttention
+from .moe import SharedExpertMoE, SparseMoE
 
 
 class RMSNorm(nn.Module):
@@ -67,7 +67,7 @@ class MultiHeadAttention(nn.Module):
         self.scale = math.sqrt(self.d_k)
 
     def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor,
-                mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+                mask: torch.Tensor | None = None) -> torch.Tensor:
         """
         前向传播
 
@@ -114,7 +114,7 @@ class SwiGLUFeedForward(nn.Module):
         super().__init__()
         # 通常 hidden_dim 是 dim 的倍数，例如 4 * dim
         # SwiGLU 论文建议使用 2/3 的倍数，如 8/3 * dim
-        
+
         self.w_gate = nn.Linear(dim, hidden_dim, bias=False) # 对应公式中的 W
         self.w_up = nn.Linear(dim, hidden_dim, bias=False)   # 对应公式中的 V
         self.w_down = nn.Linear(hidden_dim, dim, bias=False) # 最后输出的线性层
@@ -124,14 +124,14 @@ class SwiGLUFeedForward(nn.Module):
         # 1. 计算门和数据通路
         gate = self.w_gate(x)  # xW
         up = self.w_up(x)      # xV
-        
+
         # 2. 应用 Swish 激活函数到门上，并执行逐元素相乘
         # F.silu 是 PyTorch 中 Swish (或 SiLU) 函数的官方实现
         gated_output = F.silu(gate) * up # Swish(xW) ⊙ (xV)
-        
+
         # 3. 通过最后一个线性层，将维度映射回原始维度
         output = self.w_down(self.dropout(gated_output))
-        
+
         return output
 
 
@@ -262,8 +262,8 @@ class TransformerBlock(nn.Module):
 
     def forward(self,
                 x: torch.Tensor,
-                mask: Optional[torch.Tensor] = None,
-                position_ids: Optional[torch.Tensor] = None,
+                mask: torch.Tensor | None = None,
+                position_ids: torch.Tensor | None = None,
                 collect_moe_loss: bool = False):
         """
         Args:
@@ -347,7 +347,7 @@ class MiniGPT(nn.Module):
 
         # 初始化参数
         self.init_weights()
-    
+
     def init_weights(self):
         """初始化模型参数"""
         for module in self.modules():
@@ -357,23 +357,23 @@ class MiniGPT(nn.Module):
                     nn.init.zeros_(module.bias)
             elif isinstance(module, nn.Embedding):
                 nn.init.normal_(module.weight, mean=0.0, std=0.02)
-            elif isinstance(module, (nn.LayerNorm, RMSNorm)):
+            elif isinstance(module, nn.LayerNorm | RMSNorm):
                 nn.init.ones_(module.weight)
                 if hasattr(module, 'bias') and module.bias is not None:
                     nn.init.zeros_(module.bias)
-    
+
     def create_causal_mask(self, seq_len: int) -> torch.Tensor:
         """创建因果掩码（下三角矩阵）
-        
+
         防止模型在预测时看到未来的token
         """
         mask = torch.tril(torch.ones(seq_len, seq_len))
         return mask  # 1表示可见，0表示掩码
-    
+
     def forward(self,
                 input_ids: torch.Tensor,
-                attention_mask: Optional[torch.Tensor] = None,
-                position_ids: Optional[torch.Tensor] = None,
+                attention_mask: torch.Tensor | None = None,
+                position_ids: torch.Tensor | None = None,
                 return_aux_loss: bool = False):
         """
         前向传播
@@ -440,7 +440,7 @@ class MiniGPT(nn.Module):
             return logits, total_moe_loss
 
         return logits
-    
+
     def generate(self, input_ids: torch.Tensor, max_length: int = None,
                  temperature: float = None, top_k: int = None) -> torch.Tensor:
         """文本生成
@@ -459,34 +459,34 @@ class MiniGPT(nn.Module):
         temperature = temperature or self.config.temperature
         top_k = top_k or self.config.top_k
         self.eval()
-        
+
         with torch.no_grad():
             for _ in range(max_length):
                 # 前向传播
                 logits = self.forward(input_ids)
-                
+
                 # 取最后一个位置的logits
                 next_token_logits = logits[:, -1, :] / temperature
-                
+
                 # Top-k采样
                 if top_k > 0:
                     top_k_logits, top_k_indices = torch.topk(next_token_logits, top_k)
                     next_token_logits = torch.full_like(next_token_logits, -1e9)
                     next_token_logits.scatter_(1, top_k_indices, top_k_logits)
-                
+
                 # 采样下一个token
                 probs = F.softmax(next_token_logits, dim=-1)
                 next_token = torch.multinomial(probs, num_samples=1)
-                
+
                 # 拼接到输入序列
                 input_ids = torch.cat([input_ids, next_token], dim=1)
-                
+
                 # 如果生成了结束符，停止生成
                 if next_token.item() == self.config.eos_token_id:
                     break
-        
+
         return input_ids
-    
+
     def get_num_params(self) -> int:
         """获取模型参数数量"""
         return sum(p.numel() for p in self.parameters())
@@ -519,18 +519,18 @@ if __name__ == "__main__":
     # 测试模型
     vocab_size = 10000
     model = create_model(vocab_size, "small")
-    
+
     # 创建测试输入
     batch_size = 2
     seq_len = 20
     input_ids = torch.randint(0, vocab_size, (batch_size, seq_len))
-    
+
     # 前向传播
     with torch.no_grad():
         logits = model(input_ids)
         print(f"输入形状: {input_ids.shape}")
         print(f"输出形状: {logits.shape}")
-        
+
         # 测试生成
         generated = model.generate(input_ids[:1], max_length=10)
         print(f"生成序列长度: {generated.shape[1]}")

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Optional
 
 import torch
 
@@ -30,7 +29,7 @@ class MemoryHooks:
         log_interval = int(getattr(config, "memory_log_interval", 100))
         self._hook_config = MemoryHookConfig(enabled, threshold, cleanup_interval, log_interval)
         self._device = torch.device(device)
-        self._monitor: Optional[MemoryMonitor] = None
+        self._monitor: MemoryMonitor | None = None
         self._steps_since_log = 0
         self._steps_since_cleanup = 0
 

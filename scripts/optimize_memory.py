@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 GPU内存优化工具
 自动分析GPU内存并建议最优配置
 """
+import argparse
 import os
 import sys
+
 import torch
-import argparse
 
 # 添加项目路径
 project_root = os.path.dirname(os.path.dirname(__file__))

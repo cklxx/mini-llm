@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 🚀 MiniGPT分词器一键评测脚本
 ==============================
@@ -14,20 +13,18 @@
 4. 支持自定义评估参数
 """
 
-import sys
-import os
 import argparse
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
 
 # 添加项目根目录到路径
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.append(str(project_root))
 
 try:
-    from scripts.evaluation.tokenizer.comprehensive_tokenizer_evaluation import TokenizerEvaluator
     from scripts.evaluation.tokenizer.comparison.tokenizer_comparison import TokenizerComparison
-    from scripts.evaluation.tokenizer.benchmarks.tokenizer_benchmark import TokenizerBenchmark
+    from scripts.evaluation.tokenizer.comprehensive_tokenizer_evaluation import TokenizerEvaluator
 except ImportError as e:
     print(f"❌ 导入模块失败: {e}")
     print("请确保在MiniGPT项目根目录下运行此脚本")
@@ -98,9 +95,9 @@ class OneClickEvaluator:
                 result = evaluator.evaluate_tokenizer(str(tokenizer_path))
                 if result:
                     evaluation_results[tokenizer_path.name] = result.__dict__
-                    print(f"     ✅ 完成")
+                    print("     ✅ 完成")
                 else:
-                    print(f"     ❌ 失败")
+                    print("     ❌ 失败")
             except Exception as e:
                 print(f"     ❌ 错误: {e}")
 

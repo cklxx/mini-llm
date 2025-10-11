@@ -7,7 +7,6 @@ import signal
 import sys
 import time
 from datetime import datetime
-from typing import Optional
 
 import torch
 
@@ -17,9 +16,9 @@ from training.training_monitor import TrainingMonitor
 from .checkpointing import CheckpointManager
 from .data_manager import DataResolver, DatasetPreparer
 from .environment import TrainingEnvironment
-from .tokenizer_manager import TokenizerManager
 from .memory_hooks import MemoryHooks
 from .regression_suite import RegressionSuite
+from .tokenizer_manager import TokenizerManager
 from .training_loop import TrainingControl, TrainingLoopRunner
 
 
@@ -93,7 +92,7 @@ class MiniGPTTrainer:
     # ------------------------------------------------------------------
     def train(
         self,
-        resume_from: Optional[str] = None,
+        resume_from: str | None = None,
         auto_resume: bool = False,
         retrain_tokenizer: bool = False,
     ):

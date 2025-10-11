@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 A6000优化验证脚本
 快速检查所有优化配置是否正确应用
 """
 import os
 import sys
+
 import torch
 
 # 添加项目路径
@@ -43,13 +43,13 @@ def verify_gpu():
 
         # 验证是否为A6000
         if "A6000" in props.name:
-            print(f"  ✅ 确认为 A6000 GPU")
+            print("  ✅ 确认为 A6000 GPU")
             if props.total_memory / 1024**3 >= 45:
-                print(f"  ✅ 显存充足 (48GB)")
+                print("  ✅ 显存充足 (48GB)")
             else:
-                print(f"  ⚠️  显存不足48GB")
+                print("  ⚠️  显存不足48GB")
         else:
-            print(f"  ⚠️  非A6000 GPU，优化配置可能需要调整")
+            print("  ⚠️  非A6000 GPU，优化配置可能需要调整")
 
     return True
 
@@ -68,7 +68,7 @@ def verify_config():
     print(f"  - 设备: {config.device}")
 
     # 验证batch size优化
-    print(f"\n🔹 Batch配置:")
+    print("\n🔹 Batch配置:")
     print(f"  - Batch size: {config.batch_size}")
     expected_batch = 32 if config.device == "cuda" else 2
     if config.batch_size == expected_batch:
@@ -81,52 +81,52 @@ def verify_config():
     effective_batch = config.batch_size * config.gradient_accumulation_steps
     print(f"  - 有效batch: {effective_batch}")
     if effective_batch >= 128:
-        print(f"  ✅ 有效batch size合理 (≥128)")
+        print("  ✅ 有效batch size合理 (≥128)")
     else:
-        print(f"  ⚠️  有效batch size偏小 (<128)")
+        print("  ⚠️  有效batch size偏小 (<128)")
 
     # 验证数据加载优化
-    print(f"\n🔹 数据加载配置:")
+    print("\n🔹 数据加载配置:")
     print(f"  - Workers: {config.num_workers}")
     if config.num_workers >= 4:
-        print(f"  ✅ Worker数量已优化 (≥4)")
+        print("  ✅ Worker数量已优化 (≥4)")
     else:
-        print(f"  ⚠️  Worker数量偏少 (建议≥4)")
+        print("  ⚠️  Worker数量偏少 (建议≥4)")
 
     if hasattr(config, 'prefetch_factor'):
         print(f"  - Prefetch factor: {config.prefetch_factor}")
         if config.prefetch_factor >= 2:
-            print(f"  ✅ 预取配置已优化 (≥2)")
+            print("  ✅ 预取配置已优化 (≥2)")
         else:
-            print(f"  ⚠️  预取配置偏小")
+            print("  ⚠️  预取配置偏小")
     else:
-        print(f"  ⚠️  未配置prefetch_factor")
+        print("  ⚠️  未配置prefetch_factor")
 
     print(f"  - Pin memory: {config.pin_memory}")
     if config.pin_memory and config.device == "cuda":
-        print(f"  ✅ Pin memory已启用")
+        print("  ✅ Pin memory已启用")
     elif config.device == "cuda":
-        print(f"  ⚠️  Pin memory未启用")
+        print("  ⚠️  Pin memory未启用")
 
     print(f"  - Persistent workers: {config.persistent_workers}")
     if config.persistent_workers and config.num_workers > 0:
-        print(f"  ✅ Persistent workers已启用")
+        print("  ✅ Persistent workers已启用")
 
     # 验证混合精度
-    print(f"\n🔹 训练优化:")
+    print("\n🔹 训练优化:")
     print(f"  - 混合精度: {config.mixed_precision}")
     if config.mixed_precision and config.device == "cuda":
-        print(f"  ✅ 混合精度已启用 (FP16)")
+        print("  ✅ 混合精度已启用 (FP16)")
     elif config.device == "cuda":
-        print(f"  ⚠️  混合精度未启用")
+        print("  ⚠️  混合精度未启用")
 
     print(f"  - 梯度检查点: {config.gradient_checkpointing}")
     if config.gradient_checkpointing:
-        print(f"  ✅ 梯度检查点已启用")
+        print("  ✅ 梯度检查点已启用")
 
     print(f"  - Flash Attention: {config.flash_attention}")
     if config.flash_attention and config.device == "cuda":
-        print(f"  ✅ Flash Attention已配置")
+        print("  ✅ Flash Attention已配置")
 
     print(f"  - 模型编译: {config.compile_model}")
 
@@ -145,22 +145,22 @@ def verify_cuda_optimizations():
     print(f"TF32 (matmul): {torch.backends.cuda.matmul.allow_tf32}")
     print(f"TF32 (cudnn): {torch.backends.cudnn.allow_tf32}")
     if torch.backends.cuda.matmul.allow_tf32:
-        print(f"✅ TF32已启用 (Ampere架构优化)")
+        print("✅ TF32已启用 (Ampere架构优化)")
     else:
-        print(f"⚠️  TF32未启用")
+        print("⚠️  TF32未启用")
 
     # CuDNN benchmark
     print(f"\nCuDNN Benchmark: {torch.backends.cudnn.benchmark}")
     if torch.backends.cudnn.benchmark:
-        print(f"✅ CuDNN Benchmark已启用")
+        print("✅ CuDNN Benchmark已启用")
     else:
-        print(f"⚠️  CuDNN Benchmark未启用")
+        print("⚠️  CuDNN Benchmark未启用")
 
     # 混合精度支持
-    print(f"\n混合精度支持:")
+    print("\n混合精度支持:")
     try:
-        scaler = torch.cuda.amp.GradScaler()
-        print(f"✅ GradScaler可用")
+        torch.cuda.amp.GradScaler()
+        print("✅ GradScaler可用")
     except Exception as e:
         print(f"❌ GradScaler不可用: {e}")
 
@@ -198,7 +198,7 @@ def estimate_memory():
     model_memory_fp32 = total_params * bytes_per_param_fp32 / 1024**3
     model_memory_fp16 = total_params * bytes_per_param_fp16 / 1024**3
 
-    print(f"\n模型权重显存:")
+    print("\n模型权重显存:")
     print(f"  - FP32: ~{model_memory_fp32:.2f} GB")
     print(f"  - FP16: ~{model_memory_fp16:.2f} GB")
 

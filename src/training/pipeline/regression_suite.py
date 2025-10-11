@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import torch
 
@@ -13,7 +13,7 @@ import torch
 class RegressionPrompt:
     prompt_id: str
     prompt: str
-    expect_substrings: List[str]
+    expect_substrings: list[str]
     max_new_tokens: int
 
 
@@ -23,26 +23,26 @@ class RegressionSuite:
     def __init__(self, config: Any, output_dir: str, device: str):
         self.enabled: bool = bool(getattr(config, "regression_eval_enabled", False))
         self.interval: int = int(getattr(config, "regression_eval_interval", 500))
-        self.prompts_path: Optional[str] = getattr(config, "regression_eval_prompts", None)
+        self.prompts_path: str | None = getattr(config, "regression_eval_prompts", None)
         self.max_new_tokens: int = int(getattr(config, "regression_eval_max_new_tokens", 96))
         self.temperature: float = float(getattr(config, "regression_eval_temperature", 0.8))
         self.top_p: float = float(getattr(config, "regression_eval_top_p", 0.95))
         self.output_dir = os.path.join(output_dir, "regression")
         self._device = torch.device(device)
-        self._cached_prompts: Optional[List[RegressionPrompt]] = None
+        self._cached_prompts: list[RegressionPrompt] | None = None
         self._last_step_run: int = -1
         os.makedirs(self.output_dir, exist_ok=True)
 
     # ------------------------------------------------------------------
-    def _load_prompts(self) -> List[RegressionPrompt]:
+    def _load_prompts(self) -> list[RegressionPrompt]:
         if self._cached_prompts is not None:
             return self._cached_prompts
-        prompts: List[RegressionPrompt] = []
+        prompts: list[RegressionPrompt] = []
         if not self.prompts_path or not os.path.exists(self.prompts_path):
             print(f"⚠️  Regression prompt file missing: {self.prompts_path}")
             self._cached_prompts = []
             return self._cached_prompts
-        with open(self.prompts_path, "r", encoding="utf-8") as handle:
+        with open(self.prompts_path, encoding="utf-8") as handle:
             for line in handle:
                 line = line.strip()
                 if not line:
@@ -85,7 +85,7 @@ class RegressionSuite:
         model_was_training = model.training
         model.eval()
 
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
         pass_count = 0
         with torch.no_grad():
             for item in prompts:

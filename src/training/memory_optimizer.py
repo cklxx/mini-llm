@@ -2,19 +2,17 @@
 内存优化系统
 包含混合精度训练、梯度累积、内存管理和优化策略
 """
-import os
 import gc
-import psutil
-import warnings
-from typing import Dict, List, Any, Optional, Tuple, Union
-from dataclasses import dataclass
 from contextlib import contextmanager
+from dataclasses import dataclass
+from typing import Any
 
+import numpy as np
+import psutil
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.cuda.amp import autocast, GradScaler
-import torch.distributed as dist
+from torch.cuda.amp import GradScaler, autocast
 
 
 @dataclass
@@ -54,7 +52,7 @@ class MemoryMonitor:
         self.device = device
         self.memory_history = []
 
-    def get_memory_info(self) -> Dict[str, float]:
+    def get_memory_info(self) -> dict[str, float]:
         """获取详细内存信息"""
         info = {}
 
@@ -301,7 +299,7 @@ class DynamicBatchSizer:
         if self.enabled:
             print(f"🔄 Dynamic batch sizing enabled: {self.min_batch_size}-{self.max_batch_size}")
 
-    def handle_oom(self) -> Optional[int]:
+    def handle_oom(self) -> int | None:
         """处理OOM错误，返回新的批处理大小"""
         if not self.enabled or self.current_batch_size is None:
             return None
@@ -320,7 +318,7 @@ class DynamicBatchSizer:
         self.current_batch_size = new_batch_size
         return new_batch_size
 
-    def try_increase_batch_size(self) -> Optional[int]:
+    def try_increase_batch_size(self) -> int | None:
         """尝试增加批处理大小"""
         if not self.enabled or self.current_batch_size is None:
             return None
@@ -342,7 +340,7 @@ class DynamicBatchSizer:
 
         return None
 
-    def get_current_batch_size(self) -> Optional[int]:
+    def get_current_batch_size(self) -> int | None:
         """获取当前批处理大小"""
         return self.current_batch_size
 
@@ -423,11 +421,11 @@ class MemoryOptimizer:
                 # 处理OOM
                 new_batch_size = self.batch_sizer.handle_oom()
                 if new_batch_size:
-                    raise MemoryError(f"OOM handled, try batch_size={new_batch_size}")
-                else:
-                    raise e
-            else:
-                raise e
+                    raise MemoryError(
+                        f"OOM handled, try batch_size={new_batch_size}"
+                    ) from e
+                raise
+            raise
 
         finally:
             # 定期清理
@@ -443,7 +441,7 @@ class MemoryOptimizer:
         """反向传播"""
         self.mixed_precision.backward(loss)
 
-    def get_memory_stats(self) -> Dict[str, Any]:
+    def get_memory_stats(self) -> dict[str, Any]:
         """获取内存统计信息"""
         return {
             'memory_info': self.memory_monitor.get_memory_info(),

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 架构升级测试脚本
 验证所有新架构组件的正确性：RoPE、GQA、深度优化、权重共享等
 """
 
-import sys
 import os
+import sys
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 
 try:  # pragma: no cover - optional dependency guard

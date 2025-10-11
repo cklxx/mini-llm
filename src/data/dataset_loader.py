@@ -4,7 +4,6 @@
 """
 import json
 import os
-from typing import List, Dict, Any, Optional, Iterator
 from dataclasses import dataclass
 
 
@@ -15,26 +14,26 @@ class DatasetConfig:
     max_length: int = 512
     train_split: float = 0.9
     shuffle: bool = True
-    
+
 
 class ConversationDataLoader:
     """对话数据加载器
-    
+
     支持加载SFT格式的对话数据，包括：
     - sft_mini_512.jsonl：极简SFT数据
     - sft_512.jsonl：匠数科技SFT数据
     - sft_1024.jsonl：Qwen2.5蒸馏数据
     - sft_2048.jsonl：完整Qwen2.5蒸馏数据
     """
-    
+
     def __init__(self, config: DatasetConfig):
         self.config = config
         self.data = []
-        
-    def load_jsonl(self, file_path: str) -> List[Dict]:
+
+    def load_jsonl(self, file_path: str) -> list[dict]:
         """加载JSONL格式文件"""
         data = []
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
                 if line:
@@ -44,15 +43,15 @@ class ConversationDataLoader:
                         print(f"解析JSON行失败: {e}")
                         continue
         return data
-    
-    def load_conversations(self) -> List[Dict]:
+
+    def load_conversations(self) -> list[dict]:
         """加载对话数据"""
         if not os.path.exists(self.config.data_path):
             raise FileNotFoundError(f"数据文件不存在: {self.config.data_path}")
-        
+
         raw_data = self.load_jsonl(self.config.data_path)
         processed_data = []
-        
+
         for item in raw_data:
             if 'conversations' in item:
                 # 处理对话格式数据
@@ -61,59 +60,59 @@ class ConversationDataLoader:
                     # 提取用户输入和助手回复
                     user_input = ""
                     assistant_output = ""
-                    
+
                     for conv in conversations:
                         if conv['role'] == 'user':
                             user_input = conv['content']
                         elif conv['role'] == 'assistant':
                             assistant_output = conv['content']
-                    
+
                     if user_input and assistant_output:
                         processed_data.append({
                             'input': user_input,
                             'output': assistant_output,
                             'length': len(user_input) + len(assistant_output)
                         })
-        
+
         # 按长度过滤
         filtered_data = [
-            item for item in processed_data 
+            item for item in processed_data
             if item['length'] <= self.config.max_length
         ]
-        
+
         print(f"加载了 {len(filtered_data)} 条对话数据")
         return filtered_data
-    
-    def get_train_test_split(self, data: List[Dict]):
+
+    def get_train_test_split(self, data: list[dict]):
         """划分训练集和测试集"""
         if self.config.shuffle:
             import random
             random.shuffle(data)
-        
+
         split_idx = int(len(data) * self.config.train_split)
         train_data = data[:split_idx]
         test_data = data[split_idx:]
-        
+
         return train_data, test_data
 
 
 class PretrainDataLoader:
     """预训练数据加载器
-    
+
     支持加载预训练格式的数据：
     - pretrain_hq.jsonl：高质量预训练数据
     """
-    
+
     def __init__(self, config: DatasetConfig):
         self.config = config
-        
-    def load_pretrain_data(self) -> List[str]:
+
+    def load_pretrain_data(self) -> list[str]:
         """加载预训练数据"""
         if not os.path.exists(self.config.data_path):
             raise FileNotFoundError(f"数据文件不存在: {self.config.data_path}")
-        
+
         texts = []
-        with open(self.config.data_path, 'r', encoding='utf-8') as f:
+        with open(self.config.data_path, encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
                 if line:
@@ -125,28 +124,28 @@ class PretrainDataLoader:
                                 texts.append(text)
                     except json.JSONDecodeError:
                         continue
-        
+
         print(f"加载了 {len(texts)} 条预训练文本")
         return texts
 
 
 class DPODataLoader:
     """DPO数据加载器
-    
+
     支持加载DPO格式的数据：
     - dpo.jsonl：RLHF阶段数据
     """
-    
+
     def __init__(self, config: DatasetConfig):
         self.config = config
-        
-    def load_dpo_data(self) -> List[Dict]:
+
+    def load_dpo_data(self) -> list[dict]:
         """加载DPO数据"""
         if not os.path.exists(self.config.data_path):
             raise FileNotFoundError(f"数据文件不存在: {self.config.data_path}")
-        
+
         dpo_data = []
-        with open(self.config.data_path, 'r', encoding='utf-8') as f:
+        with open(self.config.data_path, encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
                 if line:
@@ -157,7 +156,7 @@ class DPODataLoader:
                             dpo_data.append(data)
                     except json.JSONDecodeError:
                         continue
-        
+
         print(f"加载了 {len(dpo_data)} 条DPO数据")
         return dpo_data
 
@@ -180,11 +179,11 @@ if __name__ == "__main__":
         data_path="data/dataset/minimind_dataset/sft_mini_512.jsonl",
         max_length=512
     )
-    
+
     loader = ConversationDataLoader(config)
     data = loader.load_conversations()
     train_data, test_data = loader.get_train_test_split(data)
-    
+
     print(f"训练集大小: {len(train_data)}")
     print(f"测试集大小: {len(test_data)}")
     print(f"样本示例: {train_data[0]}")

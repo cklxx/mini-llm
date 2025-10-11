@@ -23,16 +23,16 @@ def print_banner():
 def check_environment():
     """检查环境"""
     print("🔍 检查环境...")
-    
+
     # 检查Python版本
     if sys.version_info < (3, 7):
         print("❌ 需要Python 3.7或更高版本")
         return False
-    
+
     # 检查必要的包
     required_packages = ['torch', 'psutil']
     missing_packages = []
-    
+
     for package in required_packages:
         try:
             __import__(package)
@@ -40,12 +40,12 @@ def check_environment():
         except ImportError:
             missing_packages.append(package)
             print(f"❌ {package} 未安装")
-    
+
     if missing_packages:
         print(f"\n📦 安装缺失的包:")
         print(f"pip install {' '.join(missing_packages)}")
         return False
-    
+
     # 检查数据文件
     data_file = "data/dataset/minimind_dataset/pretrain_200.jsonl"
     if not os.path.exists(data_file):
@@ -53,7 +53,7 @@ def check_environment():
         return False
     else:
         print(f"✅ 数据文件存在: {data_file}")
-    
+
     return True
 
 def show_menu():
@@ -63,7 +63,7 @@ def show_menu():
     print("2. Small模型 (平衡性能) - 66K参数，30-45分钟")
     print("3. 测试配置 (不训练)")
     print("4. 退出")
-    
+
     while True:
         choice = input("\n请选择 (1-4): ").strip()
         if choice in ['1', '2', '3', '4']:
@@ -78,7 +78,7 @@ def test_config():
         result = subprocess.run([
             sys.executable, 'config/mac_optimized_config.py'
         ], capture_output=True, text=True, timeout=30)
-        
+
         if result.returncode == 0:
             print("✅ 配置测试通过")
             print(result.stdout)
@@ -94,31 +94,31 @@ def run_training(config_type):
     """运行训练"""
     config_names = {'1': 'tiny', '2': 'small'}
     config = config_names[config_type]
-    
+
     print(f"\n🏃 开始{config}模型训练...")
     print("💡 提示:")
     print("  - 按 Ctrl+C 可以安全停止训练")
     print("  - 训练会自动保存检查点")
     print("  - 资源使用过高时会自动暂停")
-    
+
     # 等待用户确认
     input("\n按回车键开始训练...")
-    
+
     try:
         cmd = [
             sys.executable, 'scripts/train_optimized.py',
             '--config', config
         ]
-        
+
         print(f"执行命令: {' '.join(cmd)}")
         result = subprocess.run(cmd)
-        
+
         if result.returncode == 0:
             print("\n🎉 训练完成!")
             print("📁 检查点保存在: checkpoints/mac_" + config + "/")
         else:
             print(f"\n❌ 训练异常退出，返回码: {result.returncode}")
-            
+
     except KeyboardInterrupt:
         print("\n⏹️  训练被用户中断")
     except Exception as e:
@@ -127,10 +127,10 @@ def run_training(config_type):
 def show_results():
     """显示结果"""
     print("\n📊 查看训练结果:")
-    
+
     # 检查检查点目录
     checkpoint_dirs = ['checkpoints/mac_tiny', 'checkpoints/mac_small']
-    
+
     for checkpoint_dir in checkpoint_dirs:
         if os.path.exists(checkpoint_dir):
             print(f"\n📁 {checkpoint_dir}:")
@@ -144,15 +144,15 @@ def show_results():
 def main():
     """主函数"""
     print_banner()
-    
+
     # 检查环境
     if not check_environment():
         print("\n❌ 环境检查失败，请解决上述问题后重试")
         return
-    
+
     while True:
         choice = show_menu()
-        
+
         if choice == '1' or choice == '2':
             run_training(choice)
             show_results()
@@ -161,7 +161,7 @@ def main():
         elif choice == '4':
             print("\n👋 再见!")
             break
-        
+
         # 询问是否继续
         if choice != '4':
             continue_choice = input("\n是否继续使用? (y/n): ").strip().lower()
@@ -170,4 +170,4 @@ def main():
                 break
 
 if __name__ == "__main__":
-    main() 
+    main()

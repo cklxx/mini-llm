@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 from tokenizer.bpe_tokenizer import BPETokenizer
 
@@ -65,8 +65,8 @@ class TokenizerManager:
             if not os.path.exists(data_path):
                 print(f"⚠️  数据文件不存在，跳过: {data_path}")
                 continue
-            with open(data_path, "r", encoding="utf-8") as handle:
-                for line_no, line in enumerate(handle):
+            with open(data_path, encoding="utf-8") as handle:
+                for line in handle:
                     if len(texts) >= 50000:
                         break
                     try:
@@ -82,7 +82,7 @@ class TokenizerManager:
         return texts
 
     @staticmethod
-    def _extract_text(data) -> Optional[str]:
+    def _extract_text(data) -> str | None:
         if "text" in data:
             return data["text"]
         if "conversations" in data:

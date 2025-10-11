@@ -1,8 +1,6 @@
 """Language modeling dataset utilities."""
 from __future__ import annotations
 
-from typing import List
-
 import torch
 from torch.utils.data import Dataset
 
@@ -10,7 +8,7 @@ from torch.utils.data import Dataset
 class LanguageModelingDataset(Dataset):
     """Dataset that packs plain text into tokenized language modeling samples."""
 
-    def __init__(self, texts: List[str], tokenizer, max_length: int = 512):
+    def __init__(self, texts: list[str], tokenizer, max_length: int = 512):
         self.texts = texts
         self.tokenizer = tokenizer
         self.max_length = max_length

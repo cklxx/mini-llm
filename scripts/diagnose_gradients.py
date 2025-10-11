@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 梯度诊断工具
 分析训练过程中的梯度健康状况
 """
-import os
-import sys
-import torch
 import argparse
 import json
+import os
+import sys
 from pathlib import Path
+
+import torch
 
 # 添加项目路径
 project_root = os.path.dirname(os.path.dirname(__file__))
@@ -31,7 +31,7 @@ def analyze_checkpoint_gradients(checkpoint_path):
     print(f"   Loss: {checkpoint.get('loss', 'N/A'):.4f}")
 
     # 分析参数范数
-    print(f"\n🔍 参数统计:")
+    print("\n🔍 参数统计:")
     if 'model_state_dict' in checkpoint:
         state_dict = checkpoint['model_state_dict']
 
@@ -57,7 +57,7 @@ def analyze_checkpoint_gradients(checkpoint_path):
 
         print(f"   总参数量: {total_params:,}")
 
-        print(f"\n   各层参数范数:")
+        print("\n   各层参数范数:")
         for layer, stats in sorted(layer_stats.items()):
             avg_norm = stats['mean_norm'] / stats['count']
             print(f"   • {layer:20s}: 参数={stats['params']:>10,}, "
@@ -65,7 +65,7 @@ def analyze_checkpoint_gradients(checkpoint_path):
 
     # 优化器状态
     if 'optimizer_state_dict' in checkpoint:
-        print(f"\n⚙️  优化器状态:")
+        print("\n⚙️  优化器状态:")
         opt_state = checkpoint['optimizer_state_dict']
         print(f"   学习率: {opt_state.get('param_groups', [{}])[0].get('lr', 'N/A')}")
 
@@ -73,7 +73,7 @@ def analyze_checkpoint_gradients(checkpoint_path):
 def analyze_training_logs(log_dir):
     """分析训练日志中的梯度趋势"""
     print(f"\n{'='*60}")
-    print(f"📈 分析训练日志")
+    print("📈 分析训练日志")
     print(f"{'='*60}\n")
 
     # 查找日志文件
@@ -92,7 +92,7 @@ def analyze_training_logs(log_dir):
 
     for log_file in log_files:
         try:
-            with open(log_file, 'r') as f:
+            with open(log_file) as f:
                 for line in f:
                     try:
                         data = json.loads(line.strip())
@@ -122,7 +122,7 @@ def analyze_training_logs(log_dir):
     print(f"   标准差: {grad_norms.std():.6f}")
 
     # 检测异常
-    print(f"\n🚨 异常检测:")
+    print("\n🚨 异常检测:")
     vanishing_count = (grad_norms < 1e-6).sum()
     explosion_count = (grad_norms > 10).sum()
 
@@ -135,34 +135,34 @@ def analyze_training_logs(log_dir):
         recent_avg = grad_norms[-window:].mean()
         overall_avg = grad_norms.mean()
 
-        print(f"\n📈 趋势分析:")
+        print("\n📈 趋势分析:")
         print(f"   整体平均: {overall_avg:.6f}")
         print(f"   最近{window}步平均: {recent_avg:.6f}")
 
         if recent_avg > overall_avg * 1.5:
-            print(f"   ⚠️  梯度呈上升趋势，注意梯度爆炸风险")
+            print("   ⚠️  梯度呈上升趋势，注意梯度爆炸风险")
         elif recent_avg < overall_avg * 0.5:
-            print(f"   ⚠️  梯度呈下降趋势，注意梯度消失风险")
+            print("   ⚠️  梯度呈下降趋势，注意梯度消失风险")
         else:
-            print(f"   ✅ 梯度稳定")
+            print("   ✅ 梯度稳定")
 
     # Loss分析
     if len(losses) > 0:
-        print(f"\n📉 Loss统计:")
+        print("\n📉 Loss统计:")
         print(f"   初始Loss: {losses[0]:.4f}")
         print(f"   当前Loss: {losses[-1]:.4f}")
         print(f"   下降幅度: {(losses[0] - losses[-1]):.4f}")
 
         if losses[-1] < losses[0]:
-            print(f"   ✅ Loss正常下降，训练有效")
+            print("   ✅ Loss正常下降，训练有效")
         else:
-            print(f"   ⚠️  Loss未下降，可能存在问题")
+            print("   ⚠️  Loss未下降，可能存在问题")
 
 
 def check_model_architecture(checkpoint_path):
     """检查模型架构的梯度保护机制"""
     print(f"\n{'='*60}")
-    print(f"🏗️  模型架构健康检查")
+    print("🏗️  模型架构健康检查")
     print(f"{'='*60}\n")
 
     checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
@@ -198,7 +198,7 @@ def check_model_architecture(checkpoint_path):
             symbol = "✅" if status else "⚠️ "
             print(f"   {symbol} {name:20s}: {detail}")
 
-        print(f"\n📋 模型配置:")
+        print("\n📋 模型配置:")
         print(f"   层数: {getattr(config, 'num_hidden_layers', 'N/A')}")
         print(f"   隐藏维度: {getattr(config, 'hidden_size', 'N/A')}")
         print(f"   注意力头数: {getattr(config, 'num_attention_heads', 'N/A')}")
@@ -209,7 +209,7 @@ def check_model_architecture(checkpoint_path):
 def provide_recommendations(checkpoint_dir):
     """提供优化建议"""
     print(f"\n{'='*60}")
-    print(f"💡 优化建议")
+    print("💡 优化建议")
     print(f"{'='*60}\n")
 
     recommendations = [
@@ -272,11 +272,11 @@ def main():
                          else args.log_dir)
         provide_recommendations(str(checkpoint_dir))
     else:
-        print(f"\n❌ 未找到checkpoint或日志文件")
-        print(f"💡 使用方法:")
-        print(f"   python scripts/diagnose_gradients.py --mode pretrain --config medium")
-        print(f"   python scripts/diagnose_gradients.py --checkpoint path/to/checkpoint.pt")
-        print(f"   python scripts/diagnose_gradients.py --log-dir path/to/logs")
+        print("\n❌ 未找到checkpoint或日志文件")
+        print("💡 使用方法:")
+        print("   python scripts/diagnose_gradients.py --mode pretrain --config medium")
+        print("   python scripts/diagnose_gradients.py --checkpoint path/to/checkpoint.pt")
+        print("   python scripts/diagnose_gradients.py --log-dir path/to/logs")
 
 
 if __name__ == "__main__":

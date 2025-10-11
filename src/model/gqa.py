@@ -4,10 +4,11 @@ GQA是提升推理效率的关键技术，被Llama2、Code Llama等模型采用
 通过共享键值头降低KV缓存内存开销50-70%
 """
 import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Tuple, Optional
+
 from .rope import apply_rotary_pos_emb
 
 
@@ -108,10 +109,10 @@ class GroupedQueryAttention(nn.Module):
 
     def forward(self,
                 hidden_states: torch.Tensor,
-                attention_mask: Optional[torch.Tensor] = None,
-                position_ids: Optional[torch.Tensor] = None,
-                past_key_value: Optional[Tuple[torch.Tensor]] = None,
-                use_cache: bool = False) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor]]]:
+                attention_mask: torch.Tensor | None = None,
+                position_ids: torch.Tensor | None = None,
+                past_key_value: tuple[torch.Tensor] | None = None,
+                use_cache: bool = False) -> tuple[torch.Tensor, tuple[torch.Tensor] | None]:
         """
         Args:
             hidden_states: (batch_size, seq_len, d_model)
@@ -160,7 +161,7 @@ class GroupedQueryAttention(nn.Module):
             # Flash Attention路径 - 显著减少内存使用
             # scaled_dot_product_attention 自动处理因果mask
             dropout_p = self.dropout_p if self.training else 0.0
-            
+
             # 准备attention mask (Flash Attention需要bool类型的mask)
             attn_mask = None
             if attention_mask is not None:
@@ -172,7 +173,7 @@ class GroupedQueryAttention(nn.Module):
                     attn_mask = attention_mask
                 # 转换为bool并裁剪
                 attn_mask = attn_mask[:, :, :seq_len, :key_states.shape[-2]].bool()
-            
+
             # 使用PyTorch的高效Flash Attention实现
             attn_output = F.scaled_dot_product_attention(
                 query_states,
@@ -196,10 +197,10 @@ class GroupedQueryAttention(nn.Module):
                     causal_mask = attention_mask.unsqueeze(1)
                 else:
                     causal_mask = attention_mask
-                
+
                 # 裁剪到当前序列长度
                 causal_mask = causal_mask[:, :, :seq_len, :key_states.shape[-2]]
-                
+
                 # 将 mask 转换为注意力权重的加法形式 (0 -> -inf, 1 -> 0)
                 causal_mask = (1.0 - causal_mask) * torch.finfo(attn_weights.dtype).min
                 attn_weights = attn_weights + causal_mask
@@ -259,9 +260,9 @@ class OptimizedMultiHeadAttention(nn.Module):
                 query: torch.Tensor,
                 key: torch.Tensor,
                 value: torch.Tensor,
-                mask: Optional[torch.Tensor] = None,
-                position_ids: Optional[torch.Tensor] = None,
-                past_key_value: Optional[Tuple[torch.Tensor]] = None,
+                mask: torch.Tensor | None = None,
+                position_ids: torch.Tensor | None = None,
+                past_key_value: tuple[torch.Tensor] | None = None,
                 use_cache: bool = False) -> torch.Tensor:
 
         if self.use_gqa:

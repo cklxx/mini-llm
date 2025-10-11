@@ -2,20 +2,19 @@
 综合训练监控和可视化系统
 提供实时训练指标监控、性能分析、异常检测和可视化仪表板
 """
-import os
-import time
 import json
-import psutil
+import os
 import threading
-from typing import Dict, List, Any, Optional, Tuple
-from dataclasses import dataclass, asdict
-from collections import defaultdict, deque
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-from matplotlib.figure import Figure
-import seaborn as sns
+import time
+from collections import deque
+from dataclasses import asdict, dataclass
+from typing import Any
 
+import matplotlib.animation as animation
+import matplotlib.pyplot as plt
+import numpy as np
+import psutil
+import seaborn as sns
 import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
@@ -43,7 +42,7 @@ class TrainingMetrics:
     activation_mean: float = 0.0
     activation_std: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -55,7 +54,7 @@ class SystemMonitor:
                                  else 'mps' if torch.backends.mps.is_available()
                                  else 'cpu')
 
-    def get_gpu_memory_info(self) -> Tuple[float, float]:
+    def get_gpu_memory_info(self) -> tuple[float, float]:
         """获取GPU内存信息 (used_gb, total_gb)"""
         if self.device.type == 'cuda':
             return (
@@ -69,19 +68,19 @@ class SystemMonitor:
         else:
             return 0.0, 0.0
 
-    def get_cpu_info(self) -> Tuple[float, float]:
+    def get_cpu_info(self) -> tuple[float, float]:
         """获取CPU信息 (usage_percent, frequency_ghz)"""
         return (
             psutil.cpu_percent(interval=0.1),
             psutil.cpu_freq().current / 1000 if psutil.cpu_freq() else 0.0
         )
 
-    def get_memory_info(self) -> Tuple[float, float]:
+    def get_memory_info(self) -> tuple[float, float]:
         """获取RAM信息 (used_gb, total_gb)"""
         mem = psutil.virtual_memory()
         return (mem.used / 1024**3, mem.total / 1024**3)
 
-    def get_disk_info(self) -> Tuple[float, float]:
+    def get_disk_info(self) -> tuple[float, float]:
         """获取磁盘信息 (used_gb, total_gb)"""
         disk = psutil.disk_usage('/')
         return (disk.used / 1024**3, disk.total / 1024**3)
@@ -125,7 +124,7 @@ class ModelHealthMonitor:
         # 轻量级模式下跳过这个耗时操作
         if self.lightweight_mode:
             return 0.0
-            
+
         if self.prev_params is None:
             self.prev_params = {name: param.clone() for name, param in self.model.named_parameters()}
             return 0.0
@@ -151,7 +150,7 @@ class ModelHealthMonitor:
         else:
             return 0.0
 
-    def detect_gradient_anomaly(self, grad_norm: float, step: int = 0) -> Dict[str, Any]:
+    def detect_gradient_anomaly(self, grad_norm: float, step: int = 0) -> dict[str, Any]:
         """检测梯度异常
 
         Args:
@@ -187,7 +186,7 @@ class ModelHealthMonitor:
             vanishing_threshold = 1e-6
         else:
             vanishing_threshold = 1e-7
-            
+
         if grad_norm < vanishing_threshold:
             anomaly_info.update({
                 'status': 'gradient_vanishing',
@@ -197,7 +196,7 @@ class ModelHealthMonitor:
 
         return anomaly_info
 
-    def get_activation_stats(self, activations: Dict[str, torch.Tensor]) -> Dict[str, float]:
+    def get_activation_stats(self, activations: dict[str, torch.Tensor]) -> dict[str, float]:
         """获取激活值统计"""
         stats = {}
 
@@ -242,7 +241,7 @@ class RealTimeVisualizer:
             'GPU Memory Usage', 'CPU Usage', 'Training Speed'
         ]
 
-        for ax, title in zip(self.axes.flat, titles):
+        for ax, title in zip(self.axes.flat, titles, strict=False):
             ax.set_title(title)
             ax.grid(True, alpha=0.3)
 
@@ -282,7 +281,7 @@ class RealTimeVisualizer:
             (speeds, 'Samples/sec', 'brown')
         ]
 
-        for ax, (data, ylabel, color) in zip(self.axes.flat, plots_data):
+        for ax, (data, ylabel, color) in zip(self.axes.flat, plots_data, strict=False):
             if len(data) > 1:
                 ax.plot(steps, data, color=color, linewidth=2)
                 ax.set_ylabel(ylabel)
@@ -291,10 +290,17 @@ class RealTimeVisualizer:
 
                 # 添加最新值标注
                 if data:
-                    ax.annotate(f'{data[-1]:.3f}',
-                              xy=(steps[-1], data[-1]),
-                              xytext=(10, 10), textcoords='offset points',
-                              bbox=dict(boxstyle='round,pad=0.3', facecolor=color, alpha=0.3))
+                    ax.annotate(
+                        f'{data[-1]:.3f}',
+                        xy=(steps[-1], data[-1]),
+                        xytext=(10, 10),
+                        textcoords='offset points',
+                        bbox={
+                            'boxstyle': 'round,pad=0.3',
+                            'facecolor': color,
+                            'alpha': 0.3,
+                        },
+                    )
 
         plt.tight_layout()
 
@@ -310,7 +316,7 @@ class RealTimeVisualizer:
             self.fig.savefig(filepath, dpi=300, bbox_inches='tight')
             print(f"📊 Plots saved to: {filepath}")
 
-    def generate_summary_report(self) -> Dict[str, Any]:
+    def generate_summary_report(self) -> dict[str, Any]:
         """生成训练总结报告"""
         if len(self.metrics_history) < 10:
             return {}
@@ -359,7 +365,7 @@ class TrainingMonitor:
         # 轻量级模式配置
         self.lightweight_mode = lightweight_mode
         self.log_interval = log_interval if lightweight_mode else 1
-        
+
         # 初始化各个监控组件
         self.system_monitor = SystemMonitor()
         self.health_monitor = ModelHealthMonitor(model, lightweight_mode=lightweight_mode)
@@ -387,7 +393,7 @@ class TrainingMonitor:
         # 异常检测历史
         self.anomaly_history = []
 
-        print(f"🔍 TrainingMonitor initialized:")
+        print("🔍 TrainingMonitor initialized:")
         print(f"   Log directory: {log_dir}")
         print(f"   TensorBoard: {'enabled' if enable_tensorboard else 'disabled'}")
         print(f"   Real-time plots: {'enabled' if self.enable_real_time_plots else 'disabled'}")
@@ -399,7 +405,7 @@ class TrainingMonitor:
         """启动实时绘图线程"""
         if self.enable_real_time_plots:
             def plot_worker():
-                fig = self.visualizer.start_real_time_plot()
+                self.visualizer.start_real_time_plot()
                 plt.show()
 
             self.plot_thread = threading.Thread(target=plot_worker, daemon=True)
@@ -412,12 +418,12 @@ class TrainingMonitor:
         loss: float,
         learning_rate: float,
         batch_size: int = 1,
-        grad_norm: Optional[float] = None,
-    ) -> Optional[TrainingMetrics]:
+        grad_norm: float | None = None,
+    ) -> TrainingMetrics | None:
         """记录训练步骤"""
         # 轻量级模式下，只在指定间隔记录详细指标
         should_log_full = (step % self.log_interval == 0)
-        
+
         current_time = time.time()
 
         # 计算性能指标
@@ -439,7 +445,7 @@ class TrainingMonitor:
             else self.health_monitor.compute_gradient_norm()
         )
         param_norm = self.health_monitor.compute_parameter_norm()
-        
+
         # 权重更新比例（最耗时，轻量级模式下跳过）
         if should_log_full:
             weight_update_ratio = self.health_monitor.compute_weight_update_ratio()
@@ -489,7 +495,7 @@ class TrainingMonitor:
         return metrics if should_log_full else None
 
     def log_validation(self, step: int, loss: float, perplexity: float,
-                       extra_metrics: Optional[Dict[str, float]] = None):
+                       extra_metrics: dict[str, float] | None = None):
         """记录验证集指标到 TensorBoard 与控制台"""
         print(f"📏 Validation @ Step {step}: loss={loss:.4f}, ppl={perplexity:.2f}")
 
@@ -500,7 +506,7 @@ class TrainingMonitor:
                 for key, value in extra_metrics.items():
                     self.tensorboard_writer.add_scalar(f'Validation/{key}', value, step)
 
-    def log_regression(self, step: int, pass_rate: float, results: List[Dict[str, Any]]):
+    def log_regression(self, step: int, pass_rate: float, results: list[dict[str, Any]]):
         """记录提示回归测试结果"""
         print(f"🧪 Regression @ Step {step}: pass_rate={pass_rate:.2%} ({len(results)} prompts)")
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 import torch
 
@@ -285,7 +285,7 @@ class TrainingLoopRunner:
 
     # ------------------------------------------------------------------
     def _evaluate(self, model, tokenizer, val_loader, criterion, monitor, step, regression_suite=None):
-        metrics: Dict[str, Any] = {}
+        metrics: dict[str, Any] = {}
         if val_loader:
             model.eval()
             total_loss = 0.0
