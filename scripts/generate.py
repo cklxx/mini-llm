@@ -13,7 +13,7 @@ import torch
 # 添加项目根目录和src目录到路径
 project_root = os.path.dirname(os.path.dirname(__file__))
 sys.path.append(project_root)
-sys.path.append(os.path.join(project_root, 'src'))
+sys.path.append(os.path.join(project_root, "src"))
 
 from model.transformer import create_model
 from tokenizer.bpe_tokenizer import BPETokenizer
@@ -72,11 +72,11 @@ class MiniGPTInference:
                 raise FileNotFoundError(f"未找到分词器文件: {tokenizer_path}")
 
         # 加载分词器
-        vocab_size = checkpoint.get('tokenizer_vocab_size', 10000)
+        vocab_size = checkpoint.get("tokenizer_vocab_size", 10000)
         tokenizer = BPETokenizer(vocab_size=vocab_size)
         tokenizer.load(tokenizer_path)
 
-        expected_config = checkpoint.get('tokenizer_config')
+        expected_config = checkpoint.get("tokenizer_config")
         if expected_config:
             actual_config = tokenizer.get_config()
             mismatches = {
@@ -93,19 +93,20 @@ class MiniGPTInference:
                     f"差异: {mismatch_info}"
                 )
 
-        expected_special = checkpoint.get('tokenizer_special_tokens')
+        expected_special = checkpoint.get("tokenizer_special_tokens")
         if expected_special:
             special_mismatches = tokenizer.diff_special_tokens(expected_special)
             if special_mismatches:
                 mismatch_info = ", ".join(
-                    f"{name}: ckpt={exp} vs tokenizer={act}" for name, (exp, act) in special_mismatches.items()
+                    f"{name}: ckpt={exp} vs tokenizer={act}"
+                    for name, (exp, act) in special_mismatches.items()
                 )
                 raise ValueError(
                     "分词器特殊token映射与checkpoint不一致，请检查 tokenizer.pkl 是否匹配训练输出。"
                     f"差异: {mismatch_info}"
                 )
 
-        expected_checksum = checkpoint.get('tokenizer_checksum')
+        expected_checksum = checkpoint.get("tokenizer_checksum")
         if expected_checksum:
             actual_checksum = tokenizer.checksum()
             if actual_checksum and actual_checksum != expected_checksum:
@@ -115,17 +116,17 @@ class MiniGPTInference:
         print("✅ 分词器配置校验通过")
 
         # 创建并加载模型
-        if 'config' in checkpoint:
-            config = checkpoint['config']
-            model_size = getattr(config, 'model_size', 'small')
+        if "config" in checkpoint:
+            config = checkpoint["config"]
+            model_size = getattr(config, "model_size", "small")
         else:
-            model_size = 'small'  # 默认配置
+            model_size = "small"  # 默认配置
 
         model = create_model(vocab_size=tokenizer.vocab_size, model_size=model_size)
 
         # 加载模型权重
-        if 'model_state_dict' in checkpoint:
-            model.load_state_dict(checkpoint['model_state_dict'])
+        if "model_state_dict" in checkpoint:
+            model.load_state_dict(checkpoint["model_state_dict"])
         else:
             model.load_state_dict(checkpoint)
 
@@ -175,7 +176,7 @@ class MiniGPTInference:
                 if top_k and top_k > 0:
                     values, _ = torch.topk(adjusted_logits, min(top_k, adjusted_logits.size(-1)))
                     min_values = values[..., -1, None]
-                    adjusted_logits[adjusted_logits < min_values] = float('-inf')
+                    adjusted_logits[adjusted_logits < min_values] = float("-inf")
 
                 if top_p and 0 < top_p < 1.0:
                     sorted_logits, sorted_indices = torch.sort(adjusted_logits, descending=True)
@@ -184,7 +185,7 @@ class MiniGPTInference:
                     sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
                     sorted_indices_to_remove[..., 0] = 0
                     indices_to_remove = sorted_indices[sorted_indices_to_remove]
-                    adjusted_logits[indices_to_remove] = float('-inf')
+                    adjusted_logits[indices_to_remove] = float("-inf")
 
                 if temperature <= 0:
                     next_token_id = int(torch.argmax(adjusted_logits).item())
@@ -193,7 +194,9 @@ class MiniGPTInference:
                     next_token_id = int(torch.multinomial(probs, num_samples=1).item())
 
                 generated_ids.append(next_token_id)
-                next_token_tensor = torch.tensor([[next_token_id]], device=self.device, dtype=torch.long)
+                next_token_tensor = torch.tensor(
+                    [[next_token_id]], device=self.device, dtype=torch.long
+                )
                 input_tensor = torch.cat([input_tensor, next_token_tensor], dim=1)
 
                 if next_token_id == self.tokenizer.eos_id:
@@ -242,11 +245,11 @@ class MiniGPTInference:
             try:
                 user_input = input("用户: ").strip()
 
-                if user_input.lower() in ['quit', 'exit']:
+                if user_input.lower() in ["quit", "exit"]:
                     print("再见！")
                     break
 
-                if user_input.lower() == 'reset':
+                if user_input.lower() == "reset":
                     conversation_history = []
                     print("✅ 对话历史已重置")
                     continue
@@ -255,7 +258,7 @@ class MiniGPTInference:
                     continue
 
                 # 检查是否使用Ultra Think模式
-                if user_input.startswith('think:'):
+                if user_input.startswith("think:"):
                     prompt = user_input[6:].strip()
                     print("AI (Ultra Think): ", end="", flush=True)
                     response = self.ultra_think_generate(prompt)
@@ -301,72 +304,77 @@ class MiniGPTInference:
             print(f"❌ 文件不存在: {prompts_file}")
             return
 
-        with open(prompts_file, encoding='utf-8') as f:
+        with open(prompts_file, encoding="utf-8") as f:
             prompts = [line.strip() for line in f if line.strip()]
 
         results = []
         for i, prompt in enumerate(prompts):
             print(f"处理 {i+1}/{len(prompts)}: {prompt[:50]}...")
             response = self.single_inference(prompt, **generation_kwargs)
-            results.append({
-                'prompt': prompt,
-                'response': response
-            })
+            results.append({"prompt": prompt, "response": response})
 
         # 保存结果
-        output_file = prompts_file.replace('.txt', '_results.json')
-        with open(output_file, 'w', encoding='utf-8') as f:
+        output_file = prompts_file.replace(".txt", "_results.json")
+        with open(output_file, "w", encoding="utf-8") as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
 
         print(f"✅ 批量推理完成，结果保存到: {output_file}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description='MiniGPT推理脚本')
+    parser = argparse.ArgumentParser(description="MiniGPT推理脚本")
 
     # 模型路径
-    parser.add_argument('--model-path', type=str, required=True,
-                        help='模型文件路径')
-    parser.add_argument('--tokenizer-path', type=str, default=None,
-                        help='分词器文件路径 (默认从模型目录自动查找)')
+    parser.add_argument("--model-path", type=str, required=True, help="模型文件路径")
+    parser.add_argument(
+        "--tokenizer-path", type=str, default=None, help="分词器文件路径 (默认从模型目录自动查找)"
+    )
 
     # 推理模式
-    parser.add_argument('--mode', choices=['chat', 'single', 'batch'], default='chat',
-                        help='推理模式 (chat: 交互式聊天, single: 单次推理, batch: 批量推理)')
+    parser.add_argument(
+        "--mode",
+        choices=["chat", "single", "batch"],
+        default="chat",
+        help="推理模式 (chat: 交互式聊天, single: 单次推理, batch: 批量推理)",
+    )
 
     # 单次推理参数
-    parser.add_argument('--prompt', type=str, default=None,
-                        help='单次推理的输入提示 (mode=single时必需)')
-    parser.add_argument('--ultra-think', action='store_true',
-                        help='启用Ultra Think深度思维模式')
+    parser.add_argument(
+        "--prompt", type=str, default=None, help="单次推理的输入提示 (mode=single时必需)"
+    )
+    parser.add_argument("--ultra-think", action="store_true", help="启用Ultra Think深度思维模式")
 
     # 批量推理参数
-    parser.add_argument('--prompts-file', type=str, default=None,
-                        help='批量推理的提示文件路径 (mode=batch时必需)')
+    parser.add_argument(
+        "--prompts-file", type=str, default=None, help="批量推理的提示文件路径 (mode=batch时必需)"
+    )
 
     # 生成参数
-    parser.add_argument('--max-new-tokens', '--max-length', type=int, default=128, dest='max_new_tokens',
-                        help='最大生成token数 (包含别名 --max-length)')
-    parser.add_argument('--temperature', type=float, default=0.7,
-                        help='采样温度')
-    parser.add_argument('--top-k', type=int, default=50,
-                        help='Top-k采样参数')
-    parser.add_argument('--top-p', type=float, default=0.9,
-                        help='Top-p采样参数')
-    parser.add_argument('--repetition-penalty', type=float, default=1.05,
-                        help='重复惩罚系数 (>1 会抑制重复)')
+    parser.add_argument(
+        "--max-new-tokens",
+        "--max-length",
+        type=int,
+        default=128,
+        dest="max_new_tokens",
+        help="最大生成token数 (包含别名 --max-length)",
+    )
+    parser.add_argument("--temperature", type=float, default=0.7, help="采样温度")
+    parser.add_argument("--top-k", type=int, default=50, help="Top-k采样参数")
+    parser.add_argument("--top-p", type=float, default=0.9, help="Top-p采样参数")
+    parser.add_argument(
+        "--repetition-penalty", type=float, default=1.05, help="重复惩罚系数 (>1 会抑制重复)"
+    )
 
     # 设备
-    parser.add_argument('--device', type=str, default=None,
-                        help='推理设备 (cuda, mps, cpu)')
+    parser.add_argument("--device", type=str, default=None, help="推理设备 (cuda, mps, cpu)")
 
     args = parser.parse_args()
 
     # 验证参数
-    if args.mode == 'single' and not args.prompt:
+    if args.mode == "single" and not args.prompt:
         parser.error("single模式需要提供--prompt参数")
 
-    if args.mode == 'batch' and not args.prompts_file:
+    if args.mode == "batch" and not args.prompts_file:
         parser.error("batch模式需要提供--prompts-file参数")
 
     # 创建推理器
@@ -389,9 +397,9 @@ def main():
         return
 
     # 执行推理
-    if args.mode == 'chat':
+    if args.mode == "chat":
         inference.chat_mode()
-    elif args.mode == 'single':
+    elif args.mode == "single":
         print(f"输入: {args.prompt}")
         print("输出: ", end="", flush=True)
 
@@ -405,7 +413,7 @@ def main():
             repetition_penalty=args.repetition_penalty,
         )
         print(response)
-    elif args.mode == 'batch':
+    elif args.mode == "batch":
         inference.batch_inference(
             args.prompts_file,
             max_new_tokens=args.max_new_tokens,

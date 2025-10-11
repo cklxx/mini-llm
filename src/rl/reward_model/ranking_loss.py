@@ -14,7 +14,6 @@ L = -log(σ(r(chosen) - r(rejected)))
 其中σ是sigmoid函数，r是奖励模型
 """
 
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -26,7 +25,7 @@ class RankingLoss(nn.Module):
     基于Bradley-Terry模型的排序损失
     """
 
-    def __init__(self, margin: float = 0.0, reduction: str = 'mean'):
+    def __init__(self, margin: float = 0.0, reduction: str = "mean"):
         """
         初始化排序损失
 
@@ -38,8 +37,7 @@ class RankingLoss(nn.Module):
         self.margin = margin
         self.reduction = reduction
 
-    def forward(self, chosen_rewards: torch.Tensor,
-                rejected_rewards: torch.Tensor) -> torch.Tensor:
+    def forward(self, chosen_rewards: torch.Tensor, rejected_rewards: torch.Tensor) -> torch.Tensor:
         """
         计算排序损失
 
@@ -57,9 +55,9 @@ class RankingLoss(nn.Module):
         loss = -F.logsigmoid(reward_diff)
 
         # 应用规约
-        if self.reduction == 'mean':
+        if self.reduction == "mean":
             return loss.mean()
-        elif self.reduction == 'sum':
+        elif self.reduction == "sum":
             return loss.sum()
         else:
             return loss
@@ -71,7 +69,7 @@ class ContrastiveLoss(nn.Module):
     另一种训练奖励模型的损失函数
     """
 
-    def __init__(self, temperature: float = 1.0, reduction: str = 'mean'):
+    def __init__(self, temperature: float = 1.0, reduction: str = "mean"):
         """
         初始化对比损失
 
@@ -83,8 +81,7 @@ class ContrastiveLoss(nn.Module):
         self.temperature = temperature
         self.reduction = reduction
 
-    def forward(self, chosen_rewards: torch.Tensor,
-                rejected_rewards: torch.Tensor) -> torch.Tensor:
+    def forward(self, chosen_rewards: torch.Tensor, rejected_rewards: torch.Tensor) -> torch.Tensor:
         """
         计算对比损失
 
@@ -102,15 +99,17 @@ class ContrastiveLoss(nn.Module):
         scaled_rewards = rewards / self.temperature
 
         # 目标是chosen回复的概率为1
-        targets = torch.zeros(chosen_rewards.size(0), dtype=torch.long, device=chosen_rewards.device)
+        targets = torch.zeros(
+            chosen_rewards.size(0), dtype=torch.long, device=chosen_rewards.device
+        )
 
         # 交叉熵损失
-        loss = F.cross_entropy(scaled_rewards, targets, reduction='none')
+        loss = F.cross_entropy(scaled_rewards, targets, reduction="none")
 
         # 应用规约
-        if self.reduction == 'mean':
+        if self.reduction == "mean":
             return loss.mean()
-        elif self.reduction == 'sum':
+        elif self.reduction == "sum":
             return loss.sum()
         else:
             return loss
@@ -122,7 +121,7 @@ class MultiPairRankingLoss(nn.Module):
     处理多个候选回复的排序损失
     """
 
-    def __init__(self, temperature: float = 1.0, reduction: str = 'mean'):
+    def __init__(self, temperature: float = 1.0, reduction: str = "mean"):
         """
         初始化多对排序损失
 
@@ -134,8 +133,7 @@ class MultiPairRankingLoss(nn.Module):
         self.temperature = temperature
         self.reduction = reduction
 
-    def forward(self, rewards: torch.Tensor,
-                rankings: torch.Tensor) -> torch.Tensor:
+    def forward(self, rewards: torch.Tensor, rankings: torch.Tensor) -> torch.Tensor:
         """
         计算多对排序损失
 
@@ -182,9 +180,9 @@ class MultiPairRankingLoss(nn.Module):
         loss = total_loss / num_pairs
 
         # 应用规约
-        if self.reduction == 'mean':
+        if self.reduction == "mean":
             return loss.mean()
-        elif self.reduction == 'sum':
+        elif self.reduction == "sum":
             return loss.sum()
         else:
             return loss
@@ -196,12 +194,14 @@ class PreferenceLoss(nn.Module):
     结合多种损失函数的复合损失
     """
 
-    def __init__(self,
-                 ranking_weight: float = 1.0,
-                 contrastive_weight: float = 0.0,
-                 margin: float = 0.0,
-                 temperature: float = 1.0,
-                 reduction: str = 'mean'):
+    def __init__(
+        self,
+        ranking_weight: float = 1.0,
+        contrastive_weight: float = 0.0,
+        margin: float = 0.0,
+        temperature: float = 1.0,
+        reduction: str = "mean",
+    ):
         """
         初始化偏好损失
 
@@ -220,8 +220,9 @@ class PreferenceLoss(nn.Module):
         self.ranking_loss = RankingLoss(margin=margin, reduction=reduction)
         self.contrastive_loss = ContrastiveLoss(temperature=temperature, reduction=reduction)
 
-    def forward(self, chosen_rewards: torch.Tensor,
-                rejected_rewards: torch.Tensor) -> dict[str, torch.Tensor]:
+    def forward(
+        self, chosen_rewards: torch.Tensor, rejected_rewards: torch.Tensor
+    ) -> dict[str, torch.Tensor]:
         """
         计算复合偏好损失
 
@@ -238,22 +239,22 @@ class PreferenceLoss(nn.Module):
         # 排序损失
         if self.ranking_weight > 0:
             ranking_loss = self.ranking_loss(chosen_rewards, rejected_rewards)
-            loss_dict['ranking_loss'] = ranking_loss
+            loss_dict["ranking_loss"] = ranking_loss
             total_loss += self.ranking_weight * ranking_loss
 
         # 对比损失
         if self.contrastive_weight > 0:
             contrastive_loss = self.contrastive_loss(chosen_rewards, rejected_rewards)
-            loss_dict['contrastive_loss'] = contrastive_loss
+            loss_dict["contrastive_loss"] = contrastive_loss
             total_loss += self.contrastive_weight * contrastive_loss
 
-        loss_dict['total_loss'] = total_loss
+        loss_dict["total_loss"] = total_loss
 
         # 添加一些有用的统计信息
-        loss_dict['reward_diff'] = (chosen_rewards - rejected_rewards).mean()
-        loss_dict['chosen_reward_mean'] = chosen_rewards.mean()
-        loss_dict['rejected_reward_mean'] = rejected_rewards.mean()
-        loss_dict['accuracy'] = (chosen_rewards > rejected_rewards).float().mean()
+        loss_dict["reward_diff"] = (chosen_rewards - rejected_rewards).mean()
+        loss_dict["chosen_reward_mean"] = chosen_rewards.mean()
+        loss_dict["rejected_reward_mean"] = rejected_rewards.mean()
+        loss_dict["accuracy"] = (chosen_rewards > rejected_rewards).float().mean()
 
         return loss_dict
 
@@ -285,7 +286,7 @@ class RewardRegularization(nn.Module):
             reg_loss: 正则化损失
         """
         # L2正则化：防止奖励值过大
-        l2_reg = torch.mean(rewards ** 2)
+        l2_reg = torch.mean(rewards**2)
 
         # 方差正则化：鼓励奖励有一定分布
         variance_reg = -torch.var(rewards)
@@ -293,11 +294,13 @@ class RewardRegularization(nn.Module):
         return self.reg_coef * (l2_reg + variance_reg)
 
 
-def create_preference_loss(ranking_weight: float = 1.0,
-                          contrastive_weight: float = 0.0,
-                          margin: float = 0.0,
-                          temperature: float = 1.0,
-                          reduction: str = 'mean') -> PreferenceLoss:
+def create_preference_loss(
+    ranking_weight: float = 1.0,
+    contrastive_weight: float = 0.0,
+    margin: float = 0.0,
+    temperature: float = 1.0,
+    reduction: str = "mean",
+) -> PreferenceLoss:
     """
     创建偏好损失函数的工厂函数
 
@@ -316,7 +319,7 @@ def create_preference_loss(ranking_weight: float = 1.0,
         contrastive_weight=contrastive_weight,
         margin=margin,
         temperature=temperature,
-        reduction=reduction
+        reduction=reduction,
     )
 
 

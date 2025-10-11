@@ -16,6 +16,7 @@ class Router(nn.Module):
 
     使用top-k选择策略，只激活最相关的k个专家
     """
+
     def __init__(
         self,
         d_model: int,
@@ -43,13 +44,19 @@ class Router(nn.Module):
         return (gates > 0).sum(0)
 
     def _prob_in_top_k(
-        self, clean_values: torch.Tensor, noisy_values: torch.Tensor, noise_stddev: torch.Tensor, k: int
+        self,
+        clean_values: torch.Tensor,
+        noisy_values: torch.Tensor,
+        noise_stddev: torch.Tensor,
+        k: int,
     ) -> torch.Tensor:
         """计算每个token在top-k中的概率"""
         batch = clean_values.size(0)
         m = noisy_values.size(-1)
         top_values, _ = torch.topk(noisy_values, k, dim=-1)
-        threshold_positions_if_in = torch.arange(batch, device=clean_values.device).unsqueeze(-1) * m + k - 1
+        threshold_positions_if_in = (
+            torch.arange(batch, device=clean_values.device).unsqueeze(-1) * m + k - 1
+        )
         threshold_if_in = torch.gather(
             noisy_values.flatten(), 0, threshold_positions_if_in.flatten()
         ).reshape(batch, 1)
@@ -115,6 +122,7 @@ class Expert(nn.Module):
     """
     MoE专家网络 - 每个专家是一个前馈网络
     """
+
     def __init__(
         self,
         d_model: int,
@@ -127,9 +135,7 @@ class Expert(nn.Module):
         if activation == "swiglu":
             self.ffn = SwiGLUFeedForward(d_model, d_ff, dropout, bias)
         else:
-            self.ffn = get_feedforward_layer(
-                d_model, d_ff, "standard", activation, dropout, bias
-            )
+            self.ffn = get_feedforward_layer(d_model, d_ff, "standard", activation, dropout, bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.ffn(x)
@@ -141,6 +147,7 @@ class SparseMoE(nn.Module):
 
     只激活top-k个专家，大大减少计算量
     """
+
     def __init__(
         self,
         d_model: int,
@@ -169,10 +176,9 @@ class SparseMoE(nn.Module):
         )
 
         # 专家网络
-        self.experts = nn.ModuleList([
-            Expert(d_model, d_ff, activation, dropout, bias)
-            for _ in range(num_experts)
-        ])
+        self.experts = nn.ModuleList(
+            [Expert(d_model, d_ff, activation, dropout, bias) for _ in range(num_experts)]
+        )
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -205,7 +211,7 @@ class SparseMoE(nn.Module):
 
             # 为每个专家收集输入
             for expert_id in range(self.num_experts):
-                expert_mask = (expert_indices == expert_id)
+                expert_mask = expert_indices == expert_id
                 if expert_mask.any():
                     expert_input = x_flat[expert_mask]
                     expert_output = self.experts[expert_id](expert_input)
@@ -225,6 +231,7 @@ class SharedExpertMoE(nn.Module):
     共享专家始终被激活，路由专家按需激活
     这种设计在某些任务上表现更好
     """
+
     def __init__(
         self,
         d_model: int,
@@ -242,10 +249,9 @@ class SharedExpertMoE(nn.Module):
         self.num_routed_experts = num_routed_experts
 
         # 共享专家（始终激活）
-        self.shared_experts = nn.ModuleList([
-            Expert(d_model, d_ff, activation, dropout, bias)
-            for _ in range(num_shared_experts)
-        ])
+        self.shared_experts = nn.ModuleList(
+            [Expert(d_model, d_ff, activation, dropout, bias) for _ in range(num_shared_experts)]
+        )
 
         # 路由MoE层
         if num_routed_experts > 0:
@@ -300,6 +306,7 @@ class MoETransformerBlock(nn.Module):
     """
     MoE Transformer块 - 将MoE层集成到Transformer架构中
     """
+
     def __init__(
         self,
         d_model: int,
@@ -352,7 +359,9 @@ class MoETransformerBlock(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, x: torch.Tensor, mask: torch.Tensor | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         前向传播
 
@@ -426,20 +435,22 @@ def create_moe_model(
             self.positional_encoding = PositionalEncoding(d_model, max_len)
 
             # MoE Transformer层
-            self.transformer_blocks = nn.ModuleList([
-                MoETransformerBlock(
-                    d_model=d_model,
-                    n_heads=n_heads,
-                    d_ff=d_ff,
-                    num_experts=num_experts,
-                    top_k=top_k,
-                    moe_type=moe_type,
-                    num_shared_experts=num_shared_experts,
-                    dropout=dropout,
-                    load_balancing_weight=load_balancing_weight,
-                )
-                for _ in range(n_layers)
-            ])
+            self.transformer_blocks = nn.ModuleList(
+                [
+                    MoETransformerBlock(
+                        d_model=d_model,
+                        n_heads=n_heads,
+                        d_ff=d_ff,
+                        num_experts=num_experts,
+                        top_k=top_k,
+                        moe_type=moe_type,
+                        num_shared_experts=num_shared_experts,
+                        dropout=dropout,
+                        load_balancing_weight=load_balancing_weight,
+                    )
+                    for _ in range(n_layers)
+                ]
+            )
 
             # 输出层
             self.layer_norm = nn.LayerNorm(d_model)
@@ -461,7 +472,7 @@ def create_moe_model(
                     nn.init.normal_(module.weight, mean=0.0, std=0.02)
                 elif isinstance(module, nn.LayerNorm | nn.RMSNorm):
                     nn.init.ones_(module.weight)
-                    if hasattr(module, 'bias') and module.bias is not None:
+                    if hasattr(module, "bias") and module.bias is not None:
                         nn.init.zeros_(module.bias)
 
         def create_causal_mask(self, seq_len: int) -> torch.Tensor:
@@ -469,7 +480,9 @@ def create_moe_model(
             mask = torch.tril(torch.ones(seq_len, seq_len))
             return mask
 
-        def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor | None = None) -> dict:
+        def forward(
+            self, input_ids: torch.Tensor, attention_mask: torch.Tensor | None = None
+        ) -> dict:
             """
             前向传播
 
@@ -502,7 +515,7 @@ def create_moe_model(
 
             return {
                 "logits": logits,
-                "load_balancing_loss": total_load_balancing_loss * self.load_balancing_weight
+                "load_balancing_loss": total_load_balancing_loss * self.load_balancing_weight,
             }
 
         def get_num_params(self) -> int:

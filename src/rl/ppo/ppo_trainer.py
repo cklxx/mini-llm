@@ -53,9 +53,16 @@ class PPOExperienceBuffer:
         self.dones = []
         self.attention_masks = []
 
-    def add(self, state: torch.Tensor, action: torch.Tensor, reward: torch.Tensor,
-            value: torch.Tensor, log_prob: torch.Tensor, done: torch.Tensor,
-            attention_mask: torch.Tensor | None = None):
+    def add(
+        self,
+        state: torch.Tensor,
+        action: torch.Tensor,
+        reward: torch.Tensor,
+        value: torch.Tensor,
+        log_prob: torch.Tensor,
+        done: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+    ):
         """
         添加经验到缓冲区
 
@@ -99,16 +106,16 @@ class PPOExperienceBuffer:
             return {}
 
         batch = {
-            'states': torch.stack(self.states),
-            'actions': torch.stack(self.actions),
-            'rewards': torch.stack(self.rewards),
-            'values': torch.stack(self.values),
-            'log_probs': torch.stack(self.log_probs),
-            'dones': torch.stack(self.dones)
+            "states": torch.stack(self.states),
+            "actions": torch.stack(self.actions),
+            "rewards": torch.stack(self.rewards),
+            "values": torch.stack(self.values),
+            "log_probs": torch.stack(self.log_probs),
+            "dones": torch.stack(self.dones),
         }
 
         if self.attention_masks:
-            batch['attention_masks'] = torch.stack(self.attention_masks)
+            batch["attention_masks"] = torch.stack(self.attention_masks)
 
         return batch
 
@@ -122,26 +129,28 @@ class PPOTrainer:
     实现完整的PPO训练流程
     """
 
-    def __init__(self,
-                 policy_model: nn.Module,
-                 value_model: ValueModel | None = None,
-                 reward_model: nn.Module | None = None,
-                 tokenizer=None,
-                 device: str = 'cpu',
-                 # PPO超参数
-                 gamma: float = 0.99,
-                 lambda_gae: float = 0.95,
-                 clip_ratio: float = 0.2,
-                 value_coef: float = 0.5,
-                 entropy_coef: float = 0.01,
-                 # 训练超参数
-                 lr_policy: float = 1e-5,
-                 lr_value: float = 3e-4,
-                 batch_size: int = 32,
-                 mini_batch_size: int = 8,
-                 ppo_epochs: int = 4,
-                 max_grad_norm: float = 0.5,
-                 target_kl: float = 0.01):
+    def __init__(
+        self,
+        policy_model: nn.Module,
+        value_model: ValueModel | None = None,
+        reward_model: nn.Module | None = None,
+        tokenizer=None,
+        device: str = "cpu",
+        # PPO超参数
+        gamma: float = 0.99,
+        lambda_gae: float = 0.95,
+        clip_ratio: float = 0.2,
+        value_coef: float = 0.5,
+        entropy_coef: float = 0.01,
+        # 训练超参数
+        lr_policy: float = 1e-5,
+        lr_value: float = 3e-4,
+        batch_size: int = 32,
+        mini_batch_size: int = 8,
+        ppo_epochs: int = 4,
+        max_grad_norm: float = 0.5,
+        target_kl: float = 0.01,
+    ):
         """
         初始化PPO训练器
 
@@ -188,7 +197,7 @@ class PPOTrainer:
             lambda_gae=lambda_gae,
             clip_ratio=clip_ratio,
             value_coef=value_coef,
-            entropy_coef=entropy_coef
+            entropy_coef=entropy_coef,
         )
 
         # 训练参数
@@ -203,17 +212,19 @@ class PPOTrainer:
 
         # 训练记录
         self.train_stats = {
-            'policy_loss': [],
-            'value_loss': [],
-            'entropy': [],
-            'kl_divergence': [],
-            'rewards': []
+            "policy_loss": [],
+            "value_loss": [],
+            "entropy": [],
+            "kl_divergence": [],
+            "rewards": [],
         }
 
     def _create_reference_model(self) -> nn.Module:
         """创建参考模型（冻结的策略模型副本）"""
         # 创建模型副本
-        reference_model = type(self.policy_model)(**self.policy_model.config if hasattr(self.policy_model, 'config') else {})
+        reference_model = type(self.policy_model)(
+            **self.policy_model.config if hasattr(self.policy_model, "config") else {}
+        )
         reference_model.load_state_dict(self.policy_model.state_dict())
         reference_model.to(self.device)
 
@@ -223,8 +234,9 @@ class PPOTrainer:
 
         return reference_model
 
-    def collect_experiences(self, prompts: list[str],
-                          max_new_tokens: int = 50) -> dict[str, torch.Tensor]:
+    def collect_experiences(
+        self, prompts: list[str], max_new_tokens: int = 50
+    ) -> dict[str, torch.Tensor]:
         """
         收集训练经验
 
@@ -243,7 +255,7 @@ class PPOTrainer:
         with torch.no_grad():
             for prompt in prompts:
                 # 编码提示
-                input_ids = self.tokenizer.encode(prompt, return_tensors='pt').to(self.device)
+                input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)
 
                 # 生成回复
                 generated_ids = []
@@ -285,11 +297,11 @@ class PPOTrainer:
 
                 # 存储经验
                 experience = {
-                    'input_ids': current_input,
-                    'generated_ids': generated_ids,
-                    'values': values,
-                    'log_probs': log_probs,
-                    'reward': reward
+                    "input_ids": current_input,
+                    "generated_ids": generated_ids,
+                    "values": values,
+                    "log_probs": log_probs,
+                    "reward": reward,
                 }
                 all_experiences.append(experience)
 
@@ -307,7 +319,7 @@ class PPOTrainer:
         """
         if self.reward_model is not None:
             # 使用奖励模型计算奖励
-            input_ids = self.tokenizer.encode(text, return_tensors='pt').to(self.device)
+            input_ids = self.tokenizer.encode(text, return_tensors="pt").to(self.device)
             with torch.no_grad():
                 reward = self.reward_model(input_ids).item()
             return reward
@@ -352,8 +364,10 @@ class PPOTrainer:
                     epoch_stats[key].append(value)
 
                 # 检查KL散度（早停）
-                if 'approx_kl' in stats and stats['approx_kl'] > self.target_kl:
-                    print(f"Early stopping at epoch {epoch} due to KL divergence: {stats['approx_kl']:.4f}")
+                if "approx_kl" in stats and stats["approx_kl"] > self.target_kl:
+                    print(
+                        f"Early stopping at epoch {epoch} due to KL divergence: {stats['approx_kl']:.4f}"
+                    )
                     break
 
             # 平均统计信息
@@ -371,7 +385,9 @@ class PPOTrainer:
         # 这里需要根据具体的经验数据结构来实现
         pass
 
-    def _create_mini_batches(self, batch_data: dict[str, torch.Tensor]) -> list[dict[str, torch.Tensor]]:
+    def _create_mini_batches(
+        self, batch_data: dict[str, torch.Tensor]
+    ) -> list[dict[str, torch.Tensor]]:
         """创建小批次"""
         # 实现小批次创建逻辑
         pass
@@ -382,19 +398,19 @@ class PPOTrainer:
         self.value_model.train()
 
         # 前向传播
-        policy_outputs = self.policy_model(mini_batch['input_ids'])
-        value_outputs = self.value_model(mini_batch['input_ids'])
+        policy_outputs = self.policy_model(mini_batch["input_ids"])
+        value_outputs = self.value_model(mini_batch["input_ids"])
 
         # 计算损失
         batch_data = {
-            'new_logits': policy_outputs.logits,
-            'old_log_probs': mini_batch['old_log_probs'],
-            'actions': mini_batch['actions'],
-            'rewards': mini_batch['rewards'],
-            'values': value_outputs,
-            'old_values': mini_batch['old_values'],
-            'dones': mini_batch['dones'],
-            'mask': mini_batch.get('attention_mask')
+            "new_logits": policy_outputs.logits,
+            "old_log_probs": mini_batch["old_log_probs"],
+            "actions": mini_batch["actions"],
+            "rewards": mini_batch["rewards"],
+            "values": value_outputs,
+            "old_values": mini_batch["old_values"],
+            "dones": mini_batch["dones"],
+            "mask": mini_batch.get("attention_mask"),
         }
 
         loss_dict = self.pg_computer.compute_ppo_loss(batch_data)
@@ -403,7 +419,7 @@ class PPOTrainer:
         self.policy_optimizer.zero_grad()
         self.value_optimizer.zero_grad()
 
-        loss_dict['total_loss'].backward()
+        loss_dict["total_loss"].backward()
 
         # 梯度裁剪
         torch.nn.utils.clip_grad_norm_(self.policy_model.parameters(), self.max_grad_norm)
@@ -413,13 +429,18 @@ class PPOTrainer:
         self.policy_optimizer.step()
         self.value_optimizer.step()
 
-        return {key: value.item() if torch.is_tensor(value) else value
-                for key, value in loss_dict.items()}
+        return {
+            key: value.item() if torch.is_tensor(value) else value
+            for key, value in loss_dict.items()
+        }
 
-    def train(self, prompts: list[str],
-              num_iterations: int = 1000,
-              save_interval: int = 100,
-              save_dir: str = "ppo_checkpoints"):
+    def train(
+        self,
+        prompts: list[str],
+        num_iterations: int = 1000,
+        save_interval: int = 100,
+        save_dir: str = "ppo_checkpoints",
+    ):
         """
         完整的PPO训练流程
 
@@ -464,22 +485,25 @@ class PPOTrainer:
 
     def save_checkpoint(self, path: str):
         """保存训练checkpoint"""
-        torch.save({
-            'policy_model_state_dict': self.policy_model.state_dict(),
-            'value_model_state_dict': self.value_model.state_dict(),
-            'policy_optimizer_state_dict': self.policy_optimizer.state_dict(),
-            'value_optimizer_state_dict': self.value_optimizer.state_dict(),
-            'train_stats': self.train_stats
-        }, path)
+        torch.save(
+            {
+                "policy_model_state_dict": self.policy_model.state_dict(),
+                "value_model_state_dict": self.value_model.state_dict(),
+                "policy_optimizer_state_dict": self.policy_optimizer.state_dict(),
+                "value_optimizer_state_dict": self.value_optimizer.state_dict(),
+                "train_stats": self.train_stats,
+            },
+            path,
+        )
 
     def load_checkpoint(self, path: str):
         """加载训练checkpoint"""
         checkpoint = torch.load(path, map_location=self.device)
-        self.policy_model.load_state_dict(checkpoint['policy_model_state_dict'])
-        self.value_model.load_state_dict(checkpoint['value_model_state_dict'])
-        self.policy_optimizer.load_state_dict(checkpoint['policy_optimizer_state_dict'])
-        self.value_optimizer.load_state_dict(checkpoint['value_optimizer_state_dict'])
-        self.train_stats = checkpoint.get('train_stats', self.train_stats)
+        self.policy_model.load_state_dict(checkpoint["policy_model_state_dict"])
+        self.value_model.load_state_dict(checkpoint["value_model_state_dict"])
+        self.policy_optimizer.load_state_dict(checkpoint["policy_optimizer_state_dict"])
+        self.value_optimizer.load_state_dict(checkpoint["value_optimizer_state_dict"])
+        self.train_stats = checkpoint.get("train_stats", self.train_stats)
 
     def plot_training_curves(self, save_dir: str):
         """绘制训练曲线"""
@@ -489,44 +513,46 @@ class PPOTrainer:
         fig, axes = plt.subplots(2, 2, figsize=(15, 10))
 
         # 策略损失
-        if self.train_stats['policy_loss']:
-            axes[0, 0].plot(self.train_stats['policy_loss'])
-            axes[0, 0].set_title('Policy Loss')
-            axes[0, 0].set_ylabel('Loss')
+        if self.train_stats["policy_loss"]:
+            axes[0, 0].plot(self.train_stats["policy_loss"])
+            axes[0, 0].set_title("Policy Loss")
+            axes[0, 0].set_ylabel("Loss")
             axes[0, 0].grid(True)
 
         # 价值损失
-        if self.train_stats['value_loss']:
-            axes[0, 1].plot(self.train_stats['value_loss'])
-            axes[0, 1].set_title('Value Loss')
-            axes[0, 1].set_ylabel('Loss')
+        if self.train_stats["value_loss"]:
+            axes[0, 1].plot(self.train_stats["value_loss"])
+            axes[0, 1].set_title("Value Loss")
+            axes[0, 1].set_ylabel("Loss")
             axes[0, 1].grid(True)
 
         # 熵
-        if self.train_stats['entropy']:
-            axes[1, 0].plot(self.train_stats['entropy'])
-            axes[1, 0].set_title('Entropy')
-            axes[1, 0].set_ylabel('Entropy')
+        if self.train_stats["entropy"]:
+            axes[1, 0].plot(self.train_stats["entropy"])
+            axes[1, 0].set_title("Entropy")
+            axes[1, 0].set_ylabel("Entropy")
             axes[1, 0].grid(True)
 
         # KL散度
-        if self.train_stats['kl_divergence']:
-            axes[1, 1].plot(self.train_stats['kl_divergence'])
-            axes[1, 1].set_title('KL Divergence')
-            axes[1, 1].set_ylabel('KL')
+        if self.train_stats["kl_divergence"]:
+            axes[1, 1].plot(self.train_stats["kl_divergence"])
+            axes[1, 1].set_title("KL Divergence")
+            axes[1, 1].set_ylabel("KL")
             axes[1, 1].grid(True)
 
         plt.tight_layout()
-        plt.savefig(os.path.join(save_dir, 'ppo_training_curves.png'))
+        plt.savefig(os.path.join(save_dir, "ppo_training_curves.png"))
         plt.close()
 
 
-def create_ppo_trainer(policy_model: nn.Module,
-                      value_model: ValueModel | None = None,
-                      reward_model: nn.Module | None = None,
-                      tokenizer=None,
-                      device: str = 'cpu',
-                      **kwargs) -> PPOTrainer:
+def create_ppo_trainer(
+    policy_model: nn.Module,
+    value_model: ValueModel | None = None,
+    reward_model: nn.Module | None = None,
+    tokenizer=None,
+    device: str = "cpu",
+    **kwargs,
+) -> PPOTrainer:
     """
     创建PPO训练器的工厂函数
 
@@ -547,7 +573,7 @@ def create_ppo_trainer(policy_model: nn.Module,
         reward_model=reward_model,
         tokenizer=tokenizer,
         device=device,
-        **kwargs
+        **kwargs,
     )
 
 

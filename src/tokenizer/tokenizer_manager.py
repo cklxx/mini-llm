@@ -6,6 +6,7 @@
 - 支持多种tokenizer配置的管理
 - 提供标准化的加载和训练接口
 """
+
 import hashlib
 import json
 import os
@@ -19,9 +20,10 @@ from .bpe_tokenizer import BPETokenizer, train_tokenizer_from_data
 @dataclass
 class TokenizerConfig:
     """Tokenizer配置"""
+
     vocab_size: int = 30000
     tokenizer_type: str = "bpe"  # 支持扩展其他类型
-    max_samples: int = 150000   # 训练时最大样本数
+    max_samples: int = 150000  # 训练时最大样本数
 
     def __post_init__(self):
         """验证配置"""
@@ -80,12 +82,12 @@ class TokenizerManager:
         hash_obj = hashlib.md5()
 
         try:
-            with open(data_path, encoding='utf-8') as f:
+            with open(data_path, encoding="utf-8") as f:
                 line_count = 0
                 for line in f:
                     if line_count >= max_lines:
                         break
-                    hash_obj.update(line.encode('utf-8'))
+                    hash_obj.update(line.encode("utf-8"))
                     line_count += 1
 
             # 添加文件大小和修改时间信息
@@ -96,7 +98,7 @@ class TokenizerManager:
         except Exception as e:
             print(f"⚠️  Warning: Error computing data hash: {e}")
             # 如果出错，使用文件路径作为fallback
-            hash_obj.update(data_path.encode('utf-8'))
+            hash_obj.update(data_path.encode("utf-8"))
 
         return hash_obj.hexdigest()[:12]  # 使用前12位
 
@@ -119,28 +121,32 @@ class TokenizerManager:
 
         return model_path, metadata_path
 
-    def _save_metadata(self, metadata_path: Path, config: TokenizerConfig, data_path: str, data_hash: str):
+    def _save_metadata(
+        self, metadata_path: Path, config: TokenizerConfig, data_path: str, data_hash: str
+    ):
         """保存tokenizer元数据"""
         metadata = {
             "config": config.to_dict(),
             "data_path": str(data_path),
             "data_hash": data_hash,
-            "created_at": __import__('time').time(),
-            "version": "1.0"
+            "created_at": __import__("time").time(),
+            "version": "1.0",
         }
 
-        with open(metadata_path, 'w', encoding='utf-8') as f:
+        with open(metadata_path, "w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2, ensure_ascii=False)
 
     def _load_metadata(self, metadata_path: Path) -> dict[str, Any] | None:
         """加载tokenizer元数据"""
         try:
-            with open(metadata_path, encoding='utf-8') as f:
+            with open(metadata_path, encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return None
 
-    def _is_cache_valid(self, model_path: Path, metadata_path: Path, config: TokenizerConfig, data_hash: str) -> bool:
+    def _is_cache_valid(
+        self, model_path: Path, metadata_path: Path, config: TokenizerConfig, data_hash: str
+    ) -> bool:
         """检查缓存是否有效"""
         if not model_path.exists() or not metadata_path.exists():
             return False
@@ -164,7 +170,7 @@ class TokenizerManager:
         self,
         data_path: str,
         config: TokenizerConfig | dict[str, Any] | None = None,
-        force_retrain: bool = False
+        force_retrain: bool = False,
     ) -> BPETokenizer:
         """
         获取或训练tokenizer（核心API）
@@ -203,7 +209,9 @@ class TokenizerManager:
             metadata = self._load_metadata(metadata_path)
             if metadata:
                 created_time = metadata.get("created_at", 0)
-                print(f"   Cached on: {__import__('time').strftime('%Y-%m-%d %H:%M:%S', __import__('time').localtime(created_time))}")
+                print(
+                    f"   Cached on: {__import__('time').strftime('%Y-%m-%d %H:%M:%S', __import__('time').localtime(created_time))}"
+                )
                 print(f"   Vocab size: {tokenizer.get_vocab_size()}")
 
             return tokenizer
@@ -241,13 +249,15 @@ class TokenizerManager:
                 # 检查对应的模型文件是否存在
                 model_file = self.cache_dir / "models" / f"{metadata_file.stem}.pkl"
                 if model_file.exists():
-                    cached_tokenizers.append({
-                        "name": metadata_file.stem,
-                        "config": metadata["config"],
-                        "data_path": metadata["data_path"],
-                        "created_at": metadata.get("created_at", 0),
-                        "model_size": model_file.stat().st_size,
-                    })
+                    cached_tokenizers.append(
+                        {
+                            "name": metadata_file.stem,
+                            "config": metadata["config"],
+                            "data_path": metadata["data_path"],
+                            "created_at": metadata.get("created_at", 0),
+                            "model_size": model_file.stat().st_size,
+                        }
+                    )
 
         return sorted(cached_tokenizers, key=lambda x: x["created_at"], reverse=True)
 
@@ -285,7 +295,9 @@ class TokenizerManager:
                 metadata_file.unlink()
                 deleted_count += 1
 
-        print(f"🧹 Cache cleaned: removed {deleted_count} files, kept latest {keep_latest} tokenizers")
+        print(
+            f"🧹 Cache cleaned: removed {deleted_count} files, kept latest {keep_latest} tokenizers"
+        )
         return deleted_count
 
 
@@ -306,7 +318,7 @@ def get_tokenizer(
     vocab_size: int = 30000,
     tokenizer_type: str = "bpe",
     force_retrain: bool = False,
-    cache_dir: str | None = None
+    cache_dir: str | None = None,
 ) -> BPETokenizer:
     """
     通用tokenizer获取API（推荐使用）
@@ -328,10 +340,7 @@ def get_tokenizer(
         # 强制重新训练
         tokenizer = get_tokenizer("data/train.jsonl", force_retrain=True)
     """
-    config = TokenizerConfig(
-        vocab_size=vocab_size,
-        tokenizer_type=tokenizer_type
-    )
+    config = TokenizerConfig(vocab_size=vocab_size, tokenizer_type=tokenizer_type)
 
     if cache_dir is not None:
         # 使用指定的缓存目录
@@ -362,13 +371,13 @@ if __name__ == "__main__":
     # 创建测试数据
     test_data = [
         '{"conversations": [{"role": "user", "content": "Hello world"}, {"role": "assistant", "content": "Hi there!"}]}',
-        '{"conversations": [{"role": "user", "content": "How are you?"}, {"role": "assistant", "content": "I am fine"}]}'
+        '{"conversations": [{"role": "user", "content": "How are you?"}, {"role": "assistant", "content": "I am fine"}]}',
     ]
 
     test_file = "test_data.jsonl"
-    with open(test_file, 'w', encoding='utf-8') as f:
+    with open(test_file, "w", encoding="utf-8") as f:
         for line in test_data:
-            f.write(line + '\n')
+            f.write(line + "\n")
 
     try:
         # 测试通用API

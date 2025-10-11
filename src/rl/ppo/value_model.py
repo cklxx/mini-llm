@@ -10,7 +10,6 @@ PPO价值函数模型实现
 - 减少策略梯度的方差，提高训练稳定性
 """
 
-
 import torch
 import torch.nn as nn
 
@@ -33,7 +32,7 @@ class ValueHead(nn.Module):
             nn.Linear(d_model // 2, d_model // 4),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(d_model // 4, 1)  # 输出标量价值
+            nn.Linear(d_model // 4, 1),  # 输出标量价值
         )
 
         # 初始化参数
@@ -46,8 +45,9 @@ class ValueHead(nn.Module):
                 nn.init.xavier_uniform_(layer.weight)
                 nn.init.zeros_(layer.bias)
 
-    def forward(self, hidden_states: torch.Tensor,
-                attention_mask: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(
+        self, hidden_states: torch.Tensor, attention_mask: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """
         前向传播
 
@@ -99,8 +99,9 @@ class ValueModel(nn.Module):
             for param in self.transformer.parameters():
                 param.requires_grad = False
 
-    def forward(self, input_ids: torch.Tensor,
-                attention_mask: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(
+        self, input_ids: torch.Tensor, attention_mask: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """
         前向传播
 
@@ -119,8 +120,9 @@ class ValueModel(nn.Module):
 
         return values
 
-    def get_values_for_sequences(self, input_ids: torch.Tensor,
-                                attention_mask: torch.Tensor | None = None) -> torch.Tensor:
+    def get_values_for_sequences(
+        self, input_ids: torch.Tensor, attention_mask: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """
         获取序列级别的价值（取最后一个非padding位置的价值）
 
@@ -160,12 +162,15 @@ class ValueLoss(nn.Module):
         """
         super().__init__()
         self.clip_value = clip_value
-        self.mse_loss = nn.MSELoss(reduction='none')
+        self.mse_loss = nn.MSELoss(reduction="none")
 
-    def forward(self, predicted_values: torch.Tensor,
-                target_values: torch.Tensor,
-                old_values: torch.Tensor | None = None,
-                attention_mask: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(
+        self,
+        predicted_values: torch.Tensor,
+        target_values: torch.Tensor,
+        old_values: torch.Tensor | None = None,
+        attention_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """
         计算价值函数损失
 
@@ -184,9 +189,7 @@ class ValueLoss(nn.Module):
         # 可选：应用价值裁剪（类似PPO的策略裁剪）
         if old_values is not None:
             clipped_values = old_values + torch.clamp(
-                predicted_values - old_values,
-                -self.clip_value,
-                self.clip_value
+                predicted_values - old_values, -self.clip_value, self.clip_value
             )
             clipped_loss = self.mse_loss(clipped_values, target_values)
             value_loss = torch.max(value_loss, clipped_loss)

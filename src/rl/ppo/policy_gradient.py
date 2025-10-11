@@ -10,7 +10,6 @@ PPO (Proximal Policy Optimization) 通过限制策略更新幅度来提高训练
 - PPO目标：L_CLIP = E[min(r_t(θ)A_t, clip(r_t(θ), 1-ε, 1+ε)A_t)]
 """
 
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -32,10 +31,13 @@ class AdvantageCalculator:
         self.gamma = gamma
         self.lambda_gae = lambda_gae
 
-    def compute_advantages(self, rewards: torch.Tensor,
-                          values: torch.Tensor,
-                          dones: torch.Tensor,
-                          next_values: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+    def compute_advantages(
+        self,
+        rewards: torch.Tensor,
+        values: torch.Tensor,
+        dones: torch.Tensor,
+        next_values: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         计算优势函数和目标价值
 
@@ -58,7 +60,9 @@ class AdvantageCalculator:
 
         # 如果没有提供next_values，使用values的右移版本
         if next_values is None:
-            next_values = torch.cat([values[:, 1:], torch.zeros(batch_size, 1, device=device)], dim=1)
+            next_values = torch.cat(
+                [values[:, 1:], torch.zeros(batch_size, 1, device=device)], dim=1
+            )
 
         # 计算TD误差：δ_t = r_t + γV(s_{t+1}) - V(s_t)
         td_errors = rewards + self.gamma * next_values * (1 - dones) - values
@@ -69,7 +73,9 @@ class AdvantageCalculator:
 
         # 从后往前计算（动态规划）
         for t in reversed(range(seq_len)):
-            advantage = td_errors[:, t] + self.gamma * self.lambda_gae * advantage * (1 - dones[:, t])
+            advantage = td_errors[:, t] + self.gamma * self.lambda_gae * advantage * (
+                1 - dones[:, t]
+            )
             advantages[:, t] = advantage
 
         # 计算目标价值（用于价值函数训练）
@@ -77,8 +83,9 @@ class AdvantageCalculator:
 
         return advantages, returns
 
-    def normalize_advantages(self, advantages: torch.Tensor,
-                           mask: torch.Tensor | None = None) -> torch.Tensor:
+    def normalize_advantages(
+        self, advantages: torch.Tensor, mask: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """
         标准化优势函数（减少方差）
 
@@ -111,9 +118,9 @@ class PPOLoss(nn.Module):
     结合策略损失、价值损失和熵正则化
     """
 
-    def __init__(self, clip_ratio: float = 0.2,
-                 value_coef: float = 0.5,
-                 entropy_coef: float = 0.01):
+    def __init__(
+        self, clip_ratio: float = 0.2, value_coef: float = 0.5, entropy_coef: float = 0.01
+    ):
         """
         Args:
             clip_ratio: PPO裁剪比率 ε
@@ -125,13 +132,16 @@ class PPOLoss(nn.Module):
         self.value_coef = value_coef
         self.entropy_coef = entropy_coef
 
-    def forward(self, log_probs: torch.Tensor,
-                old_log_probs: torch.Tensor,
-                advantages: torch.Tensor,
-                values: torch.Tensor,
-                returns: torch.Tensor,
-                entropy: torch.Tensor,
-                mask: torch.Tensor | None = None) -> dict[str, torch.Tensor]:
+    def forward(
+        self,
+        log_probs: torch.Tensor,
+        old_log_probs: torch.Tensor,
+        advantages: torch.Tensor,
+        values: torch.Tensor,
+        returns: torch.Tensor,
+        entropy: torch.Tensor,
+        mask: torch.Tensor | None = None,
+    ) -> dict[str, torch.Tensor]:
         """
         计算PPO损失
 
@@ -156,7 +166,7 @@ class PPOLoss(nn.Module):
         policy_loss = -torch.min(surr1, surr2)
 
         # 价值损失（MSE）
-        value_loss = F.mse_loss(values, returns, reduction='none')
+        value_loss = F.mse_loss(values, returns, reduction="none")
 
         # 应用掩码
         if mask is not None:
@@ -180,16 +190,14 @@ class PPOLoss(nn.Module):
             entropy_loss = entropy.mean()
 
         # 总损失
-        total_loss = (policy_loss +
-                     self.value_coef * value_loss -
-                     self.entropy_coef * entropy_loss)
+        total_loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy_loss
 
         return {
-            'total_loss': total_loss,
-            'policy_loss': policy_loss,
-            'value_loss': value_loss,
-            'entropy_loss': entropy_loss,
-            'approx_kl': ((ratio - 1) - (log_probs - old_log_probs)).mean()
+            "total_loss": total_loss,
+            "policy_loss": policy_loss,
+            "value_loss": value_loss,
+            "entropy_loss": entropy_loss,
+            "approx_kl": ((ratio - 1) - (log_probs - old_log_probs)).mean(),
         }
 
 
@@ -199,11 +207,14 @@ class PolicyGradientComputer:
     封装策略梯度相关的所有计算逻辑
     """
 
-    def __init__(self, gamma: float = 0.99,
-                 lambda_gae: float = 0.95,
-                 clip_ratio: float = 0.2,
-                 value_coef: float = 0.5,
-                 entropy_coef: float = 0.01):
+    def __init__(
+        self,
+        gamma: float = 0.99,
+        lambda_gae: float = 0.95,
+        clip_ratio: float = 0.2,
+        value_coef: float = 0.5,
+        entropy_coef: float = 0.01,
+    ):
         """
         初始化策略梯度计算器
 
@@ -217,9 +228,9 @@ class PolicyGradientComputer:
         self.advantage_calculator = AdvantageCalculator(gamma, lambda_gae)
         self.ppo_loss = PPOLoss(clip_ratio, value_coef, entropy_coef)
 
-    def compute_log_probs(self, logits: torch.Tensor,
-                         actions: torch.Tensor,
-                         mask: torch.Tensor | None = None) -> torch.Tensor:
+    def compute_log_probs(
+        self, logits: torch.Tensor, actions: torch.Tensor, mask: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """
         计算动作的log概率
 
@@ -232,15 +243,18 @@ class PolicyGradientComputer:
             log_probs: (batch_size, seq_len) log概率
         """
         log_probs = F.log_softmax(logits, dim=-1)
-        selected_log_probs = torch.gather(log_probs, dim=-1, index=actions.unsqueeze(-1)).squeeze(-1)
+        selected_log_probs = torch.gather(log_probs, dim=-1, index=actions.unsqueeze(-1)).squeeze(
+            -1
+        )
 
         if mask is not None:
             selected_log_probs = selected_log_probs * mask.float()
 
         return selected_log_probs
 
-    def compute_entropy(self, logits: torch.Tensor,
-                       mask: torch.Tensor | None = None) -> torch.Tensor:
+    def compute_entropy(
+        self, logits: torch.Tensor, mask: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """
         计算策略熵（鼓励探索）
 
@@ -280,57 +294,53 @@ class PolicyGradientComputer:
         """
         # 计算新策略的log概率
         new_log_probs = self.compute_log_probs(
-            batch_data['new_logits'],
-            batch_data['actions'],
-            batch_data.get('mask')
+            batch_data["new_logits"], batch_data["actions"], batch_data.get("mask")
         )
 
         # 计算熵
-        entropy = self.compute_entropy(
-            batch_data['new_logits'],
-            batch_data.get('mask')
-        )
+        entropy = self.compute_entropy(batch_data["new_logits"], batch_data.get("mask"))
 
         # 计算优势函数
         advantages, returns = self.advantage_calculator.compute_advantages(
-            batch_data['rewards'],
-            batch_data['old_values'],
-            batch_data['dones']
+            batch_data["rewards"], batch_data["old_values"], batch_data["dones"]
         )
 
         # 标准化优势
         advantages = self.advantage_calculator.normalize_advantages(
-            advantages,
-            batch_data.get('mask')
+            advantages, batch_data.get("mask")
         )
 
         # 计算PPO损失
         loss_dict = self.ppo_loss(
             new_log_probs,
-            batch_data['old_log_probs'],
+            batch_data["old_log_probs"],
             advantages,
-            batch_data['values'],
+            batch_data["values"],
             returns,
             entropy,
-            batch_data.get('mask')
+            batch_data.get("mask"),
         )
 
         # 添加一些有用的统计信息
-        loss_dict.update({
-            'advantages_mean': advantages.mean(),
-            'advantages_std': advantages.std(),
-            'returns_mean': returns.mean(),
-            'entropy_mean': entropy.mean()
-        })
+        loss_dict.update(
+            {
+                "advantages_mean": advantages.mean(),
+                "advantages_std": advantages.std(),
+                "returns_mean": returns.mean(),
+                "entropy_mean": entropy.mean(),
+            }
+        )
 
         return loss_dict
 
 
-def create_policy_gradient_computer(gamma: float = 0.99,
-                                  lambda_gae: float = 0.95,
-                                  clip_ratio: float = 0.2,
-                                  value_coef: float = 0.5,
-                                  entropy_coef: float = 0.01) -> PolicyGradientComputer:
+def create_policy_gradient_computer(
+    gamma: float = 0.99,
+    lambda_gae: float = 0.95,
+    clip_ratio: float = 0.2,
+    value_coef: float = 0.5,
+    entropy_coef: float = 0.01,
+) -> PolicyGradientComputer:
     """
     创建策略梯度计算器的工厂函数
 

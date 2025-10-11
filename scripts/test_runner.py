@@ -26,7 +26,7 @@ def run_test_script(script_path: str, description: str):
             [sys.executable, script_path],
             capture_output=True,
             text=True,
-            cwd=os.path.dirname(os.path.abspath(__file__))
+            cwd=os.path.dirname(os.path.abspath(__file__)),
         )
 
         end_time = time.time()
@@ -69,6 +69,7 @@ def test_environment_setup():
     # 检查PyTorch
     try:
         import torch
+
         print(f"PyTorch version: {torch.__version__}")
         print(f"CUDA available: {torch.cuda.is_available()}")
         if torch.cuda.is_available():
@@ -78,11 +79,7 @@ def test_environment_setup():
         return False
 
     # 检查项目结构
-    required_dirs = [
-        "src/model",
-        "data/dataset/minimind_dataset",
-        "tests"
-    ]
+    required_dirs = ["src/model", "data/dataset/minimind_dataset", "tests"]
 
     for dir_path in required_dirs:
         if os.path.exists(dir_path):
@@ -98,7 +95,7 @@ def test_environment_setup():
         "src/model/gqa.py",
         "data/dataset/minimind_dataset/tool_calling_basic.jsonl",
         "data/dataset/minimind_dataset/tool_calling_advanced.jsonl",
-        "data/dataset/minimind_dataset/agent_ultra_think.jsonl"
+        "data/dataset/minimind_dataset/agent_ultra_think.jsonl",
     ]
 
     for file_path in key_files:
@@ -124,8 +121,8 @@ def generate_test_report(results: dict):
 """
 
     total_tests = len(results)
-    passed_tests = sum(1 for result in results.values() if result['success'])
-    total_duration = sum(result['duration'] for result in results.values())
+    passed_tests = sum(1 for result in results.values() if result["success"])
+    total_duration = sum(result["duration"] for result in results.values())
 
     report += f"- **总测试数**: {total_tests}\n"
     report += f"- **通过测试**: {passed_tests}\n"
@@ -136,7 +133,7 @@ def generate_test_report(results: dict):
     report += "## 详细结果\n\n"
 
     for test_name, result in results.items():
-        status = "✅ PASSED" if result['success'] else "❌ FAILED"
+        status = "✅ PASSED" if result["success"] else "❌ FAILED"
         report += f"### {test_name}\n"
         report += f"- **状态**: {status}\n"
         report += f"- **耗时**: {result['duration']:.2f} 秒\n"
@@ -196,7 +193,7 @@ def generate_test_report(results: dict):
 
     # 保存报告
     report_path = f"test_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
-    with open(report_path, 'w', encoding='utf-8') as f:
+    with open(report_path, "w", encoding="utf-8") as f:
         f.write(report)
 
     print(f"\n📝 测试报告已保存到: {report_path}")
@@ -216,13 +213,13 @@ def main():
     # 定义测试
     tests = [
         {
-            'script': 'scripts/tests/test_architecture.py',
-            'description': 'Architecture Components Tests (RoPE, GQA, Deep-Thin, Weight Sharing)'
+            "script": "scripts/tests/test_architecture.py",
+            "description": "Architecture Components Tests (RoPE, GQA, Deep-Thin, Weight Sharing)",
         },
         {
-            'script': 'scripts/tests/test_training_inference.py',
-            'description': 'Training & Inference Validation Tests'
-        }
+            "script": "scripts/tests/test_training_inference.py",
+            "description": "Training & Inference Validation Tests",
+        },
     ]
 
     # 运行测试
@@ -230,15 +227,15 @@ def main():
     overall_success = True
 
     for test in tests:
-        script_path = test['script']
-        description = test['description']
+        script_path = test["script"]
+        description = test["description"]
 
         if not os.path.exists(script_path):
             print(f"⚠️  Test script not found: {script_path}")
             results[os.path.basename(script_path)] = {
-                'success': False,
-                'duration': 0,
-                'description': description
+                "success": False,
+                "duration": 0,
+                "description": description,
             }
             overall_success = False
             continue
@@ -246,9 +243,9 @@ def main():
         success, duration = run_test_script(script_path, description)
 
         results[os.path.basename(script_path)] = {
-            'success': success,
-            'duration': duration,
-            'description': description
+            "success": success,
+            "duration": duration,
+            "description": description,
         }
 
         if not success:
@@ -262,7 +259,7 @@ def main():
     print("🏁 FINAL TEST SUMMARY")
     print("=" * 60)
 
-    passed = sum(1 for r in results.values() if r['success'])
+    passed = sum(1 for r in results.values() if r["success"])
     total = len(results)
 
     print(f"Tests passed: {passed}/{total}")

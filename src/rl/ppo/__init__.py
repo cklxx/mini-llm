@@ -12,7 +12,15 @@ from .ppo_trainer import PPOExperienceBuffer, PPOTrainer, create_ppo_trainer
 from .value_model import ValueHead, ValueLoss, ValueModel, create_value_model
 
 __all__ = [
-    'ValueModel', 'ValueHead', 'ValueLoss', 'create_value_model',
-    'PolicyGradientComputer', 'AdvantageCalculator', 'PPOLoss', 'create_policy_gradient_computer',
-    'PPOTrainer', 'PPOExperienceBuffer', 'create_ppo_trainer'
+    "ValueModel",
+    "ValueHead",
+    "ValueLoss",
+    "create_value_model",
+    "PolicyGradientComputer",
+    "AdvantageCalculator",
+    "PPOLoss",
+    "create_policy_gradient_computer",
+    "PPOTrainer",
+    "PPOExperienceBuffer",
+    "create_ppo_trainer",
 ]

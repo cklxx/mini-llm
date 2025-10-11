@@ -11,7 +11,7 @@ import torch
 # 添加项目路径
 project_root = os.path.dirname(os.path.dirname(__file__))
 sys.path.append(project_root)
-sys.path.append(os.path.join(project_root, 'src'))
+sys.path.append(os.path.join(project_root, "src"))
 
 from config.training_config import get_medium_config
 
@@ -20,7 +20,7 @@ def print_section(title):
     """打印分隔符"""
     print(f"\n{'='*60}")
     print(f"  {title}")
-    print('='*60)
+    print("=" * 60)
 
 
 def verify_gpu():
@@ -93,7 +93,7 @@ def verify_config():
     else:
         print("  ⚠️  Worker数量偏少 (建议≥4)")
 
-    if hasattr(config, 'prefetch_factor'):
+    if hasattr(config, "prefetch_factor"):
         print(f"  - Prefetch factor: {config.prefetch_factor}")
         if config.prefetch_factor >= 2:
             print("  ✅ 预取配置已优化 (≥2)")
@@ -216,7 +216,7 @@ def estimate_memory():
 
     # 总计
     if config.mixed_precision:
-        total_memory = model_memory_fp16 + optimizer_memory + activation_memory/2
+        total_memory = model_memory_fp16 + optimizer_memory + activation_memory / 2
         precision = "FP16"
     else:
         total_memory = model_memory_fp32 + optimizer_memory + activation_memory
@@ -240,7 +240,8 @@ def print_summary():
     """打印优化总结"""
     print_section("优化总结")
 
-    print("""
+    print(
+        """
 🎯 已应用的优化:
   1. ✅ Batch size: 12 → 32 (提升2.7倍)
   2. ✅ DataLoader workers: 0 → 8 (并行数据加载)
@@ -261,14 +262,15 @@ def print_summary():
 
 📊 监控性能:
   watch -n 1 nvidia-smi
-    """)
+    """
+    )
 
 
 def main():
     """主函数"""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("  A6000 GPU 训练优化验证")
-    print("="*60)
+    print("=" * 60)
 
     # 运行所有验证
     results = []
@@ -288,12 +290,12 @@ def main():
         print(f"{name}: {status}")
         all_passed = all_passed and passed
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     if all_passed:
         print("🎉 所有验证通过！优化配置正确应用。")
     else:
         print("⚠️  部分验证失败，请检查配置。")
-    print("="*60 + "\n")
+    print("=" * 60 + "\n")
 
     return 0 if all_passed else 1
 

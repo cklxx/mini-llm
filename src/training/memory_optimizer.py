@@ -2,6 +2,7 @@
 内存优化系统
 包含混合精度训练、梯度累积、内存管理和优化策略
 """
+
 import gc
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -18,6 +19,7 @@ from torch.cuda.amp import GradScaler, autocast
 @dataclass
 class MemoryConfig:
     """内存优化配置"""
+
     # 混合精度配置
     enable_amp: bool = True
     amp_dtype: torch.dtype = torch.float16
@@ -56,37 +58,47 @@ class MemoryMonitor:
         """获取详细内存信息"""
         info = {}
 
-        if self.device.type == 'cuda':
+        if self.device.type == "cuda":
             # CUDA内存信息
-            info.update({
-                'gpu_allocated_gb': torch.cuda.memory_allocated(self.device) / 1024**3,
-                'gpu_reserved_gb': torch.cuda.memory_reserved(self.device) / 1024**3,
-                'gpu_max_allocated_gb': torch.cuda.max_memory_allocated(self.device) / 1024**3,
-                'gpu_max_reserved_gb': torch.cuda.max_memory_reserved(self.device) / 1024**3,
-            })
+            info.update(
+                {
+                    "gpu_allocated_gb": torch.cuda.memory_allocated(self.device) / 1024**3,
+                    "gpu_reserved_gb": torch.cuda.memory_reserved(self.device) / 1024**3,
+                    "gpu_max_allocated_gb": torch.cuda.max_memory_allocated(self.device) / 1024**3,
+                    "gpu_max_reserved_gb": torch.cuda.max_memory_reserved(self.device) / 1024**3,
+                }
+            )
 
             # 计算GPU内存使用率
             if torch.cuda.is_available():
                 total_memory = torch.cuda.get_device_properties(self.device).total_memory
-                info['gpu_total_gb'] = total_memory / 1024**3
-                info['gpu_usage_percent'] = info['gpu_allocated_gb'] / info['gpu_total_gb'] * 100
+                info["gpu_total_gb"] = total_memory / 1024**3
+                info["gpu_usage_percent"] = info["gpu_allocated_gb"] / info["gpu_total_gb"] * 100
 
-        elif self.device.type == 'mps':
+        elif self.device.type == "mps":
             # MPS内存信息（近似）
-            current_alloc = torch.mps.current_allocated_memory() / 1024**3 if hasattr(torch.mps, 'current_allocated_memory') else 0
-            info.update({
-                'mps_allocated_gb': current_alloc,
-                'mps_usage_percent': min(current_alloc / 16 * 100, 100)  # 假设16GB统一内存
-            })
+            current_alloc = (
+                torch.mps.current_allocated_memory() / 1024**3
+                if hasattr(torch.mps, "current_allocated_memory")
+                else 0
+            )
+            info.update(
+                {
+                    "mps_allocated_gb": current_alloc,
+                    "mps_usage_percent": min(current_alloc / 16 * 100, 100),  # 假设16GB统一内存
+                }
+            )
 
         # CPU内存信息
         memory = psutil.virtual_memory()
-        info.update({
-            'ram_used_gb': memory.used / 1024**3,
-            'ram_total_gb': memory.total / 1024**3,
-            'ram_usage_percent': memory.percent,
-            'ram_available_gb': memory.available / 1024**3
-        })
+        info.update(
+            {
+                "ram_used_gb": memory.used / 1024**3,
+                "ram_total_gb": memory.total / 1024**3,
+                "ram_usage_percent": memory.percent,
+                "ram_available_gb": memory.available / 1024**3,
+            }
+        )
 
         self.memory_history.append(info)
         return info
@@ -96,17 +108,17 @@ class MemoryMonitor:
         info = self.get_memory_info()
 
         # 检查GPU内存
-        if 'gpu_usage_percent' in info:
-            if info['gpu_usage_percent'] / 100 > threshold:
+        if "gpu_usage_percent" in info:
+            if info["gpu_usage_percent"] / 100 > threshold:
                 return True
 
         # 检查MPS内存
-        if 'mps_usage_percent' in info:
-            if info['mps_usage_percent'] / 100 > threshold:
+        if "mps_usage_percent" in info:
+            if info["mps_usage_percent"] / 100 > threshold:
                 return True
 
         # 检查RAM
-        if info['ram_usage_percent'] / 100 > threshold:
+        if info["ram_usage_percent"] / 100 > threshold:
             return True
 
         return False
@@ -117,11 +129,11 @@ class MemoryMonitor:
         gc.collect()
 
         # PyTorch内存清理
-        if self.device.type == 'cuda':
+        if self.device.type == "cuda":
             torch.cuda.empty_cache()
             torch.cuda.reset_peak_memory_stats(self.device)
-        elif self.device.type == 'mps':
-            if hasattr(torch.mps, 'empty_cache'):
+        elif self.device.type == "mps":
+            if hasattr(torch.mps, "empty_cache"):
                 torch.mps.empty_cache()
 
     def get_memory_summary(self) -> str:
@@ -129,16 +141,22 @@ class MemoryMonitor:
         info = self.get_memory_info()
         lines = ["Memory Usage Summary:"]
 
-        if 'gpu_allocated_gb' in info:
-            lines.append(f"  GPU: {info['gpu_allocated_gb']:.2f}GB/{info.get('gpu_total_gb', 0):.2f}GB "
-                        f"({info.get('gpu_usage_percent', 0):.1f}%)")
+        if "gpu_allocated_gb" in info:
+            lines.append(
+                f"  GPU: {info['gpu_allocated_gb']:.2f}GB/{info.get('gpu_total_gb', 0):.2f}GB "
+                f"({info.get('gpu_usage_percent', 0):.1f}%)"
+            )
 
-        if 'mps_allocated_gb' in info:
-            lines.append(f"  MPS: {info['mps_allocated_gb']:.2f}GB "
-                        f"({info.get('mps_usage_percent', 0):.1f}%)")
+        if "mps_allocated_gb" in info:
+            lines.append(
+                f"  MPS: {info['mps_allocated_gb']:.2f}GB "
+                f"({info.get('mps_usage_percent', 0):.1f}%)"
+            )
 
-        lines.append(f"  RAM: {info['ram_used_gb']:.2f}GB/{info['ram_total_gb']:.2f}GB "
-                    f"({info['ram_usage_percent']:.1f}%)")
+        lines.append(
+            f"  RAM: {info['ram_used_gb']:.2f}GB/{info['ram_total_gb']:.2f}GB "
+            f"({info['ram_usage_percent']:.1f}%)"
+        )
 
         return "\n".join(lines)
 
@@ -156,7 +174,7 @@ class MixedPrecisionManager:
                 init_scale=config.init_scale,
                 growth_factor=2.0,
                 backoff_factor=0.5,
-                growth_interval=config.loss_scale_window
+                growth_interval=config.loss_scale_window,
             )
             print(f"✅ Mixed precision training enabled (dtype: {config.amp_dtype})")
         else:
@@ -165,12 +183,12 @@ class MixedPrecisionManager:
 
     def _check_amp_support(self) -> bool:
         """检查设备是否支持自动混合精度"""
-        if self.device.type == 'cuda':
+        if self.device.type == "cuda":
             # 检查CUDA版本和设备支持
             return torch.cuda.is_available() and torch.cuda.amp.autocast
-        elif self.device.type == 'cpu':
+        elif self.device.type == "cpu":
             # CPU支持AMP（PyTorch 1.10+）
-            return hasattr(torch.cpu.amp, 'autocast')
+            return hasattr(torch.cpu.amp, "autocast")
         else:
             # MPS暂不支持AMP
             return False
@@ -179,10 +197,10 @@ class MixedPrecisionManager:
     def autocast_context(self):
         """自动混合精度上下文管理器"""
         if self.enabled:
-            if self.device.type == 'cuda':
+            if self.device.type == "cuda":
                 with autocast(dtype=self.config.amp_dtype):
                     yield
-            elif self.device.type == 'cpu':
+            elif self.device.type == "cpu":
                 with torch.cpu.amp.autocast(dtype=self.config.amp_dtype):
                     yield
             else:
@@ -261,8 +279,7 @@ class GradientAccumulator:
 
         # 执行梯度裁剪
         grad_norm = torch.nn.utils.clip_grad_norm_(
-            self.model.parameters(),
-            max_norm=clip_norm
+            self.model.parameters(), max_norm=clip_norm
         ).item()
 
         self.gradient_norms.append(grad_norm)
@@ -306,11 +323,12 @@ class DynamicBatchSizer:
 
         self.oom_count += 1
         new_batch_size = max(
-            self.min_batch_size,
-            int(self.current_batch_size * self.reduction_factor)
+            self.min_batch_size, int(self.current_batch_size * self.reduction_factor)
         )
 
-        print(f"⚠️  OOM detected! Reducing batch size: {self.current_batch_size} -> {new_batch_size}")
+        print(
+            f"⚠️  OOM detected! Reducing batch size: {self.current_batch_size} -> {new_batch_size}"
+        )
 
         # 强制清理内存
         self.memory_monitor.force_cleanup()
@@ -328,10 +346,7 @@ class DynamicBatchSizer:
             return None
 
         # 尝试增加批处理大小
-        new_batch_size = min(
-            self.max_batch_size,
-            int(self.current_batch_size * 1.25)
-        )
+        new_batch_size = min(self.max_batch_size, int(self.current_batch_size * 1.25))
 
         if new_batch_size > self.current_batch_size:
             print(f"📈 Increasing batch size: {self.current_batch_size} -> {new_batch_size}")
@@ -371,8 +386,9 @@ class MemoryOptimizer:
 
     def _enable_gradient_checkpointing(self):
         """启用梯度检查点"""
+
         def apply_gradient_checkpointing(module):
-            if hasattr(module, 'gradient_checkpointing'):
+            if hasattr(module, "gradient_checkpointing"):
                 module.gradient_checkpointing = True
             for child in module.children():
                 apply_gradient_checkpointing(child)
@@ -396,8 +412,8 @@ class MemoryOptimizer:
             # 混合精度上下文
             with self.mixed_precision.autocast_context():
                 yield {
-                    'should_update': self.gradient_accumulator.should_update(),
-                    'current_batch_size': self.batch_sizer.get_current_batch_size()
+                    "should_update": self.gradient_accumulator.should_update(),
+                    "current_batch_size": self.batch_sizer.get_current_batch_size(),
                 }
 
             # 梯度处理
@@ -421,9 +437,7 @@ class MemoryOptimizer:
                 # 处理OOM
                 new_batch_size = self.batch_sizer.handle_oom()
                 if new_batch_size:
-                    raise MemoryError(
-                        f"OOM handled, try batch_size={new_batch_size}"
-                    ) from e
+                    raise MemoryError(f"OOM handled, try batch_size={new_batch_size}") from e
                 raise
             raise
 
@@ -444,11 +458,11 @@ class MemoryOptimizer:
     def get_memory_stats(self) -> dict[str, Any]:
         """获取内存统计信息"""
         return {
-            'memory_info': self.memory_monitor.get_memory_info(),
-            'amp_scale': self.mixed_precision.get_scale(),
-            'gradient_accumulation_steps': self.gradient_accumulator.accumulation_steps,
-            'current_batch_size': self.batch_sizer.get_current_batch_size(),
-            'oom_count': self.batch_sizer.oom_count
+            "memory_info": self.memory_monitor.get_memory_info(),
+            "amp_scale": self.mixed_precision.get_scale(),
+            "gradient_accumulation_steps": self.gradient_accumulator.accumulation_steps,
+            "current_batch_size": self.batch_sizer.get_current_batch_size(),
+            "oom_count": self.batch_sizer.oom_count,
         }
 
     def optimize_model_for_inference(self):
@@ -466,7 +480,7 @@ class MemoryOptimizer:
         self.memory_monitor.force_cleanup()
 
         # 可选：模型量化（如果支持）
-        if hasattr(torch.quantization, 'quantize_dynamic'):
+        if hasattr(torch.quantization, "quantize_dynamic"):
             # 动态量化
             try:
                 quantized_model = torch.quantization.quantize_dynamic(
@@ -486,17 +500,18 @@ class MemoryOptimizer:
             return
 
         profile_data = {
-            'config': {
-                'enable_amp': self.config.enable_amp,
-                'gradient_accumulation_steps': self.config.gradient_accumulation_steps,
-                'enable_gradient_checkpointing': self.config.enable_gradient_checkpointing
+            "config": {
+                "enable_amp": self.config.enable_amp,
+                "gradient_accumulation_steps": self.config.gradient_accumulation_steps,
+                "enable_gradient_checkpointing": self.config.enable_gradient_checkpointing,
             },
-            'memory_history': self.memory_monitor.memory_history,
-            'final_stats': self.get_memory_stats()
+            "memory_history": self.memory_monitor.memory_history,
+            "final_stats": self.get_memory_stats(),
         }
 
         import json
-        with open(filepath, 'w') as f:
+
+        with open(filepath, "w") as f:
             json.dump(profile_data, f, indent=2)
 
         print(f"💾 Memory profile saved to: {filepath}")
@@ -506,14 +521,10 @@ class MemoryOptimizer:
 if __name__ == "__main__":
     # 创建测试模型
     test_model = nn.Sequential(
-        nn.Linear(1000, 500),
-        nn.ReLU(),
-        nn.Linear(500, 100),
-        nn.ReLU(),
-        nn.Linear(100, 10)
+        nn.Linear(1000, 500), nn.ReLU(), nn.Linear(500, 100), nn.ReLU(), nn.Linear(100, 10)
     )
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     test_model.to(device)
 
     # 配置内存优化
@@ -523,7 +534,7 @@ if __name__ == "__main__":
         adaptive_batch_size=True,
         min_batch_size=8,
         max_batch_size=64,
-        enable_gradient_checkpointing=True
+        enable_gradient_checkpointing=True,
     )
 
     # 初始化内存优化器
@@ -537,7 +548,7 @@ if __name__ == "__main__":
         try:
             with memory_optimizer.optimize_step_context(optimizer_params) as ctx:
                 # 模拟批处理数据
-                batch_size = ctx.get('current_batch_size', 32)
+                batch_size = ctx.get("current_batch_size", 32)
                 x = torch.randn(batch_size, 1000, device=device)
 
                 # 前向传播
@@ -550,7 +561,7 @@ if __name__ == "__main__":
                 # 反向传播
                 memory_optimizer.backward(optimized_loss)
 
-                if ctx['should_update']:
+                if ctx["should_update"]:
                     print(f"Step {step}: Updated parameters, loss = {loss.item():.4f}")
 
         except MemoryError as e:

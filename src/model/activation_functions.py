@@ -2,6 +2,7 @@
 现代激活函数实现
 支持业界主流的激活函数：SwiGLU、GELU、Mish、xIELU等
 """
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -13,6 +14,7 @@ class GELU(nn.Module):
 
     GELU(x) = x * Φ(x) = x * 0.5 * (1 + erf(x / √2))
     """
+
     def __init__(self, approximate: str = "none"):
         super().__init__()
         self.approximate = approximate
@@ -27,6 +29,7 @@ class Mish(nn.Module):
 
     Mish(x) = x * tanh(softplus(x)) = x * tanh(ln(1 + e^x))
     """
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return F.mish(x)
 
@@ -38,6 +41,7 @@ class xIELU(nn.Module):
 
     xIELU(x) = x * sigmoid(x) if x > 0 else alpha * (exp(x) - 1)
     """
+
     def __init__(self, alpha: float = 1.0):
         super().__init__()
         self.alpha = alpha
@@ -55,6 +59,7 @@ class SwiGLU(nn.Module):
 
     SwiGLU(x, gate) = Swish(gate) ⊙ x = (gate * sigmoid(gate)) ⊙ x
     """
+
     def forward(self, x: torch.Tensor, gate: torch.Tensor) -> torch.Tensor:
         return F.silu(gate) * x
 
@@ -65,6 +70,7 @@ class GLU(nn.Module):
 
     GLU(x, gate) = x ⊙ σ(gate)
     """
+
     def forward(self, x: torch.Tensor, gate: torch.Tensor) -> torch.Tensor:
         return x * torch.sigmoid(gate)
 
@@ -75,6 +81,7 @@ class ReGLU(nn.Module):
 
     ReGLU(x, gate) = x ⊙ ReLU(gate)
     """
+
     def forward(self, x: torch.Tensor, gate: torch.Tensor) -> torch.Tensor:
         return x * F.relu(gate)
 
@@ -85,6 +92,7 @@ class GEGLU(nn.Module):
 
     GEGLU(x, gate) = x ⊙ GELU(gate)
     """
+
     def forward(self, x: torch.Tensor, gate: torch.Tensor) -> torch.Tensor:
         return x * F.gelu(gate)
 
@@ -93,6 +101,7 @@ class SwiGLUFeedForward(nn.Module):
     """
     SwiGLU前馈网络 - 现代LLM的标准前馈层
     """
+
     def __init__(self, dim: int, hidden_dim: int, dropout: float = 0.1, bias: bool = False):
         super().__init__()
         self.w_gate = nn.Linear(dim, hidden_dim, bias=bias)
@@ -111,6 +120,7 @@ class GEGLUFeedForward(nn.Module):
     """
     GEGLU前馈网络 - 在某些任务上表现良好
     """
+
     def __init__(self, dim: int, hidden_dim: int, dropout: float = 0.1, bias: bool = False):
         super().__init__()
         self.w_gate = nn.Linear(dim, hidden_dim, bias=bias)
@@ -129,7 +139,15 @@ class StandardFeedForward(nn.Module):
     """
     标准前馈网络 - 支持多种激活函数
     """
-    def __init__(self, dim: int, hidden_dim: int, activation: str = "relu", dropout: float = 0.1, bias: bool = True):
+
+    def __init__(
+        self,
+        dim: int,
+        hidden_dim: int,
+        activation: str = "relu",
+        dropout: float = 0.1,
+        bias: bool = True,
+    ):
         super().__init__()
         self.linear1 = nn.Linear(dim, hidden_dim, bias=bias)
         self.linear2 = nn.Linear(hidden_dim, dim, bias=bias)
@@ -180,8 +198,10 @@ def get_activation_function(name: str) -> nn.Module:
     }
 
     if name not in activation_map:
-        raise ValueError(f"Unsupported activation function: {name}. "
-                        f"Supported functions: {list(activation_map.keys())}")
+        raise ValueError(
+            f"Unsupported activation function: {name}. "
+            f"Supported functions: {list(activation_map.keys())}"
+        )
 
     return activation_map[name]
 
@@ -192,7 +212,7 @@ def get_feedforward_layer(
     feedforward_type: str = "swiglu",
     activation: str = "relu",
     dropout: float = 0.1,
-    bias: bool = False
+    bias: bool = False,
 ) -> nn.Module:
     """
     获取前馈层实例
@@ -215,5 +235,7 @@ def get_feedforward_layer(
     elif feedforward_type == "standard":
         return StandardFeedForward(dim, hidden_dim, activation, dropout, bias)
     else:
-        raise ValueError(f"Unsupported feedforward type: {feedforward_type}. "
-                        f"Supported types: ['swiglu', 'geglu', 'standard']")
+        raise ValueError(
+            f"Unsupported feedforward type: {feedforward_type}. "
+            f"Supported types: ['swiglu', 'geglu', 'standard']"
+        )

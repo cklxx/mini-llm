@@ -1,4 +1,5 @@
 """Training utilities for MiniGPT."""
+
 import os
 
 import matplotlib.pyplot as plt
@@ -12,7 +13,7 @@ from tqdm import tqdm
 class PreTrainer:
     """预训练器"""
 
-    def __init__(self, model, tokenizer, device='cpu'):
+    def __init__(self, model, tokenizer, device="cpu"):
         self.model = model
         self.tokenizer = tokenizer
         self.device = device
@@ -61,16 +62,22 @@ class PreTrainer:
                     print(f"\n--- 🔄 处理batch {batch_idx + 1} ---")
 
                 if isinstance(batch, dict):
-                    input_ids = batch['input_ids'].to(self.device)
-                    labels = batch['labels'].to(self.device)
+                    input_ids = batch["input_ids"].to(self.device)
+                    labels = batch["labels"].to(self.device)
                     if debug_mode:
                         print(f"📦 字典格式 - input_ids: {input_ids.shape}")
                 else:
                     input_ids = batch.to(self.device)
                     # 对于预训练，标签就是输入向右移动一位
-                    labels = torch.cat([input_ids[:, 1:],
-                                      torch.full((input_ids.size(0), 1),
-                                               self.tokenizer.pad_id, device=self.device)], dim=1)
+                    labels = torch.cat(
+                        [
+                            input_ids[:, 1:],
+                            torch.full(
+                                (input_ids.size(0), 1), self.tokenizer.pad_id, device=self.device
+                            ),
+                        ],
+                        dim=1,
+                    )
                     if debug_mode:
                         print(f"📦 Tensor格式 - input_ids: {input_ids.shape}")
 
@@ -101,10 +108,9 @@ class PreTrainer:
                     print(f"✅ Batch {batch_idx + 1} 完成")
 
                 # 更新进度条
-                progress_bar.set_postfix({
-                    'loss': f'{loss.item():.4f}',
-                    'lr': f'{self.scheduler.get_last_lr()[0]:.6f}'
-                })
+                progress_bar.set_postfix(
+                    {"loss": f"{loss.item():.4f}", "lr": f"{self.scheduler.get_last_lr()[0]:.6f}"}
+                )
 
                 # 调试模式下只处理前几个batch
                 if debug_mode and batch_idx >= 2:
@@ -114,6 +120,7 @@ class PreTrainer:
         except Exception as e:
             print(f"❌ 训练错误: {e}")
             import traceback
+
             traceback.print_exc()
             raise e
 
@@ -130,13 +137,19 @@ class PreTrainer:
         with torch.no_grad():
             for batch in tqdm(dataloader, desc="验证"):
                 if isinstance(batch, dict):
-                    input_ids = batch['input_ids'].to(self.device)
-                    labels = batch['labels'].to(self.device)
+                    input_ids = batch["input_ids"].to(self.device)
+                    labels = batch["labels"].to(self.device)
                 else:
                     input_ids = batch.to(self.device)
-                    labels = torch.cat([input_ids[:, 1:],
-                                      torch.full((input_ids.size(0), 1),
-                                               self.tokenizer.pad_id, device=self.device)], dim=1)
+                    labels = torch.cat(
+                        [
+                            input_ids[:, 1:],
+                            torch.full(
+                                (input_ids.size(0), 1), self.tokenizer.pad_id, device=self.device
+                            ),
+                        ],
+                        dim=1,
+                    )
 
                 logits = self.model(input_ids)
                 loss = self.compute_loss(logits, labels)
@@ -146,11 +159,16 @@ class PreTrainer:
 
         return total_loss / num_batches
 
-    def train(self, train_dataloader: DataLoader, val_dataloader: DataLoader | None = None,
-              num_epochs: int = 10, save_dir: str = "checkpoints"):
+    def train(
+        self,
+        train_dataloader: DataLoader,
+        val_dataloader: DataLoader | None = None,
+        num_epochs: int = 10,
+        save_dir: str = "checkpoints",
+    ):
         """完整训练流程"""
         os.makedirs(save_dir, exist_ok=True)
-        best_val_loss = float('inf')
+        best_val_loss = float("inf")
 
         for epoch in range(num_epochs):
             print(f"\nEpoch {epoch + 1}/{num_epochs}")
@@ -182,67 +200,71 @@ class PreTrainer:
 
     def save_checkpoint(self, path: str):
         """保存模型checkpoint"""
-        torch.save({
-            'model_state_dict': self.model.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
-            'scheduler_state_dict': self.scheduler.state_dict(),
-            'train_losses': self.train_losses,
-            'val_losses': self.val_losses
-        }, path)
+        torch.save(
+            {
+                "model_state_dict": self.model.state_dict(),
+                "optimizer_state_dict": self.optimizer.state_dict(),
+                "scheduler_state_dict": self.scheduler.state_dict(),
+                "train_losses": self.train_losses,
+                "val_losses": self.val_losses,
+            },
+            path,
+        )
 
     def load_checkpoint(self, path: str):
         """加载模型checkpoint"""
         checkpoint = torch.load(path, map_location=self.device)
-        self.model.load_state_dict(checkpoint['model_state_dict'])
-        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-        self.train_losses = checkpoint.get('train_losses', [])
-        self.val_losses = checkpoint.get('val_losses', [])
+        self.model.load_state_dict(checkpoint["model_state_dict"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        self.train_losses = checkpoint.get("train_losses", [])
+        self.val_losses = checkpoint.get("val_losses", [])
 
     def plot_training_curve(self, save_dir: str):
         """绘制训练曲线"""
         plt.figure(figsize=(10, 6))
 
         epochs = range(1, len(self.train_losses) + 1)
-        plt.plot(epochs, self.train_losses, 'b-', label='训练损失')
+        plt.plot(epochs, self.train_losses, "b-", label="训练损失")
 
         if self.val_losses:
-            plt.plot(epochs, self.val_losses, 'r-', label='验证损失')
+            plt.plot(epochs, self.val_losses, "r-", label="验证损失")
 
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss')
-        plt.title('训练过程')
+        plt.xlabel("Epoch")
+        plt.ylabel("Loss")
+        plt.title("训练过程")
         plt.legend()
         plt.grid(True)
 
-        plt.savefig(os.path.join(save_dir, 'training_curve.png'))
+        plt.savefig(os.path.join(save_dir, "training_curve.png"))
         plt.close()
 
 
 class SFTTrainer(PreTrainer):
     """监督微调训练器"""
 
-    def __init__(self, model, tokenizer, device='cpu'):
+    def __init__(self, model, tokenizer, device="cpu"):
         super().__init__(model, tokenizer, device)
 
         # SFT使用较小的学习率
         self.optimizer = optim.AdamW(model.parameters(), lr=5e-5, weight_decay=0.01)
 
-    def compute_loss(self, logits: torch.Tensor, labels: torch.Tensor,
-                    input_length: torch.Tensor | None = None) -> torch.Tensor:
+    def compute_loss(
+        self, logits: torch.Tensor, labels: torch.Tensor, input_length: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """计算SFT损失，只对输出部分计算损失"""
         # 展平张量
         logits = logits.reshape(-1, logits.size(-1))
         labels = labels.reshape(-1)
 
         # 创建掩码，只对非PAD token计算损失
-        mask = (labels != self.tokenizer.pad_id)
+        mask = labels != self.tokenizer.pad_id
 
         if mask.sum() == 0:
             return torch.tensor(0.0, device=logits.device, requires_grad=True)
 
         # 计算损失
-        loss_fn = nn.CrossEntropyLoss(reduction='none')
+        loss_fn = nn.CrossEntropyLoss(reduction="none")
         losses = loss_fn(logits, labels)
 
         # 应用掩码
@@ -254,7 +276,7 @@ class SFTTrainer(PreTrainer):
 class DPOTrainer:
     """DPO (Direct Preference Optimization) 训练器"""
 
-    def __init__(self, model, reference_model, tokenizer, device='cpu', beta=0.1):
+    def __init__(self, model, reference_model, tokenizer, device="cpu", beta=0.1):
         self.model = model
         self.reference_model = reference_model
         self.tokenizer = tokenizer
@@ -270,17 +292,25 @@ class DPOTrainer:
 
         self.optimizer = optim.AdamW(model.parameters(), lr=1e-5, weight_decay=0.01)
 
-    def compute_dpo_loss(self, chosen_logits: torch.Tensor, rejected_logits: torch.Tensor,
-                        chosen_labels: torch.Tensor, rejected_labels: torch.Tensor,
-                        ref_chosen_logits: torch.Tensor, ref_rejected_logits: torch.Tensor) -> torch.Tensor:
+    def compute_dpo_loss(
+        self,
+        chosen_logits: torch.Tensor,
+        rejected_logits: torch.Tensor,
+        chosen_labels: torch.Tensor,
+        rejected_labels: torch.Tensor,
+        ref_chosen_logits: torch.Tensor,
+        ref_rejected_logits: torch.Tensor,
+    ) -> torch.Tensor:
         """计算DPO损失"""
 
         def get_log_probs(logits, labels):
             log_probs = torch.log_softmax(logits, dim=-1)
-            selected_log_probs = torch.gather(log_probs, dim=-1, index=labels.unsqueeze(-1)).squeeze(-1)
+            selected_log_probs = torch.gather(
+                log_probs, dim=-1, index=labels.unsqueeze(-1)
+            ).squeeze(-1)
 
             # 只对非PAD token计算
-            mask = (labels != self.tokenizer.pad_id)
+            mask = labels != self.tokenizer.pad_id
             masked_log_probs = selected_log_probs * mask.float()
 
             return masked_log_probs.sum(dim=-1) / mask.sum(dim=-1)
@@ -302,17 +332,17 @@ class DPOTrainer:
         return loss
 
 
-def create_trainer(training_type: str, model, tokenizer, device='cpu', **kwargs):
+def create_trainer(training_type: str, model, tokenizer, device="cpu", **kwargs):
     """创建训练器工厂函数"""
-    if training_type == 'pretrain':
+    if training_type == "pretrain":
         return PreTrainer(model, tokenizer, device)
-    elif training_type == 'sft':
+    elif training_type == "sft":
         return SFTTrainer(model, tokenizer, device)
-    elif training_type == 'dpo':
-        reference_model = kwargs.get('reference_model')
+    elif training_type == "dpo":
+        reference_model = kwargs.get("reference_model")
         if reference_model is None:
             raise ValueError("DPO训练需要提供参考模型")
-        return DPOTrainer(model, reference_model, tokenizer, device, kwargs.get('beta', 0.1))
+        return DPOTrainer(model, reference_model, tokenizer, device, kwargs.get("beta", 0.1))
     else:
         raise ValueError(f"不支持的训练类型: {training_type}")
 

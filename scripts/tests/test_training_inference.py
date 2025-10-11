@@ -8,7 +8,7 @@
 import os
 import sys
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), "../.."))
 
 import json
 import time
@@ -67,24 +67,26 @@ class TestDataset(Dataset):
         """构建字符级词汇表"""
         chars = set()
         try:
-            with open(data_path, encoding='utf-8') as f:
+            with open(data_path, encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
                         data = json.loads(line)
-                        for conv in data.get('conversations', []):
-                            chars.update(conv.get('content', ''))
+                        for conv in data.get("conversations", []):
+                            chars.update(conv.get("content", ""))
         except FileNotFoundError:
             # 如果文件不存在，使用默认词汇表
-            chars = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,!?;:()[]{}"\'-\n你我他的是在有一个这那了和为')
+            chars = set(
+                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,!?;:()[]{}\"'-\n你我他的是在有一个这那了和为"
+            )
 
         # 添加特殊token
-        vocab = ['<pad>', '<unk>', '<bos>', '<eos>'] + sorted(chars)
+        vocab = ["<pad>", "<unk>", "<bos>", "<eos>"] + sorted(chars)
         return vocab
 
     def _load_data(self, data_path: str):
         """加载训练数据"""
         try:
-            with open(data_path, encoding='utf-8') as f:
+            with open(data_path, encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
                         data = json.loads(line)
@@ -100,19 +102,19 @@ class TestDataset(Dataset):
     def _extract_text(self, data: dict) -> str:
         """从对话数据中提取文本"""
         text = ""
-        conversations = data.get('conversations', [])
+        conversations = data.get("conversations", [])
         for conv in conversations:
-            role = conv.get('role', '')
-            content = conv.get('content', '')
+            role = conv.get("role", "")
+            content = conv.get("content", "")
             text += f"{role}: {content}\n"
         return text.strip()
 
     def _tokenize(self, text: str) -> list[int]:
         """简单的字符级tokenization"""
-        tokens = [self.char_to_id.get('<bos>', 2)]  # BOS token
-        for char in text[:self.max_length - 2]:  # 留出BOS和EOS的空间
-            tokens.append(self.char_to_id.get(char, self.char_to_id.get('<unk>', 1)))
-        tokens.append(self.char_to_id.get('<eos>', 3))  # EOS token
+        tokens = [self.char_to_id.get("<bos>", 2)]  # BOS token
+        for char in text[: self.max_length - 2]:  # 留出BOS和EOS的空间
+            tokens.append(self.char_to_id.get(char, self.char_to_id.get("<unk>", 1)))
+        tokens.append(self.char_to_id.get("<eos>", 3))  # EOS token
         return tokens
 
     def _generate_synthetic_data(self):
@@ -127,7 +129,7 @@ class TestDataset(Dataset):
             "你好，今天怎么样？",
             "我很好，谢谢你。你呢？",
             "天气怎么样？",
-            "外面阳光明媚，很暖和。"
+            "外面阳光明媚，很暖和。",
         ]
 
         for text in synthetic_texts:
@@ -149,8 +151,8 @@ class TestDataset(Dataset):
             labels = torch.tensor(padded[1:], dtype=torch.long)
         else:
             # Truncation
-            input_ids = torch.tensor(tokens[:self.max_length-1], dtype=torch.long)
-            labels = torch.tensor(tokens[1:self.max_length], dtype=torch.long)
+            input_ids = torch.tensor(tokens[: self.max_length - 1], dtype=torch.long)
+            labels = torch.tensor(tokens[1 : self.max_length], dtype=torch.long)
 
         return input_ids, labels
 
@@ -261,10 +263,7 @@ def test_model_inference():
         # 生成测试
         start_time = time.time()
         generated = model.generate(
-            input_ids[:1, :10],  # 使用较短的prompt
-            max_length=20,
-            temperature=0.8,
-            top_k=10
+            input_ids[:1, :10], max_length=20, temperature=0.8, top_k=10  # 使用较短的prompt
         )
         generation_time = time.time() - start_time
 
@@ -273,15 +272,19 @@ def test_model_inference():
     print(f"Generated sequence length: {generated.shape[1]}")
 
     # 验证输出
-    assert logits.shape == (batch_size, seq_len, config.vocab_size), \
-        f"Unexpected logits shape: {logits.shape}"
+    assert logits.shape == (
+        batch_size,
+        seq_len,
+        config.vocab_size,
+    ), f"Unexpected logits shape: {logits.shape}"
 
     assert generated.shape[0] == 1, "Generated batch size should be 1"
     assert generated.shape[1] >= 10, "Generated sequence should be longer than input"
 
     # 检查生成的token是否在有效范围内
-    assert torch.all(generated >= 0) and torch.all(generated < config.vocab_size), \
-        "Generated tokens outside vocabulary range"
+    assert torch.all(generated >= 0) and torch.all(
+        generated < config.vocab_size
+    ), "Generated tokens outside vocabulary range"
 
     print("✅ Model inference test passed!")
     return True
@@ -295,7 +298,7 @@ def test_tool_calling_format():
     tool_data_paths = [
         "data/dataset/minimind_dataset/tool_calling_basic.jsonl",
         "data/dataset/minimind_dataset/tool_calling_advanced.jsonl",
-        "data/dataset/minimind_dataset/agent_ultra_think.jsonl"
+        "data/dataset/minimind_dataset/agent_ultra_think.jsonl",
     ]
 
     for data_path in tool_data_paths:
@@ -326,8 +329,7 @@ def test_ultra_think_capability():
 
     # 创建ultra think测试数据
     ultra_think_data = TestDataset(
-        "data/dataset/minimind_dataset/agent_ultra_think.jsonl",
-        max_length=512
+        "data/dataset/minimind_dataset/agent_ultra_think.jsonl", max_length=512
     )
 
     if len(ultra_think_data) > 0:
@@ -354,10 +356,7 @@ def test_memory_efficiency():
     print("Testing Memory Efficiency...")
 
     # 比较GQA vs 传统MHA的内存使用
-    configs = {
-        "MHA": get_small_config(),
-        "GQA": get_small_config()
-    }
+    configs = {"MHA": get_small_config(), "GQA": get_small_config()}
 
     # 配置MHA（传统）
     configs["MHA"].use_gqa = False
@@ -396,10 +395,7 @@ def test_memory_efficiency():
         else:
             memory_used = 0  # CPU内存测量较复杂，暂时跳过
 
-        results[name] = {
-            'params': total_params,
-            'memory_mb': memory_used
-        }
+        results[name] = {"params": total_params, "memory_mb": memory_used}
 
         print(f"  {name}: {total_params:,} params, {memory_used:.1f} MB")
 
@@ -445,6 +441,7 @@ def run_all_tests():
         except Exception as e:
             print(f"❌ {test_func.__name__} failed with error: {e}")
             import traceback
+
             traceback.print_exc()
             print()
 

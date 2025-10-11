@@ -56,11 +56,15 @@ class TensorBoardManager:
         # 构建命令
         cmd = [
             "tensorboard",
-            "--logdir", logdir,
-            "--port", str(port),
-            "--host", host,
-            "--reload_interval", str(reload_interval),
-            "--bind_all"  # 允许所有网络接口访问
+            "--logdir",
+            logdir,
+            "--port",
+            str(port),
+            "--host",
+            host,
+            "--reload_interval",
+            str(reload_interval),
+            "--bind_all",  # 允许所有网络接口访问
         ]
 
         print("🚀 启动TensorBoard服务...")
@@ -71,14 +75,11 @@ class TensorBoardManager:
         try:
             # 启动TensorBoard进程（后台运行）
             process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True
+                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True
             )
 
             # 保存PID
-            with open(self.pid_file, 'w') as f:
+            with open(self.pid_file, "w") as f:
                 f.write(str(process.pid))
 
             # 等待一下确认启动成功
@@ -169,14 +170,14 @@ class TensorBoardManager:
                 result = subprocess.run(
                     ["lsof", "-p", str(pid), "-a", "-i", "TCP", "-sTCP:LISTEN"],
                     capture_output=True,
-                    text=True
+                    text=True,
                 )
                 if result.stdout:
-                    lines = result.stdout.strip().split('\n')
+                    lines = result.stdout.strip().split("\n")
                     if len(lines) > 1:
                         port_info = lines[1].split()
                         if len(port_info) > 8:
-                            port = port_info[8].split(':')[-1]
+                            port = port_info[8].split(":")[-1]
                             print(f"   端口: {port}")
                             print(f"   访问: http://localhost:{port}")
             except Exception:
@@ -224,7 +225,7 @@ class TensorBoardManager:
         log_dirs = sorted(
             [d for d in self.tensorboard_dir.iterdir() if d.is_dir()],
             key=lambda x: x.stat().st_mtime,
-            reverse=True
+            reverse=True,
         )
 
         if not log_dirs:
@@ -298,7 +299,7 @@ class TensorBoardManager:
 
         # 确认删除
         response = input("\n⚠️  确定要删除这些日志吗? [y/N]: ")
-        if response.lower() != 'y':
+        if response.lower() != "y":
             print("❌ 已取消")
             return
 
@@ -312,7 +313,9 @@ class TensorBoardManager:
             except Exception as e:
                 print(f"❌ 删除失败: {log_dir.name} - {e}")
 
-        print(f"\n✅ 清理完成，删除了 {deleted}/{len(old_dirs)} 个日志，释放空间 {self._format_size(total_size)}")
+        print(
+            f"\n✅ 清理完成，删除了 {deleted}/{len(old_dirs)} 个日志，释放空间 {self._format_size(total_size)}"
+        )
 
     def _get_dir_size(self, path):
         """获取目录大小（格式化）"""
@@ -322,14 +325,14 @@ class TensorBoardManager:
     def _get_dir_size_bytes(self, path):
         """获取目录大小（字节）"""
         total = 0
-        for entry in Path(path).rglob('*'):
+        for entry in Path(path).rglob("*"):
             if entry.is_file():
                 total += entry.stat().st_size
         return total
 
     def _format_size(self, size):
         """格式化文件大小"""
-        for unit in ['B', 'KB', 'MB', 'GB']:
+        for unit in ["B", "KB", "MB", "GB"]:
             if size < 1024.0:
                 return f"{size:.1f}{unit}"
             size /= 1024.0
@@ -338,7 +341,7 @@ class TensorBoardManager:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='TensorBoard管理工具',
+        description="TensorBoard管理工具",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
@@ -359,38 +362,44 @@ def main():
 
   清理30天前的日志:
     python scripts/tensorboard_manager.py clean --days 30
-        """
+        """,
     )
 
-    subparsers = parser.add_subparsers(dest='command', help='命令')
+    subparsers = parser.add_subparsers(dest="command", help="命令")
 
     # start命令
-    start_parser = subparsers.add_parser('start', help='启动TensorBoard')
-    start_parser.add_argument('--port', type=int, default=6006, help='端口号 (默认: 6006)')
-    start_parser.add_argument('--host', default='0.0.0.0', help='绑定地址 (默认: 0.0.0.0)')
-    start_parser.add_argument('--logdir', help='日志目录 (默认: runs/)')
-    start_parser.add_argument('--reload-interval', type=int, default=30, help='重载间隔秒数 (默认: 30)')
+    start_parser = subparsers.add_parser("start", help="启动TensorBoard")
+    start_parser.add_argument("--port", type=int, default=6006, help="端口号 (默认: 6006)")
+    start_parser.add_argument("--host", default="0.0.0.0", help="绑定地址 (默认: 0.0.0.0)")
+    start_parser.add_argument("--logdir", help="日志目录 (默认: runs/)")
+    start_parser.add_argument(
+        "--reload-interval", type=int, default=30, help="重载间隔秒数 (默认: 30)"
+    )
 
     # stop命令
-    subparsers.add_parser('stop', help='停止TensorBoard')
+    subparsers.add_parser("stop", help="停止TensorBoard")
 
     # restart命令
-    restart_parser = subparsers.add_parser('restart', help='重启TensorBoard')
-    restart_parser.add_argument('--port', type=int, default=6006, help='端口号 (默认: 6006)')
-    restart_parser.add_argument('--host', default='0.0.0.0', help='绑定地址 (默认: 0.0.0.0)')
-    restart_parser.add_argument('--logdir', help='日志目录 (默认: runs/)')
-    restart_parser.add_argument('--reload-interval', type=int, default=30, help='重载间隔秒数 (默认: 30)')
+    restart_parser = subparsers.add_parser("restart", help="重启TensorBoard")
+    restart_parser.add_argument("--port", type=int, default=6006, help="端口号 (默认: 6006)")
+    restart_parser.add_argument("--host", default="0.0.0.0", help="绑定地址 (默认: 0.0.0.0)")
+    restart_parser.add_argument("--logdir", help="日志目录 (默认: runs/)")
+    restart_parser.add_argument(
+        "--reload-interval", type=int, default=30, help="重载间隔秒数 (默认: 30)"
+    )
 
     # status命令
-    subparsers.add_parser('status', help='查看TensorBoard状态')
+    subparsers.add_parser("status", help="查看TensorBoard状态")
 
     # list命令
-    subparsers.add_parser('list', help='列出所有TensorBoard日志')
+    subparsers.add_parser("list", help="列出所有TensorBoard日志")
 
     # clean命令
-    clean_parser = subparsers.add_parser('clean', help='清理旧日志')
-    clean_parser.add_argument('--days', type=int, default=30, help='保留最近N天的日志 (默认: 30)')
-    clean_parser.add_argument('--dry-run', action='store_true', help='仅显示将要删除的内容，不实际删除')
+    clean_parser = subparsers.add_parser("clean", help="清理旧日志")
+    clean_parser.add_argument("--days", type=int, default=30, help="保留最近N天的日志 (默认: 30)")
+    clean_parser.add_argument(
+        "--dry-run", action="store_true", help="仅显示将要删除的内容，不实际删除"
+    )
 
     args = parser.parse_args()
 
@@ -398,36 +407,28 @@ def main():
     manager = TensorBoardManager()
 
     # 执行命令
-    if args.command == 'start':
-        kwargs = {
-            'port': args.port,
-            'host': args.host,
-            'reload_interval': args.reload_interval
-        }
+    if args.command == "start":
+        kwargs = {"port": args.port, "host": args.host, "reload_interval": args.reload_interval}
         if args.logdir:
-            kwargs['logdir'] = args.logdir
+            kwargs["logdir"] = args.logdir
         manager.start(**kwargs)
 
-    elif args.command == 'stop':
+    elif args.command == "stop":
         manager.stop()
 
-    elif args.command == 'restart':
-        kwargs = {
-            'port': args.port,
-            'host': args.host,
-            'reload_interval': args.reload_interval
-        }
+    elif args.command == "restart":
+        kwargs = {"port": args.port, "host": args.host, "reload_interval": args.reload_interval}
         if args.logdir:
-            kwargs['logdir'] = args.logdir
+            kwargs["logdir"] = args.logdir
         manager.restart(**kwargs)
 
-    elif args.command == 'status':
+    elif args.command == "status":
         manager.status()
 
-    elif args.command == 'list':
+    elif args.command == "list":
         manager.list_logs()
 
-    elif args.command == 'clean':
+    elif args.command == "clean":
         manager.clean_old_logs(days=args.days, dry_run=args.dry_run)
 
     else:

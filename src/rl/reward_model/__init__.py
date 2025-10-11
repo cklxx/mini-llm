@@ -17,7 +17,16 @@ from .reward_trainer import (
 )
 
 __all__ = [
-    'RankingLoss', 'ContrastiveLoss', 'PreferenceLoss', 'create_preference_loss',
-    'PreferenceDataProcessor', 'PreferenceDataset', 'create_preference_dataloader',
-    'RewardModel', 'RewardHead', 'RewardTrainer', 'create_reward_model', 'create_reward_trainer'
+    "RankingLoss",
+    "ContrastiveLoss",
+    "PreferenceLoss",
+    "create_preference_loss",
+    "PreferenceDataProcessor",
+    "PreferenceDataset",
+    "create_preference_dataloader",
+    "RewardModel",
+    "RewardHead",
+    "RewardTrainer",
+    "create_reward_model",
+    "create_reward_trainer",
 ]

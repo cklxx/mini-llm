@@ -2,6 +2,7 @@
 综合性能基准测试和分析工具
 提供训练、推理、数据加载等各方面的性能测试和优化建议
 """
+
 import json
 import os
 
@@ -28,6 +29,7 @@ from training.memory_optimizer import MemoryConfig, MemoryOptimizer
 @dataclass
 class BenchmarkConfig:
     """基准测试配置"""
+
     # 测试范围
     test_batch_sizes: list[int] = None
     test_sequence_lengths: list[int] = None
@@ -61,6 +63,7 @@ class BenchmarkConfig:
 @dataclass
 class BenchmarkResult:
     """基准测试结果"""
+
     test_name: str
     config: dict[str, Any]
     metrics: dict[str, float]
@@ -101,8 +104,8 @@ class ModelFactory:
                     nhead=n_heads,
                     dim_feedforward=d_ff,
                     dropout=0.1,
-                    activation='relu',
-                    batch_first=True
+                    activation="relu",
+                    batch_first=True,
                 )
                 self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
                 self.output_proj = nn.Linear(d_model, vocab_size)
@@ -127,8 +130,9 @@ class TrainingBenchmark:
     def __init__(self, device: torch.device):
         self.device = device
 
-    def benchmark_training_speed(self, model: nn.Module, batch_size: int,
-                                seq_len: int, steps: int = 50) -> dict[str, float]:
+    def benchmark_training_speed(
+        self, model: nn.Module, batch_size: int, seq_len: int, steps: int = 50
+    ) -> dict[str, float]:
         """测试训练速度"""
         model.train()
         optimizer = optim.AdamW(model.parameters(), lr=1e-4)
@@ -148,7 +152,7 @@ class TrainingBenchmark:
             optimizer.step()
 
         # 清理内存
-        if self.device.type == 'cuda':
+        if self.device.type == "cuda":
             torch.cuda.empty_cache()
             torch.cuda.reset_peak_memory_stats()
 
@@ -164,7 +168,7 @@ class TrainingBenchmark:
             optimizer.step()
 
         # 同步GPU
-        if self.device.type == 'cuda':
+        if self.device.type == "cuda":
             torch.cuda.synchronize()
 
         end_time = time.time()
@@ -175,14 +179,15 @@ class TrainingBenchmark:
         memory_used = end_memory - start_memory
 
         return {
-            'samples_per_sec': samples_per_sec,
-            'elapsed_time': elapsed_time,
-            'memory_used_mb': memory_used,
-            'loss': loss.item()
+            "samples_per_sec": samples_per_sec,
+            "elapsed_time": elapsed_time,
+            "memory_used_mb": memory_used,
+            "loss": loss.item(),
         }
 
-    def benchmark_with_optimizations(self, model: nn.Module, batch_size: int,
-                                   seq_len: int, config: MemoryConfig) -> dict[str, float]:
+    def benchmark_with_optimizations(
+        self, model: nn.Module, batch_size: int, seq_len: int, config: MemoryConfig
+    ) -> dict[str, float]:
         """测试带优化的训练性能"""
         optimizer = optim.AdamW(model.parameters(), lr=1e-4)
         memory_optimizer = MemoryOptimizer(model, config, self.device)
@@ -200,8 +205,7 @@ class TrainingBenchmark:
                 with memory_optimizer.optimize_step_context(optimizer):
                     output = model(dummy_input)
                     loss = nn.CrossEntropyLoss()(
-                        output.reshape(-1, vocab_size),
-                        dummy_target.reshape(-1)
+                        output.reshape(-1, vocab_size), dummy_target.reshape(-1)
                     )
 
                     optimized_loss = memory_optimizer.compute_loss(loss)
@@ -213,7 +217,7 @@ class TrainingBenchmark:
                 else:
                     raise e
 
-        if self.device.type == 'cuda':
+        if self.device.type == "cuda":
             torch.cuda.synchronize()
 
         end_time = time.time()
@@ -225,16 +229,16 @@ class TrainingBenchmark:
         stats = memory_optimizer.get_memory_stats()
 
         return {
-            'samples_per_sec': samples_per_sec,
-            'elapsed_time': elapsed_time,
-            'memory_used_mb': end_memory - start_memory,
-            'amp_scale': stats.get('amp_scale', 1.0),
-            'oom_count': stats.get('oom_count', 0)
+            "samples_per_sec": samples_per_sec,
+            "elapsed_time": elapsed_time,
+            "memory_used_mb": end_memory - start_memory,
+            "amp_scale": stats.get("amp_scale", 1.0),
+            "oom_count": stats.get("oom_count", 0),
         }
 
     def _get_memory_usage(self) -> float:
         """获取内存使用量(MB)"""
-        if self.device.type == 'cuda':
+        if self.device.type == "cuda":
             return torch.cuda.memory_allocated() / 1024 / 1024
         else:
             return psutil.Process().memory_info().rss / 1024 / 1024
@@ -246,8 +250,9 @@ class InferenceBenchmark:
     def __init__(self, device: torch.device):
         self.device = device
 
-    def benchmark_inference_speed(self, model: nn.Module, batch_sizes: list[int],
-                                 seq_len: int = 512) -> dict[int, dict[str, float]]:
+    def benchmark_inference_speed(
+        self, model: nn.Module, batch_sizes: list[int], seq_len: int = 512
+    ) -> dict[int, dict[str, float]]:
         """测试不同批处理大小的推理速度"""
         model.eval()
         results = {}
@@ -258,14 +263,16 @@ class InferenceBenchmark:
             for batch_size in batch_sizes:
                 try:
                     # 创建测试数据
-                    dummy_input = torch.randint(0, vocab_size, (batch_size, seq_len), device=self.device)
+                    dummy_input = torch.randint(
+                        0, vocab_size, (batch_size, seq_len), device=self.device
+                    )
 
                     # 预热
                     for _ in range(5):
                         _ = model(dummy_input)
 
                     # 清理内存
-                    if self.device.type == 'cuda':
+                    if self.device.type == "cuda":
                         torch.cuda.empty_cache()
 
                     # 基准测试
@@ -276,7 +283,7 @@ class InferenceBenchmark:
                     for _ in range(steps):
                         model(dummy_input)
 
-                    if self.device.type == 'cuda':
+                    if self.device.type == "cuda":
                         torch.cuda.synchronize()
 
                     end_time = time.time()
@@ -287,17 +294,17 @@ class InferenceBenchmark:
                     tokens_per_sec = samples_per_sec * seq_len
 
                     results[batch_size] = {
-                        'samples_per_sec': samples_per_sec,
-                        'tokens_per_sec': tokens_per_sec,
-                        'elapsed_time': elapsed_time,
-                        'memory_used_mb': end_memory - start_memory,
-                        'latency_ms': (elapsed_time / steps) * 1000
+                        "samples_per_sec": samples_per_sec,
+                        "tokens_per_sec": tokens_per_sec,
+                        "elapsed_time": elapsed_time,
+                        "memory_used_mb": end_memory - start_memory,
+                        "latency_ms": (elapsed_time / steps) * 1000,
                     }
 
                 except RuntimeError as e:
                     if "out of memory" in str(e).lower():
-                        results[batch_size] = {'error': 'OOM'}
-                        if self.device.type == 'cuda':
+                        results[batch_size] = {"error": "OOM"}
+                        if self.device.type == "cuda":
                             torch.cuda.empty_cache()
                     else:
                         raise e
@@ -306,7 +313,7 @@ class InferenceBenchmark:
 
     def _get_memory_usage(self) -> float:
         """获取内存使用量(MB)"""
-        if self.device.type == 'cuda':
+        if self.device.type == "cuda":
             return torch.cuda.memory_allocated() / 1024 / 1024
         else:
             return psutil.Process().memory_info().rss / 1024 / 1024
@@ -320,6 +327,7 @@ class DataLoadingBenchmark:
 
     def benchmark_data_loading(self, config: DataLoadingConfig) -> dict[str, float]:
         """测试数据加载性能"""
+
         # 创建虚拟tokenizer
         class DummyTokenizer:
             def __init__(self):
@@ -360,7 +368,7 @@ class DataLoadingBenchmark:
                 dummy_dataset,
                 batch_size=config.batch_size,
                 num_workers=config.num_workers,
-                pin_memory=config.pin_memory and torch.cuda.is_available()
+                pin_memory=config.pin_memory and torch.cuda.is_available(),
             )
 
             # 测试数据加载速度
@@ -382,11 +390,11 @@ class DataLoadingBenchmark:
             total_time = end_time - start_time
 
             return {
-                'total_samples': total_samples,
-                'total_time': total_time,
-                'samples_per_sec': total_samples / total_time,
-                'avg_batch_time_ms': np.mean(load_times) * 1000,
-                'std_batch_time_ms': np.std(load_times) * 1000
+                "total_samples": total_samples,
+                "total_time": total_time,
+                "samples_per_sec": total_samples / total_time,
+                "avg_batch_time_ms": np.mean(load_times) * 1000,
+                "std_batch_time_ms": np.std(load_times) * 1000,
             }
 
         finally:
@@ -396,15 +404,15 @@ class DataLoadingBenchmark:
 
     def _create_dummy_data(self, filepath: str, num_samples: int):
         """创建虚拟数据文件"""
-        with open(filepath, 'w', encoding='utf-8') as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             for i in range(num_samples):
                 dummy_conversation = {
                     "conversations": [
                         {"role": "user", "content": f"This is a test question {i}"},
-                        {"role": "assistant", "content": f"This is a test answer {i}"}
+                        {"role": "assistant", "content": f"This is a test answer {i}"},
                     ]
                 }
-                f.write(json.dumps(dummy_conversation, ensure_ascii=False) + '\n')
+                f.write(json.dumps(dummy_conversation, ensure_ascii=False) + "\n")
 
 
 class PerformanceBenchmarkSuite:
@@ -412,9 +420,11 @@ class PerformanceBenchmarkSuite:
 
     def __init__(self, config: BenchmarkConfig):
         self.config = config
-        self.device = torch.device('cuda' if torch.cuda.is_available()
-                                 else 'mps' if torch.backends.mps.is_available()
-                                 else 'cpu')
+        self.device = torch.device(
+            "cuda"
+            if torch.cuda.is_available()
+            else "mps" if torch.backends.mps.is_available() else "cpu"
+        )
 
         # 初始化各个基准测试器
         self.training_benchmark = TrainingBenchmark(self.device)
@@ -468,26 +478,30 @@ class PerformanceBenchmarkSuite:
                             model, batch_size, seq_len, self.config.test_steps
                         )
 
-                        self.results.append(BenchmarkResult(
-                            test_name="training_baseline",
-                            config={
-                                'model_size': model_size,
-                                'batch_size': batch_size,
-                                'seq_len': seq_len,
-                                'model_params': ModelFactory.get_model_params(model)
-                            },
-                            metrics=result,
-                            timestamp=time.time(),
-                            device=str(self.device)
-                        ))
+                        self.results.append(
+                            BenchmarkResult(
+                                test_name="training_baseline",
+                                config={
+                                    "model_size": model_size,
+                                    "batch_size": batch_size,
+                                    "seq_len": seq_len,
+                                    "model_params": ModelFactory.get_model_params(model),
+                                },
+                                metrics=result,
+                                timestamp=time.time(),
+                                device=str(self.device),
+                            )
+                        )
 
-                        print(f"   {model_size} model, batch={batch_size}, seq={seq_len}: "
-                              f"{result['samples_per_sec']:.1f} samples/sec")
+                        print(
+                            f"   {model_size} model, batch={batch_size}, seq={seq_len}: "
+                            f"{result['samples_per_sec']:.1f} samples/sec"
+                        )
 
                     except RuntimeError as e:
                         if "out of memory" in str(e).lower():
                             print(f"   OOM: {model_size}, batch={batch_size}, seq={seq_len}")
-                            if self.device.type == 'cuda':
+                            if self.device.type == "cuda":
                                 torch.cuda.empty_cache()
                         else:
                             print(f"   Error: {e}")
@@ -505,21 +519,25 @@ class PerformanceBenchmarkSuite:
             )
 
             for batch_size, metrics in results.items():
-                if 'error' not in metrics:
-                    self.results.append(BenchmarkResult(
-                        test_name="inference",
-                        config={
-                            'model_size': model_size,
-                            'batch_size': batch_size,
-                            'model_params': ModelFactory.get_model_params(model)
-                        },
-                        metrics=metrics,
-                        timestamp=time.time(),
-                        device=str(self.device)
-                    ))
+                if "error" not in metrics:
+                    self.results.append(
+                        BenchmarkResult(
+                            test_name="inference",
+                            config={
+                                "model_size": model_size,
+                                "batch_size": batch_size,
+                                "model_params": ModelFactory.get_model_params(model),
+                            },
+                            metrics=metrics,
+                            timestamp=time.time(),
+                            device=str(self.device),
+                        )
+                    )
 
-                    print(f"   {model_size} model, batch={batch_size}: "
-                          f"{metrics['tokens_per_sec']:.0f} tokens/sec")
+                    print(
+                        f"   {model_size} model, batch={batch_size}: "
+                        f"{metrics['tokens_per_sec']:.0f} tokens/sec"
+                    )
 
     def _run_data_loading_benchmarks(self):
         """运行数据加载基准测试"""
@@ -531,26 +549,30 @@ class PerformanceBenchmarkSuite:
                     data_path="dummy",  # 将被替换
                     batch_size=batch_size,
                     num_workers=num_workers,
-                    max_length=512
+                    max_length=512,
                 )
 
                 try:
                     result = self.data_loading_benchmark.benchmark_data_loading(config)
 
-                    self.results.append(BenchmarkResult(
-                        test_name="data_loading",
-                        config={
-                            'batch_size': batch_size,
-                            'num_workers': num_workers,
-                            'max_length': config.max_length
-                        },
-                        metrics=result,
-                        timestamp=time.time(),
-                        device=str(self.device)
-                    ))
+                    self.results.append(
+                        BenchmarkResult(
+                            test_name="data_loading",
+                            config={
+                                "batch_size": batch_size,
+                                "num_workers": num_workers,
+                                "max_length": config.max_length,
+                            },
+                            metrics=result,
+                            timestamp=time.time(),
+                            device=str(self.device),
+                        )
+                    )
 
-                    print(f"   batch={batch_size}, workers={num_workers}: "
-                          f"{result['samples_per_sec']:.1f} samples/sec")
+                    print(
+                        f"   batch={batch_size}, workers={num_workers}: "
+                        f"{result['samples_per_sec']:.1f} samples/sec"
+                    )
 
                 except Exception as e:
                     print(f"   Error in data loading test: {e}")
@@ -567,8 +589,9 @@ class PerformanceBenchmarkSuite:
             MemoryConfig(enable_amp=False, gradient_accumulation_steps=1),
             MemoryConfig(enable_amp=True, gradient_accumulation_steps=1),
             MemoryConfig(enable_amp=True, gradient_accumulation_steps=4),
-            MemoryConfig(enable_amp=True, gradient_accumulation_steps=4,
-                        enable_gradient_checkpointing=True)
+            MemoryConfig(
+                enable_amp=True, gradient_accumulation_steps=4, enable_gradient_checkpointing=True
+            ),
         ]
 
         for i, mem_config in enumerate(configs):
@@ -578,20 +601,24 @@ class PerformanceBenchmarkSuite:
                 )
 
                 config_name = f"optimization_config_{i}"
-                self.results.append(BenchmarkResult(
-                    test_name=config_name,
-                    config={
-                        'enable_amp': mem_config.enable_amp,
-                        'gradient_accumulation_steps': mem_config.gradient_accumulation_steps,
-                        'enable_gradient_checkpointing': mem_config.enable_gradient_checkpointing
-                    },
-                    metrics=result,
-                    timestamp=time.time(),
-                    device=str(self.device)
-                ))
+                self.results.append(
+                    BenchmarkResult(
+                        test_name=config_name,
+                        config={
+                            "enable_amp": mem_config.enable_amp,
+                            "gradient_accumulation_steps": mem_config.gradient_accumulation_steps,
+                            "enable_gradient_checkpointing": mem_config.enable_gradient_checkpointing,
+                        },
+                        metrics=result,
+                        timestamp=time.time(),
+                        device=str(self.device),
+                    )
+                )
 
-                print(f"   Config {i}: {result['samples_per_sec']:.1f} samples/sec, "
-                      f"memory: {result['memory_used_mb']:.1f}MB")
+                print(
+                    f"   Config {i}: {result['samples_per_sec']:.1f} samples/sec, "
+                    f"memory: {result['memory_used_mb']:.1f}MB"
+                )
 
             except Exception as e:
                 print(f"   Error in config {i}: {e}")
@@ -603,7 +630,7 @@ class PerformanceBenchmarkSuite:
 
         # 保存原始结果
         results_file = os.path.join(self.config.output_dir, "benchmark_results.json")
-        with open(results_file, 'w', encoding='utf-8') as f:
+        with open(results_file, "w", encoding="utf-8") as f:
             json.dump([r.to_dict() for r in self.results], f, indent=2, ensure_ascii=False)
 
         # 生成可视化
@@ -617,7 +644,7 @@ class PerformanceBenchmarkSuite:
 
     def _create_visualizations(self):
         """创建可视化图表"""
-        plt.style.use('seaborn-v0_8')
+        plt.style.use("seaborn-v0_8")
 
         # 训练性能对比
         training_results = [r for r in self.results if r.test_name == "training_baseline"]
@@ -637,60 +664,60 @@ class PerformanceBenchmarkSuite:
     def _plot_training_performance(self, results: list[BenchmarkResult]):
         """绘制训练性能图表"""
         fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-        fig.suptitle('Training Performance Analysis', fontsize=16)
+        fig.suptitle("Training Performance Analysis", fontsize=16)
 
         # 按模型大小分组
         for model_size in self.config.test_model_sizes:
-            model_results = [r for r in results if r.config['model_size'] == model_size]
+            model_results = [r for r in results if r.config["model_size"] == model_size]
 
-            batch_sizes = [r.config['batch_size'] for r in model_results]
-            throughputs = [r.metrics['samples_per_sec'] for r in model_results]
-            memory_usage = [r.metrics['memory_used_mb'] for r in model_results]
+            batch_sizes = [r.config["batch_size"] for r in model_results]
+            throughputs = [r.metrics["samples_per_sec"] for r in model_results]
+            memory_usage = [r.metrics["memory_used_mb"] for r in model_results]
 
             # 吞吐量 vs 批处理大小
-            axes[0, 0].plot(batch_sizes, throughputs, marker='o', label=f'{model_size} model')
-            axes[0, 0].set_xlabel('Batch Size')
-            axes[0, 0].set_ylabel('Samples/sec')
-            axes[0, 0].set_title('Training Throughput')
+            axes[0, 0].plot(batch_sizes, throughputs, marker="o", label=f"{model_size} model")
+            axes[0, 0].set_xlabel("Batch Size")
+            axes[0, 0].set_ylabel("Samples/sec")
+            axes[0, 0].set_title("Training Throughput")
             axes[0, 0].legend()
 
             # 内存使用 vs 批处理大小
-            axes[0, 1].plot(batch_sizes, memory_usage, marker='s', label=f'{model_size} model')
-            axes[0, 1].set_xlabel('Batch Size')
-            axes[0, 1].set_ylabel('Memory Usage (MB)')
-            axes[0, 1].set_title('Memory Usage')
+            axes[0, 1].plot(batch_sizes, memory_usage, marker="s", label=f"{model_size} model")
+            axes[0, 1].set_xlabel("Batch Size")
+            axes[0, 1].set_ylabel("Memory Usage (MB)")
+            axes[0, 1].set_title("Memory Usage")
             axes[0, 1].legend()
 
         plt.tight_layout()
-        plt.savefig(os.path.join(self.config.output_dir, 'training_performance.png'), dpi=300)
+        plt.savefig(os.path.join(self.config.output_dir, "training_performance.png"), dpi=300)
         plt.close()
 
     def _plot_inference_performance(self, results: list[BenchmarkResult]):
         """绘制推理性能图表"""
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-        fig.suptitle('Inference Performance Analysis', fontsize=16)
+        fig.suptitle("Inference Performance Analysis", fontsize=16)
 
         for model_size in self.config.test_model_sizes:
-            model_results = [r for r in results if r.config['model_size'] == model_size]
+            model_results = [r for r in results if r.config["model_size"] == model_size]
 
-            batch_sizes = [r.config['batch_size'] for r in model_results]
-            tokens_per_sec = [r.metrics['tokens_per_sec'] for r in model_results]
-            latency = [r.metrics['latency_ms'] for r in model_results]
+            batch_sizes = [r.config["batch_size"] for r in model_results]
+            tokens_per_sec = [r.metrics["tokens_per_sec"] for r in model_results]
+            latency = [r.metrics["latency_ms"] for r in model_results]
 
-            ax1.plot(batch_sizes, tokens_per_sec, marker='o', label=f'{model_size} model')
-            ax1.set_xlabel('Batch Size')
-            ax1.set_ylabel('Tokens/sec')
-            ax1.set_title('Inference Throughput')
+            ax1.plot(batch_sizes, tokens_per_sec, marker="o", label=f"{model_size} model")
+            ax1.set_xlabel("Batch Size")
+            ax1.set_ylabel("Tokens/sec")
+            ax1.set_title("Inference Throughput")
             ax1.legend()
 
-            ax2.plot(batch_sizes, latency, marker='s', label=f'{model_size} model')
-            ax2.set_xlabel('Batch Size')
-            ax2.set_ylabel('Latency (ms)')
-            ax2.set_title('Inference Latency')
+            ax2.plot(batch_sizes, latency, marker="s", label=f"{model_size} model")
+            ax2.set_xlabel("Batch Size")
+            ax2.set_ylabel("Latency (ms)")
+            ax2.set_title("Inference Latency")
             ax2.legend()
 
         plt.tight_layout()
-        plt.savefig(os.path.join(self.config.output_dir, 'inference_performance.png'), dpi=300)
+        plt.savefig(os.path.join(self.config.output_dir, "inference_performance.png"), dpi=300)
         plt.close()
 
     def _plot_optimization_effects(self, results: list[BenchmarkResult]):
@@ -699,82 +726,84 @@ class PerformanceBenchmarkSuite:
             return
 
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-        fig.suptitle('Memory Optimization Effects', fontsize=16)
+        fig.suptitle("Memory Optimization Effects", fontsize=16)
 
         config_names = [f"Config {i}" for i in range(len(results))]
-        throughputs = [r.metrics['samples_per_sec'] for r in results]
-        memory_usage = [r.metrics['memory_used_mb'] for r in results]
+        throughputs = [r.metrics["samples_per_sec"] for r in results]
+        memory_usage = [r.metrics["memory_used_mb"] for r in results]
 
-        ax1.bar(config_names, throughputs, color='skyblue')
-        ax1.set_ylabel('Samples/sec')
-        ax1.set_title('Training Throughput')
-        ax1.tick_params(axis='x', rotation=45)
+        ax1.bar(config_names, throughputs, color="skyblue")
+        ax1.set_ylabel("Samples/sec")
+        ax1.set_title("Training Throughput")
+        ax1.tick_params(axis="x", rotation=45)
 
-        ax2.bar(config_names, memory_usage, color='lightcoral')
-        ax2.set_ylabel('Memory Usage (MB)')
-        ax2.set_title('Memory Usage')
-        ax2.tick_params(axis='x', rotation=45)
+        ax2.bar(config_names, memory_usage, color="lightcoral")
+        ax2.set_ylabel("Memory Usage (MB)")
+        ax2.set_title("Memory Usage")
+        ax2.tick_params(axis="x", rotation=45)
 
         plt.tight_layout()
-        plt.savefig(os.path.join(self.config.output_dir, 'optimization_effects.png'), dpi=300)
+        plt.savefig(os.path.join(self.config.output_dir, "optimization_effects.png"), dpi=300)
         plt.close()
 
     def _create_performance_analysis(self):
         """创建性能分析报告"""
         analysis = {
-            'device_info': {
-                'device': str(self.device),
-                'device_name': self._get_device_name(),
-                'memory_gb': self._get_device_memory()
+            "device_info": {
+                "device": str(self.device),
+                "device_name": self._get_device_name(),
+                "memory_gb": self._get_device_memory(),
             },
-            'summary': {},
-            'recommendations': []
+            "summary": {},
+            "recommendations": [],
         }
 
         # 训练性能总结
         training_results = [r for r in self.results if r.test_name == "training_baseline"]
         if training_results:
-            max_throughput = max(r.metrics['samples_per_sec'] for r in training_results)
-            best_config = next(r for r in training_results
-                             if r.metrics['samples_per_sec'] == max_throughput)
+            max_throughput = max(r.metrics["samples_per_sec"] for r in training_results)
+            best_config = next(
+                r for r in training_results if r.metrics["samples_per_sec"] == max_throughput
+            )
 
-            analysis['summary']['best_training_config'] = {
-                'throughput': max_throughput,
-                'config': best_config.config
+            analysis["summary"]["best_training_config"] = {
+                "throughput": max_throughput,
+                "config": best_config.config,
             }
 
         # 推理性能总结
         inference_results = [r for r in self.results if r.test_name == "inference"]
         if inference_results:
-            max_tokens = max(r.metrics['tokens_per_sec'] for r in inference_results)
-            best_inference = next(r for r in inference_results
-                                if r.metrics['tokens_per_sec'] == max_tokens)
+            max_tokens = max(r.metrics["tokens_per_sec"] for r in inference_results)
+            best_inference = next(
+                r for r in inference_results if r.metrics["tokens_per_sec"] == max_tokens
+            )
 
-            analysis['summary']['best_inference_config'] = {
-                'tokens_per_sec': max_tokens,
-                'config': best_inference.config
+            analysis["summary"]["best_inference_config"] = {
+                "tokens_per_sec": max_tokens,
+                "config": best_inference.config,
             }
 
         # 生成建议
-        analysis['recommendations'] = self._generate_recommendations()
+        analysis["recommendations"] = self._generate_recommendations()
 
         # 保存分析报告
         analysis_file = os.path.join(self.config.output_dir, "performance_analysis.json")
-        with open(analysis_file, 'w', encoding='utf-8') as f:
+        with open(analysis_file, "w", encoding="utf-8") as f:
             json.dump(analysis, f, indent=2, ensure_ascii=False)
 
     def _get_device_name(self) -> str:
         """获取设备名称"""
-        if self.device.type == 'cuda':
+        if self.device.type == "cuda":
             return torch.cuda.get_device_name()
-        elif self.device.type == 'mps':
+        elif self.device.type == "mps":
             return "Apple Silicon GPU (MPS)"
         else:
             return "CPU"
 
     def _get_device_memory(self) -> float:
         """获取设备内存(GB)"""
-        if self.device.type == 'cuda':
+        if self.device.type == "cuda":
             return torch.cuda.get_device_properties(self.device).total_memory / 1024**3
         else:
             return psutil.virtual_memory().total / 1024**3
@@ -787,19 +816,21 @@ class PerformanceBenchmarkSuite:
         training_results = [r for r in self.results if r.test_name == "training_baseline"]
         if training_results:
             # 找到最佳批处理大小
-            throughputs = [(r.config['batch_size'], r.metrics['samples_per_sec']) for r in training_results]
+            throughputs = [
+                (r.config["batch_size"], r.metrics["samples_per_sec"]) for r in training_results
+            ]
             best_batch_size = max(throughputs, key=lambda x: x[1])[0]
             recommendations.append(f"推荐训练批处理大小: {best_batch_size}")
 
         # 内存使用建议
-        if self.device.type == 'cuda':
+        if self.device.type == "cuda":
             recommendations.append("建议启用混合精度训练以节省GPU内存")
             recommendations.append("考虑使用梯度累积来处理更大的有效批处理大小")
 
         # 数据加载建议
         data_results = [r for r in self.results if r.test_name == "data_loading"]
         if data_results:
-            best_workers = max(data_results, key=lambda x: x.metrics['samples_per_sec'])
+            best_workers = max(data_results, key=lambda x: x.metrics["samples_per_sec"])
             recommendations.append(f"推荐数据加载worker数量: {best_workers.config['num_workers']}")
 
         return recommendations
@@ -813,7 +844,7 @@ if __name__ == "__main__":
         test_sequence_lengths=[256, 512],
         test_model_sizes=["tiny", "small"],
         test_steps=20,  # 减少测试步数以加快测试
-        output_dir="benchmark_results"
+        output_dir="benchmark_results",
     )
 
     # 运行基准测试
@@ -826,7 +857,7 @@ if __name__ == "__main__":
     # 打印最佳配置
     training_results = [r for r in results if r.test_name == "training_baseline"]
     if training_results:
-        best_result = max(training_results, key=lambda x: x.metrics['samples_per_sec'])
+        best_result = max(training_results, key=lambda x: x.metrics["samples_per_sec"])
         print("\n🏆 Best training configuration:")
         print(f"   Model: {best_result.config['model_size']}")
         print(f"   Batch size: {best_result.config['batch_size']}")

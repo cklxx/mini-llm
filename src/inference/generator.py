@@ -2,6 +2,7 @@
 文本生成和推理模块
 支持多种生成策略：贪心搜索、采样、beam search等
 """
+
 from dataclasses import dataclass
 
 import torch
@@ -11,6 +12,7 @@ import torch.nn.functional as F
 @dataclass
 class GenerationConfig:
     """生成配置"""
+
     max_length: int = 100
     temperature: float = 1.0
     top_k: int = 50
@@ -33,16 +35,16 @@ class TextGenerator:
     5. Beam Search
     """
 
-    def __init__(self, model, tokenizer, device='cpu'):
+    def __init__(self, model, tokenizer, device="cpu"):
         self.model = model
         self.tokenizer = tokenizer
         self.device = device
         self.model.to(device)
         self.model.eval()
 
-    def apply_repetition_penalty(self, logits: torch.Tensor,
-                                input_ids: torch.Tensor,
-                                penalty: float = 1.1) -> torch.Tensor:
+    def apply_repetition_penalty(
+        self, logits: torch.Tensor, input_ids: torch.Tensor, penalty: float = 1.1
+    ) -> torch.Tensor:
         """应用重复惩罚"""
         if penalty == 1.0:
             return logits
@@ -69,7 +71,7 @@ class TextGenerator:
         top_k_scores, top_k_indices = torch.topk(logits, top_k)
 
         # 创建掩码
-        mask = torch.full_like(logits, -float('inf'))
+        mask = torch.full_like(logits, -float("inf"))
         mask.scatter_(1, top_k_indices, top_k_scores)
 
         return mask
@@ -91,13 +93,14 @@ class TextGenerator:
         sorted_indices_to_remove[..., 0] = 0
 
         # 创建掩码
-        indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
-        logits = logits.masked_fill(indices_to_remove, -float('inf'))
+        indices_to_remove = sorted_indices_to_remove.scatter(
+            1, sorted_indices, sorted_indices_to_remove
+        )
+        logits = logits.masked_fill(indices_to_remove, -float("inf"))
 
         return logits
 
-    def greedy_search(self, input_ids: torch.Tensor,
-                     max_length: int = 100) -> torch.Tensor:
+    def greedy_search(self, input_ids: torch.Tensor, max_length: int = 100) -> torch.Tensor:
         """贪心搜索"""
         with torch.no_grad():
             for _ in range(max_length):
@@ -119,8 +122,7 @@ class TextGenerator:
 
         return input_ids
 
-    def sample_generate(self, input_ids: torch.Tensor,
-                       config: GenerationConfig) -> torch.Tensor:
+    def sample_generate(self, input_ids: torch.Tensor, config: GenerationConfig) -> torch.Tensor:
         """采样生成"""
         with torch.no_grad():
             for _ in range(config.max_length):
@@ -162,8 +164,7 @@ class TextGenerator:
 
         return input_ids
 
-    def beam_search(self, input_ids: torch.Tensor,
-                   config: GenerationConfig) -> torch.Tensor:
+    def beam_search(self, input_ids: torch.Tensor, config: GenerationConfig) -> torch.Tensor:
         """束搜索"""
         vocab_size = self.model.vocab_size
 
@@ -207,10 +208,7 @@ class TextGenerator:
                 new_beam_input_ids = []
 
                 for beam_idx, token_idx in zip(beam_indices, token_indices, strict=False):
-                    new_sequence = torch.cat([
-                        expanded_input_ids[beam_idx],
-                        token_idx.unsqueeze(0)
-                    ])
+                    new_sequence = torch.cat([expanded_input_ids[beam_idx], token_idx.unsqueeze(0)])
                     new_beam_input_ids.append(new_sequence.unsqueeze(0))
 
                 expanded_input_ids = torch.cat(new_beam_input_ids, dim=0)
@@ -229,8 +227,9 @@ class TextGenerator:
     def generate(self, input_text: str, config: GenerationConfig) -> str:
         """生成文本的主接口"""
         # 编码输入文本
-        input_ids = torch.tensor([self.tokenizer.encode(input_text, add_special_tokens=True)],
-                                device=self.device)
+        input_ids = torch.tensor(
+            [self.tokenizer.encode(input_text, add_special_tokens=True)], device=self.device
+        )
 
         # 根据配置选择生成策略
         if config.num_beams > 1:
@@ -245,8 +244,7 @@ class TextGenerator:
 
         return output_text
 
-    def chat(self, message: str, history: list[str] = None,
-             config: GenerationConfig = None) -> str:
+    def chat(self, message: str, history: list[str] = None, config: GenerationConfig = None) -> str:
         """对话接口"""
         if config is None:
             config = GenerationConfig()
@@ -272,7 +270,7 @@ class TextGenerator:
 class ChatBot:
     """聊天机器人类"""
 
-    def __init__(self, model_path: str, tokenizer_path: str, device='cpu'):
+    def __init__(self, model_path: str, tokenizer_path: str, device="cpu"):
         # 加载模型和分词器
         self.device = device
         self.load_model(model_path)
@@ -302,11 +300,7 @@ class ChatBot:
     def chat(self, message: str, use_history: bool = True) -> str:
         """对话"""
         config = GenerationConfig(
-            max_length=200,
-            temperature=0.7,
-            top_k=50,
-            top_p=0.9,
-            do_sample=True
+            max_length=200, temperature=0.7, top_k=50, top_p=0.9, do_sample=True
         )
 
         history = self.conversation_history if use_history else None
@@ -330,13 +324,7 @@ class ChatBot:
 
 if __name__ == "__main__":
     # 测试生成配置
-    config = GenerationConfig(
-        max_length=50,
-        temperature=0.8,
-        top_k=40,
-        top_p=0.9,
-        do_sample=True
-    )
+    config = GenerationConfig(max_length=50, temperature=0.8, top_k=40, top_p=0.9, do_sample=True)
 
     print(f"生成配置: {config}")
     print("推理模块测试完成")

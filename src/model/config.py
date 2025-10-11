@@ -9,6 +9,7 @@ class MiniGPTConfig:
 
     包含模型架构、训练参数和优化选项的完整配置
     """
+
     model_type = "minigpt"
 
     def __init__(
@@ -20,52 +21,42 @@ class MiniGPTConfig:
         num_attention_heads: int = 8,  # n_heads
         intermediate_size: int | None = None,  # d_ff, 默认为 hidden_size * 4
         max_position_embeddings: int = 1024,  # max_len
-
         # 归一化和激活
         rms_norm_eps: float = 1e-6,
-        hidden_act: str = 'swiglu',  # 激活函数类型
-
+        hidden_act: str = "swiglu",  # 激活函数类型
         # 位置编码
         rope_theta: float = 10000.0,  # RoPE theta参数
         use_rope: bool = True,  # 是否使用RoPE位置编码（推荐）
-
         # 训练参数
         dropout: float = 0.1,
         attention_dropout: float = 0.1,
-
         # 注意力机制优化
         use_gqa: bool = True,  # 是否使用分组查询注意力
         num_key_value_heads: int | None = None,  # KV头数量（默认为num_attention_heads//4）
-
         # 权重共享
         tie_word_embeddings: bool = True,  # 是否共享输入输出嵌入权重
-
         # 特殊token
         bos_token_id: int = 1,
         eos_token_id: int = 2,
         pad_token_id: int = 0,
-
         # 性能优化
         flash_attn: bool = False,  # 是否使用Flash Attention
         gradient_checkpointing: bool = False,  # 梯度检查点
-
         # MOE配置 (Mixture of Experts)
         use_moe: bool = False,
         num_experts_per_tok: int = 2,  # 每个token选择的专家数量
         n_routed_experts: int = 4,  # 总的专家数量
         n_shared_experts: int = 1,  # 共享专家数量
-        scoring_func: str = 'softmax',  # 专家选择评分函数
+        scoring_func: str = "softmax",  # 专家选择评分函数
         aux_loss_alpha: float = 0.1,  # 辅助损失权重
         seq_aux: bool = True,  # 序列级辅助损失
         norm_topk_prob: bool = True,  # 是否归一化top-k概率
-
         # 生成参数
         max_generate_length: int = 100,
         temperature: float = 1.0,
         top_k: int = 50,
         top_p: float = 0.9,
-
-        **kwargs
+        **kwargs,
     ):
         # 基础参数
         self.vocab_size = vocab_size
@@ -128,21 +119,24 @@ class MiniGPTConfig:
 
     def _validate_config(self):
         """验证配置参数的有效性"""
-        assert self.hidden_size % self.num_attention_heads == 0, \
-            f"hidden_size ({self.hidden_size}) 必须能被 num_attention_heads ({self.num_attention_heads}) 整除"
+        assert (
+            self.hidden_size % self.num_attention_heads == 0
+        ), f"hidden_size ({self.hidden_size}) 必须能被 num_attention_heads ({self.num_attention_heads}) 整除"
 
         assert self.vocab_size > 0, "vocab_size 必须大于 0"
         assert self.num_hidden_layers > 0, "num_hidden_layers 必须大于 0"
         assert self.num_attention_heads > 0, "num_attention_heads 必须大于 0"
 
         if self.use_moe:
-            assert self.n_routed_experts >= self.num_experts_per_tok, \
-                "n_routed_experts 必须大于等于 num_experts_per_tok"
+            assert (
+                self.n_routed_experts >= self.num_experts_per_tok
+            ), "n_routed_experts 必须大于等于 num_experts_per_tok"
 
-        if hasattr(self, 'use_gqa') and self.use_gqa:
+        if hasattr(self, "use_gqa") and self.use_gqa:
             if self.num_key_value_heads is not None:
-                assert self.num_attention_heads % self.num_key_value_heads == 0, \
-                    f"num_attention_heads ({self.num_attention_heads}) 必须能被 num_key_value_heads ({self.num_key_value_heads}) 整除"
+                assert (
+                    self.num_attention_heads % self.num_key_value_heads == 0
+                ), f"num_attention_heads ({self.num_attention_heads}) 必须能被 num_key_value_heads ({self.num_key_value_heads}) 整除"
 
     @property
     def head_dim(self) -> int:
@@ -151,10 +145,10 @@ class MiniGPTConfig:
 
     def to_dict(self) -> dict:
         """将配置转换为字典"""
-        return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
+        return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
 
     @classmethod
-    def from_dict(cls, config_dict: dict) -> 'MiniGPTConfig':
+    def from_dict(cls, config_dict: dict) -> "MiniGPTConfig":
         """从字典创建配置"""
         return cls(**config_dict)
 
@@ -177,7 +171,7 @@ def get_tiny_config() -> MiniGPTConfig:
         dropout=0.1,
         use_rope=True,
         use_gqa=True,
-        tie_word_embeddings=True
+        tie_word_embeddings=True,
     )
 
 
@@ -190,16 +184,16 @@ def get_small_config() -> MiniGPTConfig:
     """
     return MiniGPTConfig(
         vocab_size=10000,
-        hidden_size=288,       # 384 -> 288 (减少25%)，降低内存峰值
+        hidden_size=288,  # 384 -> 288 (减少25%)，降低内存峰值
         num_hidden_layers=18,  # 12 -> 18 (增加50%)，提升表达能力
-        num_attention_heads=9, # 保持 hidden_size/n_heads = 32
-        num_key_value_heads=3, # GQA优化：3:1比例 (9/3=3)
-        intermediate_size=1152, # 4倍hidden_size
+        num_attention_heads=9,  # 保持 hidden_size/n_heads = 32
+        num_key_value_heads=3,  # GQA优化：3:1比例 (9/3=3)
+        intermediate_size=1152,  # 4倍hidden_size
         max_position_embeddings=1024,
         dropout=0.1,
-        use_rope=True,         # ✅ RoPE位置编码
-        use_gqa=True,          # ✅ 分组查询注意力
-        tie_word_embeddings=True  # ✅ 权重共享优化
+        use_rope=True,  # ✅ RoPE位置编码
+        use_gqa=True,  # ✅ 分组查询注意力
+        tie_word_embeddings=True,  # ✅ 权重共享优化
     )
 
 
@@ -210,19 +204,19 @@ def get_small_30m_config() -> MiniGPTConfig:
     """
 
     return MiniGPTConfig(
-        vocab_size=12000,          # 略扩的词表覆盖范围
+        vocab_size=12000,  # 略扩的词表覆盖范围
         hidden_size=384,
-        num_hidden_layers=13,      # 比 small 略深增强表示能力
+        num_hidden_layers=13,  # 比 small 略深增强表示能力
         num_attention_heads=12,
-        num_key_value_heads=3,     # 维持 4:1 的 GQA 比例
-        intermediate_size=1408,    # ≈3.67× hidden，兼顾算力与表达力
+        num_key_value_heads=3,  # 维持 4:1 的 GQA 比例
+        intermediate_size=1408,  # ≈3.67× hidden，兼顾算力与表达力
         max_position_embeddings=2048,
         dropout=0.1,
         attention_dropout=0.1,
         use_rope=True,
         use_gqa=True,
         flash_attn=True,
-        tie_word_embeddings=True
+        tie_word_embeddings=True,
     )
 
 
@@ -243,14 +237,14 @@ def get_medium_config() -> MiniGPTConfig:
         hidden_size=384,
         num_hidden_layers=20,
         num_attention_heads=12,
-        num_key_value_heads=3,   # GQA 4:1
+        num_key_value_heads=3,  # GQA 4:1
         intermediate_size=1536,
         max_position_embeddings=2048,
         dropout=0.1,
         use_rope=True,
         use_gqa=True,
         flash_attn=True,
-        tie_word_embeddings=True
+        tie_word_embeddings=True,
     )
 
 
@@ -269,7 +263,7 @@ def get_large_config() -> MiniGPTConfig:
         dropout=0.1,
         use_rope=True,
         use_gqa=True,
-        tie_word_embeddings=True
+        tie_word_embeddings=True,
     )
 
 
@@ -296,7 +290,7 @@ def get_foundation_config() -> MiniGPTConfig:
         use_gqa=True,
         flash_attn=True,
         gradient_checkpointing=True,
-        tie_word_embeddings=True
+        tie_word_embeddings=True,
     )
 
 
@@ -319,7 +313,7 @@ def get_moe_config() -> MiniGPTConfig:
         use_moe=True,
         num_experts_per_tok=2,
         n_routed_experts=4,
-        n_shared_experts=1
+        n_shared_experts=1,
     )
 
 
@@ -349,10 +343,14 @@ def estimate_params(config: MiniGPTConfig) -> int:
     embedding_params = config.vocab_size * config.hidden_size
 
     # Transformer层参数计算
-    if getattr(config, 'use_gqa', False) and getattr(config, 'num_key_value_heads', None):
+    if getattr(config, "use_gqa", False) and getattr(config, "num_key_value_heads", None):
         # GQA情况下的注意力参数
         q_params = config.hidden_size * config.hidden_size  # Q投影
-        kv_params = 2 * config.hidden_size * (config.hidden_size * config.num_key_value_heads // config.num_attention_heads)  # K,V投影
+        kv_params = (
+            2
+            * config.hidden_size
+            * (config.hidden_size * config.num_key_value_heads // config.num_attention_heads)
+        )  # K,V投影
         o_params = config.hidden_size * config.hidden_size  # O投影
         attention_params = q_params + kv_params + o_params
     else:
@@ -372,7 +370,7 @@ def estimate_params(config: MiniGPTConfig) -> int:
     output_norm_params = config.hidden_size  # 最终norm层
 
     # 输出投影（考虑权重共享）
-    if getattr(config, 'tie_word_embeddings', False):
+    if getattr(config, "tie_word_embeddings", False):
         output_projection_params = 0  # 共享嵌入权重
     else:
         output_projection_params = config.vocab_size * config.hidden_size
@@ -395,7 +393,7 @@ if __name__ == "__main__":
         print(f"  hidden_size: {config.hidden_size}")
         print(f"  num_layers: {config.num_hidden_layers}")
         print(f"  num_heads: {config.num_attention_heads}")
-        if hasattr(config, 'num_key_value_heads') and config.num_key_value_heads:
+        if hasattr(config, "num_key_value_heads") and config.num_key_value_heads:
             print(f"  KV heads: {config.num_key_value_heads} (GQA)")
         print(f"  vocab_size: {config.vocab_size}")
         print(f"  使用RoPE: {getattr(config, 'use_rope', False)}")

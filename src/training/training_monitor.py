@@ -2,6 +2,7 @@
 综合训练监控和可视化系统
 提供实时训练指标监控、性能分析、异常检测和可视化仪表板
 """
+
 import json
 import os
 import threading
@@ -23,6 +24,7 @@ from torch.utils.tensorboard import SummaryWriter
 @dataclass
 class TrainingMetrics:
     """训练指标数据结构"""
+
     step: int
     epoch: int
     loss: float
@@ -50,21 +52,25 @@ class SystemMonitor:
     """系统性能监控器"""
 
     def __init__(self):
-        self.device = torch.device('cuda' if torch.cuda.is_available()
-                                 else 'mps' if torch.backends.mps.is_available()
-                                 else 'cpu')
+        self.device = torch.device(
+            "cuda"
+            if torch.cuda.is_available()
+            else "mps" if torch.backends.mps.is_available() else "cpu"
+        )
 
     def get_gpu_memory_info(self) -> tuple[float, float]:
         """获取GPU内存信息 (used_gb, total_gb)"""
-        if self.device.type == 'cuda':
+        if self.device.type == "cuda":
             return (
                 torch.cuda.memory_allocated() / 1024**3,
-                torch.cuda.max_memory_allocated() / 1024**3
+                torch.cuda.max_memory_allocated() / 1024**3,
             )
-        elif self.device.type == 'mps':
+        elif self.device.type == "mps":
             # MPS内存监控（近似）
-            return (psutil.virtual_memory().used / 1024**3 * 0.3,
-                   psutil.virtual_memory().total / 1024**3 * 0.3)
+            return (
+                psutil.virtual_memory().used / 1024**3 * 0.3,
+                psutil.virtual_memory().total / 1024**3 * 0.3,
+            )
         else:
             return 0.0, 0.0
 
@@ -72,7 +78,7 @@ class SystemMonitor:
         """获取CPU信息 (usage_percent, frequency_ghz)"""
         return (
             psutil.cpu_percent(interval=0.1),
-            psutil.cpu_freq().current / 1000 if psutil.cpu_freq() else 0.0
+            psutil.cpu_freq().current / 1000 if psutil.cpu_freq() else 0.0,
         )
 
     def get_memory_info(self) -> tuple[float, float]:
@@ -82,7 +88,7 @@ class SystemMonitor:
 
     def get_disk_info(self) -> tuple[float, float]:
         """获取磁盘信息 (used_gb, total_gb)"""
-        disk = psutil.disk_usage('/')
+        disk = psutil.disk_usage("/")
         return (disk.used / 1024**3, disk.total / 1024**3)
 
 
@@ -126,7 +132,9 @@ class ModelHealthMonitor:
             return 0.0
 
         if self.prev_params is None:
-            self.prev_params = {name: param.clone() for name, param in self.model.named_parameters()}
+            self.prev_params = {
+                name: param.clone() for name, param in self.model.named_parameters()
+            }
             return 0.0
 
         update_norms = []
@@ -160,21 +168,23 @@ class ModelHealthMonitor:
         self.grad_history.append(grad_norm)
 
         if len(self.grad_history) < 10:
-            return {'status': 'normal', 'reason': 'insufficient_data'}
+            return {"status": "normal", "reason": "insufficient_data"}
 
         recent_grads = list(self.grad_history)[-10:]
         mean_grad = np.mean(recent_grads)
         std_grad = np.std(recent_grads)
 
-        anomaly_info = {'status': 'normal', 'mean': mean_grad, 'std': std_grad}
+        anomaly_info = {"status": "normal", "mean": mean_grad, "std": std_grad}
 
         # 梯度爆炸检测
         if grad_norm > mean_grad + 3 * std_grad and grad_norm > 10.0:
-            anomaly_info.update({
-                'status': 'gradient_explosion',
-                'current': grad_norm,
-                'threshold': mean_grad + 3 * std_grad
-            })
+            anomaly_info.update(
+                {
+                    "status": "gradient_explosion",
+                    "current": grad_norm,
+                    "threshold": mean_grad + 3 * std_grad,
+                }
+            )
 
         # 梯度消失检测 - 动态阈值，训练初期更宽松
         # Step 100之前: 1e-10 (几乎不触发)
@@ -188,11 +198,13 @@ class ModelHealthMonitor:
             vanishing_threshold = 1e-7
 
         if grad_norm < vanishing_threshold:
-            anomaly_info.update({
-                'status': 'gradient_vanishing',
-                'current': grad_norm,
-                'threshold': vanishing_threshold
-            })
+            anomaly_info.update(
+                {
+                    "status": "gradient_vanishing",
+                    "current": grad_norm,
+                    "threshold": vanishing_threshold,
+                }
+            )
 
         return anomaly_info
 
@@ -202,10 +214,10 @@ class ModelHealthMonitor:
 
         for name, tensor in activations.items():
             if tensor.numel() > 0:
-                stats[f'{name}_mean'] = tensor.mean().item()
-                stats[f'{name}_std'] = tensor.std().item()
-                stats[f'{name}_max'] = tensor.max().item()
-                stats[f'{name}_min'] = tensor.min().item()
+                stats[f"{name}_mean"] = tensor.mean().item()
+                stats[f"{name}_std"] = tensor.std().item()
+                stats[f"{name}_max"] = tensor.max().item()
+                stats[f"{name}_min"] = tensor.min().item()
 
         return stats
 
@@ -222,7 +234,7 @@ class RealTimeVisualizer:
         self.metrics_history = deque(maxlen=max_points)
 
         # 设置绘图样式
-        plt.style.use('seaborn-v0_8')
+        plt.style.use("seaborn-v0_8")
         sns.set_palette("husl")
 
         # 创建图形
@@ -233,12 +245,16 @@ class RealTimeVisualizer:
     def start_real_time_plot(self):
         """启动实时绘图"""
         self.fig, self.axes = plt.subplots(2, 3, figsize=(15, 10))
-        self.fig.suptitle('Training Monitor Dashboard', fontsize=16)
+        self.fig.suptitle("Training Monitor Dashboard", fontsize=16)
 
         # 设置子图标题
         titles = [
-            'Training Loss', 'Learning Rate', 'Gradient Norm',
-            'GPU Memory Usage', 'CPU Usage', 'Training Speed'
+            "Training Loss",
+            "Learning Rate",
+            "Gradient Norm",
+            "GPU Memory Usage",
+            "CPU Usage",
+            "Training Speed",
         ]
 
         for ax, title in zip(self.axes.flat, titles, strict=False):
@@ -273,32 +289,32 @@ class RealTimeVisualizer:
 
         # 绘制各个指标
         plots_data = [
-            (losses, 'Loss', 'red'),
-            (lrs, 'Learning Rate', 'blue'),
-            (grad_norms, 'Gradient Norm', 'green'),
-            (gpu_memory, 'GPU Memory (GB)', 'orange'),
-            (cpu_usage, 'CPU Usage (%)', 'purple'),
-            (speeds, 'Samples/sec', 'brown')
+            (losses, "Loss", "red"),
+            (lrs, "Learning Rate", "blue"),
+            (grad_norms, "Gradient Norm", "green"),
+            (gpu_memory, "GPU Memory (GB)", "orange"),
+            (cpu_usage, "CPU Usage (%)", "purple"),
+            (speeds, "Samples/sec", "brown"),
         ]
 
         for ax, (data, ylabel, color) in zip(self.axes.flat, plots_data, strict=False):
             if len(data) > 1:
                 ax.plot(steps, data, color=color, linewidth=2)
                 ax.set_ylabel(ylabel)
-                ax.set_xlabel('Step')
+                ax.set_xlabel("Step")
                 ax.grid(True, alpha=0.3)
 
                 # 添加最新值标注
                 if data:
                     ax.annotate(
-                        f'{data[-1]:.3f}',
+                        f"{data[-1]:.3f}",
                         xy=(steps[-1], data[-1]),
                         xytext=(10, 10),
-                        textcoords='offset points',
+                        textcoords="offset points",
                         bbox={
-                            'boxstyle': 'round,pad=0.3',
-                            'facecolor': color,
-                            'alpha': 0.3,
+                            "boxstyle": "round,pad=0.3",
+                            "facecolor": color,
+                            "alpha": 0.3,
                         },
                     )
 
@@ -313,7 +329,7 @@ class RealTimeVisualizer:
         if self.fig is not None:
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             filepath = os.path.join(self.save_dir, f"{prefix}_{timestamp}.png")
-            self.fig.savefig(filepath, dpi=300, bbox_inches='tight')
+            self.fig.savefig(filepath, dpi=300, bbox_inches="tight")
             print(f"📊 Plots saved to: {filepath}")
 
     def generate_summary_report(self) -> dict[str, Any]:
@@ -329,24 +345,25 @@ class RealTimeVisualizer:
         grad_norms = [m.grad_norm for m in metrics_list]
 
         report = {
-            'training_summary': {
-                'total_steps': len(metrics_list),
-                'training_time_hours': (metrics_list[-1].timestamp - metrics_list[0].timestamp) / 3600,
-                'final_loss': losses[-1],
-                'min_loss': min(losses),
-                'loss_reduction': (losses[0] - losses[-1]) / losses[0] * 100,
+            "training_summary": {
+                "total_steps": len(metrics_list),
+                "training_time_hours": (metrics_list[-1].timestamp - metrics_list[0].timestamp)
+                / 3600,
+                "final_loss": losses[-1],
+                "min_loss": min(losses),
+                "loss_reduction": (losses[0] - losses[-1]) / losses[0] * 100,
             },
-            'performance_summary': {
-                'avg_speed_samples_per_sec': np.mean(speeds) if speeds else 0,
-                'max_speed_samples_per_sec': max(speeds) if speeds else 0,
-                'avg_gradient_norm': np.mean(grad_norms),
-                'max_gradient_norm': max(grad_norms),
+            "performance_summary": {
+                "avg_speed_samples_per_sec": np.mean(speeds) if speeds else 0,
+                "max_speed_samples_per_sec": max(speeds) if speeds else 0,
+                "avg_gradient_norm": np.mean(grad_norms),
+                "max_gradient_norm": max(grad_norms),
             },
-            'system_summary': {
-                'avg_gpu_memory_gb': np.mean([m.gpu_memory_used for m in metrics_list]),
-                'max_gpu_memory_gb': max([m.gpu_memory_used for m in metrics_list]),
-                'avg_cpu_usage_percent': np.mean([m.cpu_usage for m in metrics_list]),
-            }
+            "system_summary": {
+                "avg_gpu_memory_gb": np.mean([m.gpu_memory_used for m in metrics_list]),
+                "max_gpu_memory_gb": max([m.gpu_memory_used for m in metrics_list]),
+                "avg_cpu_usage_percent": np.mean([m.cpu_usage for m in metrics_list]),
+            },
         }
 
         return report
@@ -355,9 +372,15 @@ class RealTimeVisualizer:
 class TrainingMonitor:
     """综合训练监控器"""
 
-    def __init__(self, model: nn.Module, log_dir: str = "training_logs",
-                 enable_tensorboard: bool = True, enable_real_time_plots: bool = False,
-                 lightweight_mode: bool = False, log_interval: int = 1):
+    def __init__(
+        self,
+        model: nn.Module,
+        log_dir: str = "training_logs",
+        enable_tensorboard: bool = True,
+        enable_real_time_plots: bool = False,
+        lightweight_mode: bool = False,
+        log_interval: int = 1,
+    ):
         self.model = model
         self.log_dir = log_dir
         os.makedirs(log_dir, exist_ok=True)
@@ -374,8 +397,8 @@ class TrainingMonitor:
         # TensorBoard - 支持自定义flush间隔
         if enable_tensorboard:
             flush_secs = 30
-            if hasattr(model, 'config'):
-                flush_secs = getattr(model.config, 'tensorboard_flush_secs', 30)
+            if hasattr(model, "config"):
+                flush_secs = getattr(model.config, "tensorboard_flush_secs", 30)
             self.tensorboard_writer = SummaryWriter(log_dir, flush_secs=flush_secs)
         else:
             self.tensorboard_writer = None
@@ -404,6 +427,7 @@ class TrainingMonitor:
     def _start_real_time_plotting(self):
         """启动实时绘图线程"""
         if self.enable_real_time_plots:
+
             def plot_worker():
                 self.visualizer.start_real_time_plot()
                 plt.show()
@@ -422,7 +446,7 @@ class TrainingMonitor:
     ) -> TrainingMetrics | None:
         """记录训练步骤"""
         # 轻量级模式下，只在指定间隔记录详细指标
-        should_log_full = (step % self.log_interval == 0)
+        should_log_full = step % self.log_interval == 0
 
         current_time = time.time()
 
@@ -454,12 +478,10 @@ class TrainingMonitor:
 
         # 检测异常（始终检查，因为很重要）
         anomaly_info = self.health_monitor.detect_gradient_anomaly(grad_norm_value, step)
-        if anomaly_info['status'] != 'normal':
-            self.anomaly_history.append({
-                'step': step,
-                'timestamp': current_time,
-                'anomaly': anomaly_info
-            })
+        if anomaly_info["status"] != "normal":
+            self.anomaly_history.append(
+                {"step": step, "timestamp": current_time, "anomaly": anomaly_info}
+            )
             print(f"⚠️  Anomaly detected at step {step}: {anomaly_info['status']}")
 
         # 创建指标对象
@@ -475,7 +497,7 @@ class TrainingMonitor:
             gpu_memory_used=gpu_memory_used,
             cpu_usage=cpu_usage,
             ram_usage=ram_used,
-            weight_update_ratio=weight_update_ratio
+            weight_update_ratio=weight_update_ratio,
         )
 
         # 记录到各个系统（只在完整记录时写入详细信息）
@@ -486,41 +508,48 @@ class TrainingMonitor:
         else:
             # 轻量级：只记录关键指标到 TensorBoard
             if self.tensorboard_writer:
-                self.tensorboard_writer.add_scalar('Training/Loss', loss, step)
-                self.tensorboard_writer.add_scalar('Training/LearningRate', learning_rate, step)
+                self.tensorboard_writer.add_scalar("Training/Loss", loss, step)
+                self.tensorboard_writer.add_scalar("Training/LearningRate", learning_rate, step)
 
         # 重置计时器
         self.step_start_time = current_time
 
         return metrics if should_log_full else None
 
-    def log_validation(self, step: int, loss: float, perplexity: float,
-                       extra_metrics: dict[str, float] | None = None):
+    def log_validation(
+        self,
+        step: int,
+        loss: float,
+        perplexity: float,
+        extra_metrics: dict[str, float] | None = None,
+    ):
         """记录验证集指标到 TensorBoard 与控制台"""
         print(f"📏 Validation @ Step {step}: loss={loss:.4f}, ppl={perplexity:.2f}")
 
         if self.tensorboard_writer:
-            self.tensorboard_writer.add_scalar('Validation/Loss', loss, step)
-            self.tensorboard_writer.add_scalar('Validation/Perplexity', perplexity, step)
+            self.tensorboard_writer.add_scalar("Validation/Loss", loss, step)
+            self.tensorboard_writer.add_scalar("Validation/Perplexity", perplexity, step)
             if extra_metrics:
                 for key, value in extra_metrics.items():
-                    self.tensorboard_writer.add_scalar(f'Validation/{key}', value, step)
+                    self.tensorboard_writer.add_scalar(f"Validation/{key}", value, step)
 
     def log_regression(self, step: int, pass_rate: float, results: list[dict[str, Any]]):
         """记录提示回归测试结果"""
         print(f"🧪 Regression @ Step {step}: pass_rate={pass_rate:.2%} ({len(results)} prompts)")
 
         if self.tensorboard_writer:
-            self.tensorboard_writer.add_scalar('Regression/PassRate', pass_rate, step)
-            passed = sum(1 for item in results if item.get('passed'))
-            self.tensorboard_writer.add_scalar('Regression/Passed', passed, step)
+            self.tensorboard_writer.add_scalar("Regression/PassRate", pass_rate, step)
+            passed = sum(1 for item in results if item.get("passed"))
+            self.tensorboard_writer.add_scalar("Regression/Passed", passed, step)
             sample_lines = []
             for item in results[: min(3, len(results))]:
-                status = '✅' if item.get('passed') else '❌'
-                response = item.get('response', '')
+                status = "✅" if item.get("passed") else "❌"
+                response = item.get("response", "")
                 sample_lines.append(f"{status} {item.get('id', 'unknown')}: {response[:160]}")
             if sample_lines:
-                self.tensorboard_writer.add_text('Regression/Samples', "\n\n".join(sample_lines), step)
+                self.tensorboard_writer.add_text(
+                    "Regression/Samples", "\n\n".join(sample_lines), step
+                )
 
     def _log_to_tensorboard(self, metrics: TrainingMetrics):
         """记录到TensorBoard"""
@@ -531,17 +560,17 @@ class TrainingMonitor:
         step = metrics.step
 
         # 训练指标
-        writer.add_scalar('Training/Loss', metrics.loss, step)
-        writer.add_scalar('Training/LearningRate', metrics.learning_rate, step)
-        writer.add_scalar('Training/GradientNorm', metrics.grad_norm, step)
-        writer.add_scalar('Training/ParameterNorm', metrics.param_norm, step)
-        writer.add_scalar('Training/WeightUpdateRatio', metrics.weight_update_ratio, step)
+        writer.add_scalar("Training/Loss", metrics.loss, step)
+        writer.add_scalar("Training/LearningRate", metrics.learning_rate, step)
+        writer.add_scalar("Training/GradientNorm", metrics.grad_norm, step)
+        writer.add_scalar("Training/ParameterNorm", metrics.param_norm, step)
+        writer.add_scalar("Training/WeightUpdateRatio", metrics.weight_update_ratio, step)
 
         # 性能指标
-        writer.add_scalar('Performance/SamplesPerSec', metrics.samples_per_sec, step)
-        writer.add_scalar('Performance/GPUMemoryGB', metrics.gpu_memory_used, step)
-        writer.add_scalar('Performance/CPUUsagePercent', metrics.cpu_usage, step)
-        writer.add_scalar('Performance/RAMUsageGB', metrics.ram_usage, step)
+        writer.add_scalar("Performance/SamplesPerSec", metrics.samples_per_sec, step)
+        writer.add_scalar("Performance/GPUMemoryGB", metrics.gpu_memory_used, step)
+        writer.add_scalar("Performance/CPUUsagePercent", metrics.cpu_usage, step)
+        writer.add_scalar("Performance/RAMUsageGB", metrics.ram_usage, step)
 
     def _log_to_console(self, metrics: TrainingMetrics, verbose: bool = False):
         """记录到控制台"""
@@ -563,21 +592,23 @@ class TrainingMonitor:
 
         if summary:
             summary_file = os.path.join(self.log_dir, "training_summary.json")
-            with open(summary_file, 'w', encoding='utf-8') as f:
+            with open(summary_file, "w", encoding="utf-8") as f:
                 json.dump(summary, f, indent=2, ensure_ascii=False)
 
             print(f"📋 Training summary saved to: {summary_file}")
 
             # 打印关键统计信息
             print("\n📈 Training Summary:")
-            training_summary = summary.get('training_summary', {})
-            performance_summary = summary.get('performance_summary', {})
+            training_summary = summary.get("training_summary", {})
+            performance_summary = summary.get("performance_summary", {})
 
             print(f"   Total Steps: {training_summary.get('total_steps', 0)}")
             print(f"   Training Time: {training_summary.get('training_time_hours', 0):.2f} hours")
             print(f"   Final Loss: {training_summary.get('final_loss', 0):.4f}")
             print(f"   Loss Reduction: {training_summary.get('loss_reduction', 0):.1f}%")
-            print(f"   Avg Speed: {performance_summary.get('avg_speed_samples_per_sec', 0):.1f} samples/sec")
+            print(
+                f"   Avg Speed: {performance_summary.get('avg_speed_samples_per_sec', 0):.1f} samples/sec"
+            )
 
     def close(self):
         """关闭监控器"""
@@ -593,18 +624,14 @@ class TrainingMonitor:
 # 使用示例和测试代码
 if __name__ == "__main__":
     # 创建一个简单的测试模型
-    test_model = nn.Sequential(
-        nn.Linear(100, 50),
-        nn.ReLU(),
-        nn.Linear(50, 10)
-    )
+    test_model = nn.Sequential(nn.Linear(100, 50), nn.ReLU(), nn.Linear(50, 10))
 
     # 初始化监控器
     monitor = TrainingMonitor(
         test_model,
         log_dir="test_logs",
         enable_tensorboard=True,
-        enable_real_time_plots=False  # 在测试中禁用实时绘图
+        enable_real_time_plots=False,  # 在测试中禁用实时绘图
     )
 
     # 模拟训练过程
@@ -625,7 +652,7 @@ if __name__ == "__main__":
             epoch=step // 20,
             loss=loss.item(),
             learning_rate=0.001 * (0.95 ** (step // 10)),
-            batch_size=32
+            batch_size=32,
         )
 
         # 清除梯度

@@ -2,6 +2,7 @@
 手写实现BPE (Byte Pair Encoding) Tokenizer
 用于新手教学理解分词原理，优化了中文处理
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -21,7 +22,7 @@ CJK_RANGES: list[tuple[str, str]] = [
     ("\u3040", "\u309f"),  # Hiragana
     ("\u30a0", "\u30ff"),  # Katakana
     ("\u31f0", "\u31ff"),  # Katakana Phonetic Extensions
-    ("\uAC00", "\uD7AF"),  # Hangul syllables
+    ("\uac00", "\ud7af"),  # Hangul syllables
 ]
 
 
@@ -136,9 +137,7 @@ class BPETokenizer:
         if self.enable_byte_fallback:
             minimum_vocab = self._reserved_special_tokens + 257
             if self.vocab_size < minimum_vocab:
-                print(
-                    f"⚠️  vocab_size={self.vocab_size} 太小，无法启用 byte fallback，自动禁用。"
-                )
+                print(f"⚠️  vocab_size={self.vocab_size} 太小，无法启用 byte fallback，自动禁用。")
                 self.enable_byte_fallback = False
         self._reserved_byte_tokens = 257 if self.enable_byte_fallback else 0
         self._reserved_token_count = self._reserved_special_tokens + self._reserved_byte_tokens
@@ -174,7 +173,9 @@ class BPETokenizer:
             self.id_to_byte = {}
             self.byte_eow_id = None
 
-    def _validate_special_tokens(self, require_presence: bool = False, *, strict: bool = True) -> None:
+    def _validate_special_tokens(
+        self, require_presence: bool = False, *, strict: bool = True
+    ) -> None:
         """Ensure special tokens exist at the expected ids."""
 
         expected = {
@@ -227,8 +228,12 @@ class BPETokenizer:
         if self.strip_spaces:
             text = re.sub(r"\s+", " ", text)
         text = re.sub(r"([\u4e00-\u9fff])\s+([\u4e00-\u9fff])", r"\1\2", text)
-        text = re.sub(r"([\u4e00-\u9fff])\s+([\u3000-\u303F\uFF00-\uFFEF.,!?;:，。！？；：])", r"\1\2", text)
-        text = re.sub(r"([\u3000-\u303F\uFF00-\uFFEF.,!?;:，。！？；：])\s+([\u4e00-\u9fff])", r"\1\2", text)
+        text = re.sub(
+            r"([\u4e00-\u9fff])\s+([\u3000-\u303F\uFF00-\uFFEF.,!?;:，。！？；：])", r"\1\2", text
+        )
+        text = re.sub(
+            r"([\u3000-\u303F\uFF00-\uFFEF.,!?;:，。！？；：])\s+([\u4e00-\u9fff])", r"\1\2", text
+        )
         text = re.sub(r"\s+([,.!?;:，。！？；：])", r"\1", text)
         return text.strip()
 
@@ -314,14 +319,16 @@ class BPETokenizer:
         min_freq_other = 2 if len(other_words) <= 30000 else max(2, len(other_words) // 15000)
 
         filtered_word_freqs: dict[str, int] = {}
-        filtered_word_freqs.update({word: freq for word, freq in chinese_chars.items() if freq >= min_freq_chinese})
-        filtered_word_freqs.update({word: freq for word, freq in other_words.items() if freq >= min_freq_other})
+        filtered_word_freqs.update(
+            {word: freq for word, freq in chinese_chars.items() if freq >= min_freq_chinese}
+        )
+        filtered_word_freqs.update(
+            {word: freq for word, freq in other_words.items() if freq >= min_freq_other}
+        )
 
         self.word_freqs = filtered_word_freqs
         elapsed = time.time() - start_time
-        chinese_kept = len(
-            [w for w in filtered_word_freqs if len(w) == 1 and is_chinese_char(w)]
-        )
+        chinese_kept = len([w for w in filtered_word_freqs if len(w) == 1 and is_chinese_char(w)])
         print(
             f"✅ 词频计算完成! {len(filtered_word_freqs):,}词汇 (中文:{chinese_kept:,}/原始:{original_vocab_size:,}) 耗时:{elapsed:.1f}秒"
         )
@@ -634,7 +641,9 @@ class BPETokenizer:
         expected_checksum = data.get("checksum")
         payload_for_checksum = {k: data[k] for k in data if k != "checksum"}
         if expected_checksum:
-            actual_checksum = hashlib.sha256(pickle.dumps(payload_for_checksum, protocol=4)).hexdigest()
+            actual_checksum = hashlib.sha256(
+                pickle.dumps(payload_for_checksum, protocol=4)
+            ).hexdigest()
             if actual_checksum != expected_checksum:
                 raise ValueError("Tokenizer checksum mismatch，文件可能已损坏或被篡改。")
             self._checksum = expected_checksum
@@ -666,7 +675,8 @@ class BPETokenizer:
                 raise ValueError(
                     "Tokenizer special tokens mismatch: "
                     + ", ".join(
-                        f"{name}: ckpt={exp} vs file={act}" for name, (exp, act) in mismatches.items()
+                        f"{name}: ckpt={exp} vs file={act}"
+                        for name, (exp, act) in mismatches.items()
                     )
                 )
         self._validate_special_tokens(require_presence=True)
@@ -718,7 +728,9 @@ class BPETokenizer:
             }
         return mapping
 
-    def diff_special_tokens(self, expected: dict[str, dict[str, Any]]) -> dict[str, tuple[Any, Any]]:
+    def diff_special_tokens(
+        self, expected: dict[str, dict[str, Any]]
+    ) -> dict[str, tuple[Any, Any]]:
         if not expected:
             return {}
         actual = self.special_tokens_map(require_presence=False)
@@ -728,9 +740,7 @@ class BPETokenizer:
             if actual_info is None:
                 mismatches[name] = (expected_info, None)
                 continue
-            keys_to_compare = {
-                key for key in ("token", "id", "present") if key in expected_info
-            }
+            keys_to_compare = {key for key in ("token", "id", "present") if key in expected_info}
             if not keys_to_compare:
                 keys_to_compare = {"token", "id"}
             comparison = {k: expected_info.get(k) for k in keys_to_compare}

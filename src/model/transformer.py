@@ -3,6 +3,7 @@
 包含所有核心组件：注意力机制、前馈网络、位置编码等
 用于新手理解Transformer原理
 """
+
 import math
 
 import torch
@@ -66,8 +67,13 @@ class MultiHeadAttention(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.scale = math.sqrt(self.d_k)
 
-    def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor,
-                mask: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """
         前向传播
 
@@ -84,7 +90,7 @@ class MultiHeadAttention(nn.Module):
 
         # 1. 线性投影得到Q, K, V
         Q = self.w_q(query)  # (batch_size, seq_len, d_model)
-        K = self.w_k(key)    # (batch_size, seq_len, d_model)
+        K = self.w_k(key)  # (batch_size, seq_len, d_model)
         V = self.w_v(value)  # (batch_size, seq_len, d_model)
 
         # 2. 重塑为多头格式
@@ -106,28 +112,30 @@ class MultiHeadAttention(nn.Module):
 
         return output
 
+
 class SwiGLUFeedForward(nn.Module):
     """
     这是一个实现了 SwiGLU 的标准前馈网络层。
     """
+
     def __init__(self, dim: int, hidden_dim: int, dropout: float = 0.1):
         super().__init__()
         # 通常 hidden_dim 是 dim 的倍数，例如 4 * dim
         # SwiGLU 论文建议使用 2/3 的倍数，如 8/3 * dim
 
-        self.w_gate = nn.Linear(dim, hidden_dim, bias=False) # 对应公式中的 W
-        self.w_up = nn.Linear(dim, hidden_dim, bias=False)   # 对应公式中的 V
-        self.w_down = nn.Linear(hidden_dim, dim, bias=False) # 最后输出的线性层
+        self.w_gate = nn.Linear(dim, hidden_dim, bias=False)  # 对应公式中的 W
+        self.w_up = nn.Linear(dim, hidden_dim, bias=False)  # 对应公式中的 V
+        self.w_down = nn.Linear(hidden_dim, dim, bias=False)  # 最后输出的线性层
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # 1. 计算门和数据通路
         gate = self.w_gate(x)  # xW
-        up = self.w_up(x)      # xV
+        up = self.w_up(x)  # xV
 
         # 2. 应用 Swish 激活函数到门上，并执行逐元素相乘
         # F.silu 是 PyTorch 中 Swish (或 SiLU) 函数的官方实现
-        gated_output = F.silu(gate) * up # Swish(xW) ⊙ (xV)
+        gated_output = F.silu(gate) * up  # Swish(xW) ⊙ (xV)
 
         # 3. 通过最后一个线性层，将维度映射回原始维度
         output = self.w_down(self.dropout(gated_output))
@@ -155,8 +163,7 @@ class PositionalEncoding(nn.Module):
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
 
         # 计算除数项
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() *
-                           (-math.log(10000.0) / d_model))
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
 
         # 计算正弦和余弦
         pe[:, 0::2] = torch.sin(position * div_term)  # 偶数位置
@@ -164,7 +171,7 @@ class PositionalEncoding(nn.Module):
 
         # 添加批次维度并注册为buffer
         pe = pe.unsqueeze(0).transpose(0, 1)
-        self.register_buffer('pe', pe)
+        self.register_buffer("pe", pe)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -193,23 +200,21 @@ class TransformerBlock(nn.Module):
         self.config = config
 
         # 选择注意力机制类型
-        if hasattr(config, 'use_gqa') and config.use_gqa:
+        if hasattr(config, "use_gqa") and config.use_gqa:
             self.attention = GroupedQueryAttention(
                 d_model=config.hidden_size,
                 num_heads=config.num_attention_heads,
-                num_key_value_heads=getattr(config, 'num_key_value_heads', None),
+                num_key_value_heads=getattr(config, "num_key_value_heads", None),
                 dropout=config.attention_dropout,
-                use_rope=getattr(config, 'use_rope', True),
+                use_rope=getattr(config, "use_rope", True),
                 max_position_embeddings=config.max_position_embeddings,
-                rope_base=getattr(config, 'rope_theta', 10000.0),
-                flash_attn=getattr(config, 'flash_attn', False)
+                rope_base=getattr(config, "rope_theta", 10000.0),
+                flash_attn=getattr(config, "flash_attn", False),
             )
         else:
             # 兼容传统注意力
             self.attention = MultiHeadAttention(
-                config.hidden_size,
-                config.num_attention_heads,
-                config.attention_dropout
+                config.hidden_size, config.num_attention_heads, config.attention_dropout
             )
 
         self.has_moe = getattr(config, "use_moe", False)
@@ -218,7 +223,9 @@ class TransformerBlock(nn.Module):
         if self.has_moe:
             total_experts = max(getattr(config, "n_routed_experts", 0), 0)
             shared_experts = max(getattr(config, "n_shared_experts", 0), 0)
-            shared_experts = min(shared_experts, total_experts) if total_experts > 0 else shared_experts
+            shared_experts = (
+                min(shared_experts, total_experts) if total_experts > 0 else shared_experts
+            )
             top_k = max(1, getattr(config, "num_experts_per_tok", 1))
 
             if total_experts <= 0 and shared_experts <= 0:
@@ -248,9 +255,7 @@ class TransformerBlock(nn.Module):
 
         if not getattr(self, "feed_forward", None):
             self.feed_forward = SwiGLUFeedForward(
-                config.hidden_size,
-                config.intermediate_size,
-                config.dropout
+                config.hidden_size, config.intermediate_size, config.dropout
             )
             self.has_moe = False
 
@@ -260,11 +265,13 @@ class TransformerBlock(nn.Module):
 
         self.dropout = nn.Dropout(config.dropout)
 
-    def forward(self,
-                x: torch.Tensor,
-                mask: torch.Tensor | None = None,
-                position_ids: torch.Tensor | None = None,
-                collect_moe_loss: bool = False):
+    def forward(
+        self,
+        x: torch.Tensor,
+        mask: torch.Tensor | None = None,
+        position_ids: torch.Tensor | None = None,
+        collect_moe_loss: bool = False,
+    ):
         """
         Args:
             x: (batch_size, seq_len, hidden_size)
@@ -276,11 +283,9 @@ class TransformerBlock(nn.Module):
         normalized_x = self.norm1(x)
 
         # 多头注意力
-        if hasattr(self.config, 'use_gqa') and self.config.use_gqa:
+        if hasattr(self.config, "use_gqa") and self.config.use_gqa:
             attn_output, _ = self.attention(
-                hidden_states=normalized_x,
-                attention_mask=mask,
-                position_ids=position_ids
+                hidden_states=normalized_x, attention_mask=mask, position_ids=position_ids
             )
         else:
             attn_output = self.attention(normalized_x, normalized_x, normalized_x, mask)
@@ -324,21 +329,22 @@ class MiniGPT(nn.Module):
         self.token_embedding = nn.Embedding(config.vocab_size, config.hidden_size)
 
         # 位置编码（根据配置选择）
-        self.use_rope = getattr(config, 'use_rope', True)
+        self.use_rope = getattr(config, "use_rope", True)
         if not self.use_rope:
-            self.positional_encoding = PositionalEncoding(config.hidden_size, config.max_position_embeddings)
+            self.positional_encoding = PositionalEncoding(
+                config.hidden_size, config.max_position_embeddings
+            )
 
         # Transformer层
-        self.transformer_blocks = nn.ModuleList([
-            TransformerBlock(config)
-            for _ in range(config.num_hidden_layers)
-        ])
+        self.transformer_blocks = nn.ModuleList(
+            [TransformerBlock(config) for _ in range(config.num_hidden_layers)]
+        )
 
         # 输出层
         self.layer_norm = RMSNorm(config.hidden_size, config.rms_norm_eps)
 
         # 嵌入权重共享（可选）
-        if getattr(config, 'tie_word_embeddings', False):
+        if getattr(config, "tie_word_embeddings", False):
             self.lm_head = None  # 将在forward中使用token_embedding的权重
         else:
             self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
@@ -359,7 +365,7 @@ class MiniGPT(nn.Module):
                 nn.init.normal_(module.weight, mean=0.0, std=0.02)
             elif isinstance(module, nn.LayerNorm | RMSNorm):
                 nn.init.ones_(module.weight)
-                if hasattr(module, 'bias') and module.bias is not None:
+                if hasattr(module, "bias") and module.bias is not None:
                     nn.init.zeros_(module.bias)
 
     def create_causal_mask(self, seq_len: int) -> torch.Tensor:
@@ -370,11 +376,13 @@ class MiniGPT(nn.Module):
         mask = torch.tril(torch.ones(seq_len, seq_len))
         return mask  # 1表示可见，0表示掩码
 
-    def forward(self,
-                input_ids: torch.Tensor,
-                attention_mask: torch.Tensor | None = None,
-                position_ids: torch.Tensor | None = None,
-                return_aux_loss: bool = False):
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.Tensor | None = None,
+        return_aux_loss: bool = False,
+    ):
         """
         前向传播
 
@@ -404,17 +412,16 @@ class MiniGPT(nn.Module):
 
         # 4. 生成position_ids（如果未提供）
         if position_ids is None and self.use_rope:
-            position_ids = torch.arange(seq_len, device=input_ids.device).unsqueeze(0).expand(batch_size, -1)
+            position_ids = (
+                torch.arange(seq_len, device=input_ids.device).unsqueeze(0).expand(batch_size, -1)
+            )
 
         # 5. 通过Transformer块
         total_moe_loss = None
         for transformer_block in self.transformer_blocks:
             if return_aux_loss and getattr(self.config, "use_moe", False):
                 x, block_moe_loss = transformer_block(
-                    x,
-                    mask=causal_mask,
-                    position_ids=position_ids,
-                    collect_moe_loss=True
+                    x, mask=causal_mask, position_ids=position_ids, collect_moe_loss=True
                 )
                 if block_moe_loss is not None:
                     if total_moe_loss is None:
@@ -441,8 +448,13 @@ class MiniGPT(nn.Module):
 
         return logits
 
-    def generate(self, input_ids: torch.Tensor, max_length: int = None,
-                 temperature: float = None, top_k: int = None) -> torch.Tensor:
+    def generate(
+        self,
+        input_ids: torch.Tensor,
+        max_length: int = None,
+        temperature: float = None,
+        top_k: int = None,
+    ) -> torch.Tensor:
         """文本生成
 
         Args:
@@ -492,7 +504,9 @@ class MiniGPT(nn.Module):
         return sum(p.numel() for p in self.parameters())
 
 
-def create_model(vocab_size: int = None, model_size: str = "small", config: MiniGPTConfig = None) -> MiniGPT:
+def create_model(
+    vocab_size: int = None, model_size: str = "small", config: MiniGPTConfig = None
+) -> MiniGPT:
     """创建不同大小的模型"""
 
     if config is not None:
@@ -503,6 +517,7 @@ def create_model(vocab_size: int = None, model_size: str = "small", config: Mini
     else:
         # 使用预定义配置
         from .config import get_config
+
         model_config = get_config(model_size)
         if vocab_size is not None:
             model_config.vocab_size = vocab_size
@@ -510,7 +525,9 @@ def create_model(vocab_size: int = None, model_size: str = "small", config: Mini
     model = MiniGPT(model_config)
 
     print(f"创建 {model_size} 模型，参数量: {model.get_num_params():,}")
-    print(f"配置详情: hidden_size={model_config.hidden_size}, layers={model_config.num_hidden_layers}, heads={model_config.num_attention_heads}")
+    print(
+        f"配置详情: hidden_size={model_config.hidden_size}, layers={model_config.num_hidden_layers}, heads={model_config.num_attention_heads}"
+    )
 
     return model
 

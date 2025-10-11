@@ -1,4 +1,5 @@
 """Checkpoint helpers for the training pipeline."""
+
 from __future__ import annotations
 
 import glob
@@ -26,7 +27,9 @@ class CheckpointManager:
         return checkpoints[0]
 
     def find_pretrain_source(self) -> str | None:
-        pretrain_dir = os.path.join(self.config.checkpoint_dir, f"pretrain_{self.config.model_size}")
+        pretrain_dir = os.path.join(
+            self.config.checkpoint_dir, f"pretrain_{self.config.model_size}"
+        )
         search_patterns = [
             os.path.join(pretrain_dir, "checkpoint_step_*.pt"),
             os.path.join(pretrain_dir, "final_model.pt"),
@@ -79,7 +82,9 @@ class CheckpointManager:
                     print(f"⚠️  加载 pretrain 权重失败: {exc}")
                     print("   将使用随机初始化的模型")
             else:
-                print(f"\n⚠️  未找到 pretrain 模型: {os.path.join(self.config.checkpoint_dir, f'pretrain_{self.config.model_size}')}")
+                print(
+                    f"\n⚠️  未找到 pretrain 模型: {os.path.join(self.config.checkpoint_dir, f'pretrain_{self.config.model_size}')}"
+                )
                 print(
                     f"   建议先运行 pretrain 模式训练基础模型：\n"
                     f"   uv run python scripts/train.py --mode pretrain --config {self.config.model_size}"
@@ -161,8 +166,8 @@ class CheckpointManager:
                     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
                     # Set initial_lr for each param group (required for LR schedulers when resuming)
                     for group in optimizer.param_groups:
-                        if 'initial_lr' not in group:
-                            group['initial_lr'] = group['lr']
+                        if "initial_lr" not in group:
+                            group["initial_lr"] = group["lr"]
                     print("✅ 优化器状态已加载")
                 except Exception as exc:
                     print(f"⚠️  优化器状态加载失败: {exc}")

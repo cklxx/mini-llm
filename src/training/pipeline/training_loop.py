@@ -1,4 +1,5 @@
 """Standalone training loop logic for the MiniGPT trainer."""
+
 from __future__ import annotations
 
 import math
@@ -57,8 +58,8 @@ class TrainingLoopRunner:
             memory_hooks.on_train_start()
 
         if self.device == "cuda":
-            allocated = torch.cuda.memory_allocated() / 1024 ** 3
-            reserved = torch.cuda.memory_reserved() / 1024 ** 3
+            allocated = torch.cuda.memory_allocated() / 1024**3
+            reserved = torch.cuda.memory_reserved() / 1024**3
             print(f"💾 初始GPU内存: 已分配={allocated:.2f}GB, 已保留={reserved:.2f}GB")
 
         best_val_loss = float("inf")
@@ -100,7 +101,9 @@ class TrainingLoopRunner:
                         memory_hooks.on_oom()
                     raise
 
-                if (batch_idx + 1) % accumulation_steps == 0 or (batch_idx + 1) == len(train_loader):
+                if (batch_idx + 1) % accumulation_steps == 0 or (batch_idx + 1) == len(
+                    train_loader
+                ):
                     step, grad_norm = self._optimizer_step(
                         model, optimizer, scheduler, scaler, step
                     )
@@ -109,7 +112,9 @@ class TrainingLoopRunner:
                     epoch_loss += actual_loss
                     epoch_steps += 1
 
-                    current_batch_size = batch["input_ids"].size(0) if isinstance(batch, dict) else batch.size(0)
+                    current_batch_size = (
+                        batch["input_ids"].size(0) if isinstance(batch, dict) else batch.size(0)
+                    )
                     monitor.log_step(
                         step=step,
                         epoch=epoch,
@@ -284,7 +289,9 @@ class TrainingLoopRunner:
         return best_val_loss, no_improve_steps
 
     # ------------------------------------------------------------------
-    def _evaluate(self, model, tokenizer, val_loader, criterion, monitor, step, regression_suite=None):
+    def _evaluate(
+        self, model, tokenizer, val_loader, criterion, monitor, step, regression_suite=None
+    ):
         metrics: dict[str, Any] = {}
         if val_loader:
             model.eval()
@@ -308,14 +315,20 @@ class TrainingLoopRunner:
                     total_loss += loss.item() * valid_tokens
                     total_tokens += valid_tokens
             avg_loss = total_loss / total_tokens if total_tokens > 0 else float("inf")
-            perplexity = math.exp(min(20, avg_loss)) if avg_loss not in (float("inf"), float("nan")) else float("inf")
+            perplexity = (
+                math.exp(min(20, avg_loss))
+                if avg_loss not in (float("inf"), float("nan"))
+                else float("inf")
+            )
             metrics = {
                 "val_loss": avg_loss,
                 "perplexity": perplexity,
                 "val_tokens": total_tokens,
             }
             monitor.log_validation(step, avg_loss, perplexity, {"ValTokens": total_tokens})
-            print(f"🔍 验证 Step {step}: loss={avg_loss:.4f}, ppl={perplexity:.2f}, tokens={total_tokens}")
+            print(
+                f"🔍 验证 Step {step}: loss={avg_loss:.4f}, ppl={perplexity:.2f}, tokens={total_tokens}"
+            )
             model.train()
         else:
             print("ℹ️ 当前未配置验证集，跳过验证损失计算，仅进行生成检查")
@@ -331,7 +344,9 @@ class TrainingLoopRunner:
                 print(f"⚠️  Regression suite failed: {exc}")
         return metrics
 
-    def _smoke_generation(self, model, tokenizer, step, prompt: str = "你好，我是", max_new_tokens: int = 32):
+    def _smoke_generation(
+        self, model, tokenizer, step, prompt: str = "你好，我是", max_new_tokens: int = 32
+    ):
         model.eval()
         try:
             input_ids = tokenizer.encode(prompt, add_special_tokens=True)
@@ -360,13 +375,15 @@ class TrainingLoopRunner:
         print(f"   当前批次大小: {batch_size}")
         print(f"   序列长度: {seq_length}")
         if self.device == "cuda":
-            allocated = torch.cuda.memory_allocated() / 1024 ** 3
-            reserved = torch.cuda.memory_reserved() / 1024 ** 3
+            allocated = torch.cuda.memory_allocated() / 1024**3
+            reserved = torch.cuda.memory_reserved() / 1024**3
             print(f"   GPU内存: 已分配={allocated:.2f}GB, 已保留={reserved:.2f}GB")
             torch.cuda.empty_cache()
         print("\n💡 建议解决方案:")
         print(f"   1. 降低batch_size: --batch-size {self.config.batch_size // 2}")
-        print(f"   2. 增加梯度累积: 当前={self.config.gradient_accumulation_steps}, 建议={self.config.gradient_accumulation_steps * 2}")
+        print(
+            f"   2. 增加梯度累积: 当前={self.config.gradient_accumulation_steps}, 建议={self.config.gradient_accumulation_steps * 2}"
+        )
         print(f"   3. 减小序列长度: 当前max_seq_len={self.config.max_seq_len}")
         print("   4. 启用梯度检查点 (gradient checkpointing)")
         print("   5. 设置环境变量: PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True")

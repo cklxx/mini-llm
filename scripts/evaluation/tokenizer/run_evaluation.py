@@ -121,7 +121,9 @@ class OneClickEvaluator:
 
         # 生成对比报告
         report_path = self.output_dir / "reports" / f"comparison_report_{timestamp}.json"
-        comparison_report = comparison.generate_comparison_report(evaluation_results, str(report_path))
+        comparison_report = comparison.generate_comparison_report(
+            evaluation_results, str(report_path)
+        )
         print(f"   📋 报告已保存到: {report_path}")
 
         # 4. 显示关键结果
@@ -137,11 +139,11 @@ class OneClickEvaluator:
             print(f"   英文支持: {metrics.get('english_support', 0):.2f}")
 
         # 5. 显示最佳推荐
-        if 'analysis' in comparison_report and 'best_overall' in comparison_report['analysis']:
-            best = comparison_report['analysis']['best_overall']
+        if "analysis" in comparison_report and "best_overall" in comparison_report["analysis"]:
+            best = comparison_report["analysis"]["best_overall"]
             print(f"\n🌟 综合最佳: {best['tokenizer']}")
             print(f"   综合得分: {best['score']:.3f}")
-            if 'strengths' in best:
+            if "strengths" in best:
                 print(f"   优势特点: {', '.join(best['strengths'])}")
 
         print(f"\n📂 所有结果已保存到: {self.output_dir}")

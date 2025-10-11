@@ -21,9 +21,9 @@ import torch
 
 # 添加项目根目录到路径（用于独立运行）
 if __name__ == "__main__":
-    project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+    project_root = os.path.join(os.path.dirname(__file__), "..", "..")
     sys.path.append(project_root)
-    sys.path.append(os.path.join(project_root, 'src'))
+    sys.path.append(os.path.join(project_root, "src"))
 
 # 导入各个组件
 from ..training.datasets import ConversationDataset
@@ -109,7 +109,7 @@ class RLHFPipeline:
         """设置日志"""
         logging.basicConfig(
             level=getattr(logging, self.config.log_level),
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         )
         self.logger = logging.getLogger("RLHF")
 
@@ -131,13 +131,14 @@ class RLHFPipeline:
     def _save_config(self):
         """保存配置"""
         config_path = os.path.join(self.config.save_dir, "config.json")
-        with open(config_path, 'w', encoding='utf-8') as f:
+        with open(config_path, "w", encoding="utf-8") as f:
             json.dump(self.config.__dict__, f, indent=2, ensure_ascii=False)
 
     def load_tokenizer(self):
         """加载分词器"""
         import pickle
-        with open(self.config.tokenizer_path, 'rb') as f:
+
+        with open(self.config.tokenizer_path, "rb") as f:
             self.tokenizer = pickle.load(f)
         self.logger.info("分词器加载完成")
 
@@ -156,7 +157,7 @@ class RLHFPipeline:
             # 加载已保存的模型
             checkpoint = torch.load(model_path, map_location=self.device)
             self.base_model = create_model(vocab_size=len(self.tokenizer), model_size="small")
-            self.base_model.load_state_dict(checkpoint['model_state_dict'])
+            self.base_model.load_state_dict(checkpoint["model_state_dict"])
         else:
             # 创建新模型
             self.base_model = create_model(vocab_size=len(self.tokenizer), model_size="small")
@@ -175,10 +176,7 @@ class RLHFPipeline:
 
         # 创建SFT trainer
         sft_trainer = create_trainer(
-            training_type='sft',
-            model=self.base_model,
-            tokenizer=self.tokenizer,
-            device=self.device
+            training_type="sft", model=self.base_model, tokenizer=self.tokenizer, device=self.device
         )
 
         # 加载SFT数据
@@ -187,15 +185,14 @@ class RLHFPipeline:
 
         # 创建数据加载器
         from torch.utils.data import DataLoader
+
         dataset = ConversationDataset(sft_data, self.tokenizer, self.config.max_length)
         dataloader = DataLoader(dataset, batch_size=self.config.sft_batch_size, shuffle=True)
 
         # 训练
         sft_save_dir = os.path.join(self.config.save_dir, "sft")
         sft_trainer.train(
-            train_dataloader=dataloader,
-            num_epochs=self.config.sft_epochs,
-            save_dir=sft_save_dir
+            train_dataloader=dataloader, num_epochs=self.config.sft_epochs, save_dir=sft_save_dir
         )
 
         # 保存SFT模型
@@ -221,20 +218,16 @@ class RLHFPipeline:
         if self.sft_model is None:
             checkpoint = torch.load(sft_model_path, map_location=self.device)
             self.sft_model = self.base_model
-            self.sft_model.load_state_dict(checkpoint['model_state_dict'])
+            self.sft_model.load_state_dict(checkpoint["model_state_dict"])
 
         # 创建奖励模型
         self.reward_model = create_reward_model(
-            self.sft_model,
-            freeze_backbone=self.config.freeze_reward_backbone
+            self.sft_model, freeze_backbone=self.config.freeze_reward_backbone
         )
 
         # 创建奖励训练器
         reward_trainer = create_reward_trainer(
-            self.reward_model,
-            self.tokenizer,
-            self.device,
-            learning_rate=self.config.reward_lr
+            self.reward_model, self.tokenizer, self.device, learning_rate=self.config.reward_lr
         )
 
         # 加载偏好数据
@@ -242,7 +235,7 @@ class RLHFPipeline:
             self.config.reward_data_path,
             self.tokenizer,
             batch_size=self.config.reward_batch_size,
-            max_length=self.config.max_length
+            max_length=self.config.max_length,
         )
 
         # 训练奖励模型
@@ -250,7 +243,7 @@ class RLHFPipeline:
         reward_trainer.train(
             train_dataloader=train_dataloader,
             num_epochs=self.config.reward_epochs,
-            save_dir=reward_save_dir
+            save_dir=reward_save_dir,
         )
 
         # 保存奖励模型
@@ -276,13 +269,13 @@ class RLHFPipeline:
         if self.sft_model is None:
             checkpoint = torch.load(sft_model_path, map_location=self.device)
             self.sft_model = self.base_model
-            self.sft_model.load_state_dict(checkpoint['model_state_dict'])
+            self.sft_model.load_state_dict(checkpoint["model_state_dict"])
 
         # 加载奖励模型
         if self.reward_model is None:
             reward_checkpoint = torch.load(reward_model_path, map_location=self.device)
             self.reward_model = create_reward_model(self.sft_model)
-            self.reward_model.load_state_dict(reward_checkpoint['model_state_dict'])
+            self.reward_model.load_state_dict(reward_checkpoint["model_state_dict"])
 
         # 创建价值模型
         value_model = create_value_model(self.sft_model)
@@ -298,7 +291,7 @@ class RLHFPipeline:
             lr_value=self.config.ppo_lr_value,
             batch_size=self.config.ppo_batch_size,
             mini_batch_size=self.config.ppo_mini_batch_size,
-            ppo_epochs=self.config.ppo_epochs
+            ppo_epochs=self.config.ppo_epochs,
         )
 
         # 加载PPO提示数据
@@ -310,7 +303,7 @@ class RLHFPipeline:
             prompts=prompts,
             num_iterations=self.config.ppo_iterations,
             save_interval=self.config.save_interval,
-            save_dir=ppo_save_dir
+            save_dir=ppo_save_dir,
         )
 
         # 保存最终模型
@@ -350,7 +343,7 @@ class RLHFPipeline:
     def _load_sft_data(self) -> list[dict]:
         """加载SFT数据"""
         sft_data = []
-        with open(self.config.sft_data_path, encoding='utf-8') as f:
+        with open(self.config.sft_data_path, encoding="utf-8") as f:
             for line in f:
                 data = json.loads(line.strip())
                 sft_data.append(data)
@@ -359,11 +352,11 @@ class RLHFPipeline:
     def _load_ppo_prompts(self) -> list[str]:
         """加载PPO提示数据"""
         prompts = []
-        with open(self.config.ppo_data_path, encoding='utf-8') as f:
+        with open(self.config.ppo_data_path, encoding="utf-8") as f:
             for line in f:
                 data = json.loads(line.strip())
-                if 'prompt' in data:
-                    prompts.append(data['prompt'])
+                if "prompt" in data:
+                    prompts.append(data["prompt"])
                 elif isinstance(data, str):
                     prompts.append(data)
         return prompts
@@ -384,16 +377,16 @@ class RLHFPipeline:
         # 加载模型
         checkpoint = torch.load(model_path, map_location=self.device)
         model = self.base_model
-        model.load_state_dict(checkpoint['model_state_dict'])
+        model.load_state_dict(checkpoint["model_state_dict"])
         model.eval()
 
         # 实现评估逻辑
         # 这里可以添加各种评估指标：困惑度、BLEU、Rouge等
 
         eval_results = {
-            'perplexity': 0.0,  # 困惑度
-            'bleu_score': 0.0,  # BLEU分数
-            'rouge_score': 0.0,  # ROUGE分数
+            "perplexity": 0.0,  # 困惑度
+            "bleu_score": 0.0,  # BLEU分数
+            "rouge_score": 0.0,  # ROUGE分数
         }
 
         self.logger.info("模型评估完成")
@@ -413,7 +406,7 @@ class RLHFPipeline:
         if model_path:
             checkpoint = torch.load(model_path, map_location=self.device)
             model = self.base_model
-            model.load_state_dict(checkpoint['model_state_dict'])
+            model.load_state_dict(checkpoint["model_state_dict"])
         else:
             model = self.sft_model or self.base_model
 
@@ -437,7 +430,7 @@ def create_rlhf_pipeline(config: RLHFConfig | dict | str) -> RLHFPipeline:
     """
     if isinstance(config, str):
         # 从文件加载配置
-        with open(config, encoding='utf-8') as f:
+        with open(config, encoding="utf-8") as f:
             config_dict = json.load(f)
         config = RLHFConfig(**config_dict)
     elif isinstance(config, dict):
@@ -454,20 +447,17 @@ def get_default_config() -> RLHFConfig:
         model_name="minigpt",
         tokenizer_path="checkpoints/tokenizer.pkl",
         device="auto",
-
         # 数据路径
         sft_data_path="data/dataset/minimind_dataset/sft_mini_512.jsonl",
         reward_data_path="data/dataset/minimind_dataset/dpo.jsonl",
         ppo_data_path="data/dataset/minimind_dataset/pretrain_hq.jsonl",
-
         # 训练参数
         sft_epochs=3,
         reward_epochs=5,
         ppo_iterations=1000,
-
         # 输出配置
         save_dir="rlhf_outputs",
-        save_interval=100
+        save_interval=100,
     )
 
 
