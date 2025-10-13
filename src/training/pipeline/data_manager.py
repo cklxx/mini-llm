@@ -33,14 +33,18 @@ class DataResolver:
         self.mode = mode
 
     def resolve_data_path(self, filename: str) -> str | None:
-        search_dirs = [self.config.data_dir]
+        search_dirs = []
+        if hasattr(self.config, "data_search_dirs"):
+            search_dirs.extend(self.config.data_search_dirs)
+        else:
+            search_dirs.append(self.config.data_dir)
 
         dataset_dir = os.path.join(self.config.data_dir, "dataset")
-        if os.path.exists(dataset_dir):
+        if os.path.exists(dataset_dir) and dataset_dir not in search_dirs:
             search_dirs.append(dataset_dir)
 
         extra_dir = os.environ.get("MINIGPT_DATA_DIR")
-        if extra_dir:
+        if extra_dir and extra_dir not in search_dirs:
             search_dirs.append(extra_dir)
 
         for root in search_dirs:
@@ -62,12 +66,14 @@ class DataResolver:
     def dataset_candidates(self) -> Sequence[Sequence[str]]:
         if self.mode == "pretrain":
             return [
-                ("pretrain_hq.jsonl",),
-                ("sft_mini_512.jsonl", "minigpt_identity.jsonl"),
+                ("wiki_zh_full.simdedup.jsonl", "wiki_zh_full.cleaned.jsonl", "wiki_pretrain_part1.json"),
+                ("chinacorpus_full.simdedup.jsonl", "chinacorpus_full.cleaned.jsonl"),
+                ("pretrain_hq.cleaned.jsonl", "pretrain_hq.jsonl"),
+                ("slimpajama_chunk1_part0_49.cleaned.jsonl",),
             ]
         if self.mode == "sft":
             return [
-                ("sft_mini_512.jsonl",),
+                ("sft_mini_512.cleaned.jsonl", "sft_mini_512.jsonl"),
                 ("alex_identity.jsonl", "minigpt_identity.jsonl"),
                 ("ultra_think.jsonl",),
             ]

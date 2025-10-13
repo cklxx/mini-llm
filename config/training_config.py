@@ -81,6 +81,10 @@ class BaseConfig:
         # 基础路径
         self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.data_dir = os.path.join(self.project_root, "data")
+        self.data_search_dirs = [
+            self.data_dir,
+            os.path.join(self.project_root, "data", "final")
+        ]
         self.checkpoint_dir = os.path.join(self.project_root, "checkpoints")
         self.log_dir = os.path.join(self.project_root, "logs")
 

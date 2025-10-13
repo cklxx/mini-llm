@@ -1,0 +1,30 @@
+{
+  "type": "pretrain",
+  "total_target_tokens": 4400000000.0,
+  "datasets": [
+    {
+      "name": "wiki_zh",
+      "path": "data/final/wiki_zh_full.simdedup.jsonl",
+      "target_tokens": 900000000.0,
+      "weight": 0.204545
+    },
+    {
+      "name": "chinacorpus",
+      "path": "data/final/chinacorpus_full.simdedup.jsonl",
+      "target_tokens": 800000000.0,
+      "weight": 0.181818
+    },
+    {
+      "name": "pretrain_hq",
+      "path": "data/final/pretrain_hq.cleaned.jsonl",
+      "target_tokens": 600000000.0,
+      "weight": 0.136364
+    },
+    {
+      "name": "slimpajama",
+      "path": "data/final/slimpajama_chunk1_part0_49.cleaned.jsonl",
+      "target_tokens": 2100000000.0,
+      "weight": 0.477273
+    }
+  ]
+}

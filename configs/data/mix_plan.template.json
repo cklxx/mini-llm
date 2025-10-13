@@ -1,0 +1,27 @@
+{
+  "wiki_zh_clean": {
+    "path": "data/final/wiki_zh_full.simdedup.jsonl",
+    "approx_tokens": 905316530.0,
+    "target_tokens": 900000000.0
+  },
+  "chinacorpus_clean": {
+    "path": "data/final/chinacorpus_full.simdedup.jsonl",
+    "approx_tokens": 806153064.0,
+    "target_tokens": 800000000.0
+  },
+  "pretrain_hq": {
+    "path": "data/final/pretrain_hq.cleaned.jsonl",
+    "approx_tokens": 600007577.0,
+    "target_tokens": 600000000.0
+  },
+  "slimpajama_en": {
+    "path": "data/final/slimpajama_chunk1_part0_49.cleaned.jsonl",
+    "approx_tokens": 2161762249.0,
+    "target_tokens": 2100000000.0
+  },
+  "code_corpus": {
+    "path": "TBD (e.g., The Stack subset)",
+    "approx_tokens": 0.0,
+    "target_tokens": 700000000.0
+  }
+}

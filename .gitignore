@@ -68,3 +68,6 @@ htmlcov/
 *.swp
 tmp/
 temp/
+data/external/
+data/processed/
+data/final/

@@ -1,0 +1,10 @@
+{
+  "type": "sft",
+  "datasets": [
+    {
+      "name": "sft_clean",
+      "path": "data/final/sft_mini_512.cleaned.jsonl",
+      "num_records": 1149770
+    }
+  ]
+}
