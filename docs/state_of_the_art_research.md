@@ -9,6 +9,8 @@
 4. 多模态与指令增强模型
 5. 轻量化与蒸馏方向
 6. 基础设施（Infra）建设要点
+7. 关键论文与评测索引（2024-2025）
+8. 调研结论与建议
 
 ---
 
@@ -27,57 +29,55 @@
 
 ## 2. Transformer-Decoder 类全参数模型
 
-### 2.1 OpenAI GPT-4 / o 系列
-- **架构**：多层深度 Transformer-Decoder，内部包含稀疏 MoE 组件（官方未披露，但多方分析认为存在专家路由）。2025 年发布的 o4 系列强调推理强化，引入更深层专家路由与跨会话记忆缓存。
-- **模型尺寸**：官方未公开；推测主模型参数量在万亿级别，存在多种规模的专家分支以匹配不同产品（o4、o4-mini、o4-high）。
-- **训练 GPU**：早期基于 NVIDIA A100 80GB SXM4 集群，现已迁移至 H100/B100 万卡级训练，并尝试引入专用加速器协同优化 RLHF。
+### 2.1 OpenAI o4 推理系列
+- **架构**：多层深度 Transformer-Decoder，内部包含稀疏专家与跨模态缓存；2025 年的 o4 与 o4-high 在推理链条上引入“长期工作记忆”路由，强化工具与自主规划。
+- **模型尺寸**：官方未公开；推测主模型参数量在 1T+，搭配 300B/100B 级别的服务版本（o4-mini/o4-small）以覆盖不同延迟场景。
+- **训练 GPU**：核心训练迁移到万卡级 NVIDIA H100/B100 集群，并使用液冷机柜；推测叠加 FPGA/ASIC 加速 RLHF 以及代理评估环节。
 - **基础设施**：
   - 高速 InfiniBand 网络（400-800 Gbps）+ 自研光互联
   - 深度定制 Megatron-LM / DeepSpeed，并叠加 Reasoning Runtime
-  - 大规模数据治理、RLHF/RAHF 管线与 Trust & Safety 自动化红队体系
+  - 自监督 + 合成数据闭环、Trust & Safety 自动红队平台
 
-### 2.2 Anthropic Claude 3（Opus/Sonnet/Haiku）
-- **架构**：标准 Transformer Decoder，强调对齐与安全性；Opus 版本可能在 MoE 基础上优化。2025 年 Claude 3.5 在工具使用、推理与长上下文方面显著增强。
-- **模型尺寸**：未公开；推测 Opus 在数千亿到万亿级，Sonnet/Haiku 为中小型衍生。
-- **训练 GPU**：主要采用 NVIDIA H100/A100，并扩展到 TPU v5p；披露采购超过 20,000 张 H100，形成混合算力池。
+### 2.2 Anthropic Claude 3.5（Opus/Sonnet/Haiku）
+- **架构**：强化推理的 Transformer Decoder，叠加安全性专家模块；2025 年 Claude 3.5 引入多工具记忆路由，支持 2M tokens 上下文。
+- **模型尺寸**：未公开；行业估算 Opus 在 800B-1T 总参数，活跃参数约 120-180B；Sonnet/Haiku 提供 30B/10B 左右的低延迟部署版本。
+- **训练 GPU**：主要采用 NVIDIA H100 + Google TPU v5p 混合集群，Anthropic 对外披露持有 20,000 张 H100 的训练池。
 - **基础设施**：
-  - 与 Google Cloud 合作，使用 TPU v5e/v4/v5p Pods 以及自建 GPU 超算
+  - 与 Google Cloud 合作，使用 TPU v5p/v5e Pods 以及自建 GPU 超算
   - 大规模 RLHF、人类反馈数据平台与 Claude Workbench
-  - 强化的内容过滤、自动化红队与对齐流水线
+  - 自动化红队、宪法式对齐流水线与企业级审计接口
 
-### 2.3 Google Gemini 1.5 Pro / Ultra
-- **架构**：Transformer-Decoder 结合多模态编码器，支持长上下文（>1M tokens）；2025 年 Gemini 2.0 加入多骨干协同与自适应路由。
-- **模型尺寸**：Ultra 为万亿级参数；Pro 在数千亿级；Gemini 2.0 进一步扩大至万亿+总参数并提供 2M tokens 上下文。
-- **训练 GPU/TPU**：主力在 TPU v5e/v5p/v4 MegaPods，并扩展到 v6e；兼容 GPU 推理。
+### 2.3 Google Gemini 2.0（Ultra/Pro/Flash）
+- **架构**：Pathways 多骨干融合，结合长上下文路由和统一多模态 Transformer；Gemini 2.0 Ultra 支持 2M tokens 上下文，并原生整合代码、视频与语音。
+- **模型尺寸**：Ultra 为 1T+ 总参数稀疏模型，活跃 120-180B；Pro 在 300-600B；Flash 为 20-60B 级别且面向低延迟。
+- **训练 GPU/TPU**：主力在 TPU v5p/v6e MegaPods，训练时动用 20,000 片以上 TPU；推理结合 GPU SuperPOD 与 Google TPU Edge 集群。
 - **基础设施**：
   - TPU 互联超算（超万片 TPU）
-  - Pathways 框架 + MaxText，实现异构调度与长上下文优化
+  - Pathways + MaxText，实现异构调度与长上下文优化
   - 多模态数据治理、自动化评估基准与安全策略库
 
-### 2.4 Meta Llama 3 系列
-- **架构**：标准 Transformer Decoder，使用 RMSNorm、SwiGLU、分组查询注意力（GQA），训练时应用多尺度学习率与延伸上下文技巧；2025 年 Llama 3.1/3.2 引入自适应压缩注意力与更长上下文。
-- **模型尺寸**：8B、70B、400B（传闻）多个版本；公开权重最大为 70B；405B/90B 版本在内部服务中试运行。
-- **训练 GPU**：Meta 披露 70B 版本使用约 16,000 张 NVIDIA H100 训练 30+ 天；8B 使用约 2,000 张；405B 推测使用 24,000 张 H100。
+### 2.4 Meta Llama 3.1/3.2 开源与企业版
+- **架构**：标准 Transformer Decoder，配备 RMSNorm、SwiGLU、分组查询注意力（GQA），并在 2025 年加入自适应压缩注意力与动态 RoPE 扩展，上下文支持至 1M tokens。
+- **模型尺寸**：公开权重覆盖 8B、70B、405B；企业内部提供 11B/90B 对齐版本，配套指令、工具、代码能力增强。
+- **训练 GPU**：Meta 披露 70B 版本使用约 16,000 张 NVIDIA H100 训练 30+ 天；405B 推测使用 24,000 张 H100，并在液冷数据中心运行。
 - **基础设施**：
-  - 自研 LlamaStack：包括 LLaMA-cpp、LLaMA-Serve、Llama Deploy
+  - 自研 LlamaStack：包括 LlamaServe、Llama Deploy 与企业 API
   - 内部 FSDP + Tensor Parallel 混合并行训练，结合 MaxText/FlashAttention-3
   - 广泛的合成与过滤数据管线（含 15T+ tokens）与安全评估基准
 
-### 2.5 Mistral Large & Mixtral 衍生
-- **架构**：
-  - Mistral 7B/Small：Transformer Decoder + Sliding Window Attention + GQA
-  - Mistral Large：推测为多头注意力 + MoE 组合；Mixtral 8x22B 在 2025 年进入测试
-- **模型尺寸**：7B、8x7B（Mixtral 8x7B）、8x22B、Large 约 70B+。
-- **训练 GPU**：主要使用 NVIDIA A100/H100；据透露训练 7B 使用约 1,000-2,000 张 A100 数周，Mixtral 8x22B 使用 3,000+ 张 H100。
+### 2.5 Mistral Large 2 & Mixtral 8x22B
+- **架构**：Mistral Large 2 使用深度 Transformer + 自适应注意力稀疏化；Mixtral 8x22B 为 2025 版本的稀疏专家模型，针对推理任务优化 Top-4 路由。
+- **模型尺寸**：Mistral Large 2 约 75B；Mixtral 8x22B 总参数 176B、活跃 44B，提供 64k-256k 上下文选项。
+- **训练 GPU**：核心使用 3,000+ 张 NVIDIA H100，配合法国内部液冷数据中心；Mixtral 8x22B 训练耗时约 6 周，辅以 20PB 数据湖。
 - **基础设施**：
-  - 依赖自研优化的 FlashAttention、xFormers 内核
+  - 自研 FlashAttention-3、xFormers、TensorRT-LLM 推理栈
   - 使用 FairScale/FSDP 与 DeepSpeed ZeRO 优化，叠加自研路由负载均衡
-  - 高速 NVLink 互联集群与法国内部液冷数据中心
+  - 高速 NVLink 互联 + DC-LQCD 液冷系统
 
-### 2.6 百度文心4.0（ERNIE 4.0）
-- **架构**：改进的 Transformer Decoder，结合跨模态模块与检索增强（RAG），2025 年在企业服务中增加 Agent 平台与插件生态。
-- **模型尺寸**：官方称“千亿参数级”；具体未披露，公开信息显示存在 100B+ 主干与多模态分支。
-- **训练 GPU**：基于昆仑芯片及 NVIDIA A/H 系列混合集群；重点部署在“飞桨+昆仑”平台，并建设国产化算力中心。
+### 2.6 百度文心 4.0 Pro（2025 改版）
+- **架构**：改进的 Transformer Decoder，融合跨模态模块与检索增强（RAG），并在 2025 年对企业版加入 Agent Builder 与插件生态。
+- **模型尺寸**：官方称“千亿参数级”；内部渠道显示存在 120B+ 主干与多模态分支，Agent 版本开放 32B 服务模型。
+- **训练 GPU**：基于昆仑芯片及 NVIDIA H800/H20 混合集群；重点部署在“飞桨+昆仑”平台，并建设国产化算力中心。
 - **基础设施**：
   - 飞桨（PaddlePaddle）深度优化版本
   - 内部数据治理、知识图谱与对齐工具链
@@ -93,10 +93,10 @@
 - **训练硬件**：TPU v5p/v6e MegaPods，单次训练使用 20,000 片以上 TPU，并在推理侧引入 GPU SuperPOD 混合集群。
 - **基础设施**：Pathways + MaxText 组合进行稀疏激活调度，配合自动负载均衡、专家健康监控与跨模态数据流水线。
 
-### 3.2 DeepSeek-V2/V2.5/V3
-- **架构**：DeepSeekMoE，分层稀疏专家（64 专家，活跃 8 专家），引入无路由器负载的均衡训练策略；2025 年 V3 在此基础上增加分层路由与 KV Cache 共享，并上线 R1 推理增强版本。
-- **模型尺寸**：V2 236B 总参数，活跃 21B；V2.5 延续此设计并增强推理效率；V3 提出 671B 总参数、活跃 37B 的配置。
-- **训练 GPU**：使用约 2,048 张 NVIDIA A100 80GB；通过 FP8 混合精度与流水线并行降低成本；V3 转向 2,048 张 H800 + 异构 A100 集群，并针对国产化算力进行推理优化。
+### 3.2 DeepSeek-V3 / DeepSeek-R1
+- **架构**：最新 DeepSeekMoE 采用分层稀疏专家（64 专家，活跃 8 专家）并引入无路由器负载均衡；2025 年 V3 增加跨段 KV Cache 共享、长上下文缓存和推理链反馈路由，R1 则面向推理强化的自监督 RLHFlow 闭环。
+- **模型尺寸**：V3 提出 671B 总参数、活跃 37B；R1 在同一骨干上增加推理奖励与代理策略，推测活跃参数 40B+。
+- **训练 GPU**：V3 使用 2,048 张 NVIDIA H800 + 3,000 张 A100 组成的国产化混合集群，采用 FP8 混合精度与流水线并行；R1 延续同一基础并引入更密集的评测 GPU 池。
 - **基础设施**：
   - 基于 Megatron-LM + DeepSpeed 改造的流水线、张量并行
   - 训练期间采用自研容错与算力调度平台与 DeepEP 通信库
@@ -129,7 +129,16 @@
   - 低延迟推理栈（Triton、自研调度器、Reasoning Runtime）
   - 多模态数据采集、对齐与隐私过滤体系，强化实时合规监控
 
-### 4.2 Google Gemini 1.5 Flash/Pro / Gemini 2.0 多模态
+### 4.2 Anthropic Claude 3.5 Sonnet Vision
+- **架构**：统一文本-视觉-音频骨干 + 工具路由器，Sonnet Vision 引入多工具操作与文档解析专家，在推理阶段可调用 API/代码执行。
+- **模型尺寸**：官方未公开，行业估算活跃参数约 80B；提供 1M-2M tokens 上下文窗口并对外开放实时 API。
+- **训练 GPU**：基于 TPU v5p + H100 混合集群，Anthropic 强调多阶段 RLHF、对齐以及红队数据循环。
+- **基础设施**：
+  - Claude Workbench + Red Team Studio 实现可视化对齐
+  - 自动化内容过滤与安全审查流水线
+  - 与 Slack、Notion 等 SaaS 集成的企业部署方案
+
+### 4.3 Google Gemini 1.5 Flash/Pro / Gemini 2.0 多模态
 - **架构**：统一多模态 Transformer + 长上下文缓存；Flash 面向低延迟推理；Gemini 2.0 支持原生视频/音频流式理解。
 - **模型尺寸**：Flash 为中等规模（数百亿级），Pro 为数千亿级；Gemini 2.0 将上下文扩展到 2M tokens，并提供轻量化 Flash-S。
 - **训练硬件**：TPU v5p/v4 Pods、多模态预处理加速器，2025 年引入 TPU v6e。
@@ -137,7 +146,7 @@
   - 训练阶段使用分布式数据存储（Spanner + Colossus）与多模态数据清洗流水线
   - 推理阶段结合 Vertex AI、Gemini API 提供弹性扩缩与合规审计
 
-### 4.3 Meta LLaVA-NeXT, ImageBind, Audiocraft 路线
+### 4.4 Meta LLaVA-NeXT, ImageBind, Audiocraft 路线
 - **架构**：文本骨干接入 CLIP/Segment Anything 等视觉模型，通过适配器/投影层实现多模态融合；2025 年推出 LLaVA-Next-Omni，整合音频生成。
 - **模型尺寸**：基于 Llama 3/2（7B/13B/70B）与外部视觉编码器，并衍生出 90B/405B 内部版本。
 - **训练 GPU**：开源项目一般使用 256-512 张 A100/H100 进行多阶段微调；企业部署可借助 1,000 张级别集群进行多模态对齐。
@@ -145,7 +154,7 @@
   - 混合精度 + LoRA/QLoRA 微调，结合多模态对比学习
   - 多模态数据自动标注、质量控制与隐私保护流水线
 
-### 4.4 文心一言多模态、阿里通义千问VL
+### 4.5 文心一言多模态、阿里通义千问VL
 - **架构**：多模态编码器 + 文本 Decoder；使用检索增强和工具调用，并逐步引入端到端多模态骨干。
 - **模型尺寸**：主干在千亿级；多模态适配器在数亿级；2025 年通义千问VL 2.5 提供 32B/110B 版本。
 - **训练 GPU**：A100/H800 及自研 910B 芯片混合；推理部署在云端集群与政企私有化环境。
@@ -165,18 +174,18 @@
   - 采用“教材式”数据合成策略与自动化推理数据生成
   - DeepSpeed ZeRO Stage-3 + FlashAttention-2 + ONNX Runtime 推理优化
 
-### 5.2 Qwen2 / Qwen1.5 系列（阿里巴巴）
-- **架构**：Transformer Decoder + GQA；针对语音/视觉扩展增加模态适配器，2025 年 Qwen2.5 引入自适应分层注意力与 Agent 工具链。
-- **模型尺寸**：0.5B 到 72B 覆盖；Qwen1.5-72B 公开权重；Qwen2.5 新增 14B/32B 推理强化版本与 110B 企业版。
-- **训练 GPU**：Qwen1.5-72B 使用 2,048 张 A100；Qwen2 系列部分使用 H800；Qwen2.5 在上海张江算力中心部署 3,000 张 H800。
+### 5.2 Qwen2.5 紧凑部署矩阵（阿里巴巴）
+- **架构**：Transformer Decoder + 分组查询注意力，针对语音/视觉扩展增加模态适配器；2025 年 Qwen2.5 引入自适应分层注意力、工具规划与 AgentLink 工作流。
+- **模型尺寸**：0.5B、1.5B、7B、14B、32B、72B、110B 全覆盖；重点提供 7B/14B 量化部署方案与 32B 推理强化版本。
+- **训练 GPU**：核心使用 3,000 张 NVIDIA H800 在张江算力中心训练；小型模型通过 512 张 H20/H800 级别集群完成补充数据预训练。
 - **基础设施**：
-  - Colossal-AI、Megatron 结合的张量+流水线并行
+  - Colossal-AI + Megatron 混合张量并行，并结合 FlashAttention-3
   - 大规模中英文混合数据清洗、指令微调框架与企业数据治理
 
-### 5.3 MiniCPM、Yi 系列
-- **架构**：优化的 Transformer Decoder，主打轻量化部署；MiniCPM 采用蒸馏自研大模型，Yi 系列强化中文推理能力。
-- **模型尺寸**：MiniCPM 2.4B/8B、MiniCPM-MoE 8x3B；Yi-34B/6B/9B，并新增 Yi-1.5 12B/34B 推理强化版。
-- **训练 GPU**：MiniCPM 2.4B 使用数十至百张 A100；Yi-34B 使用约 512 张 A100；MiniCPM-MoE 训练约 600 张 H100。
+### 5.3 MiniCPM 3.0、Yi-1.5 Turbo
+- **架构**：MiniCPM 3.0 采用蒸馏自研大模型 + 低秩适配器，加入 Vision-Speech 多模态接口；Yi-1.5 Turbo 在标准 Transformer 上强化中文推理、工具使用与 Agent 能力。
+- **模型尺寸**：MiniCPM 3.0 提供 2.4B/8B 与 MoE 8x4B；Yi-1.5 Turbo 发布 12B/32B/34B 版本并提供 9B 端侧方案。
+- **训练 GPU**：MiniCPM 3.0 2.4B 使用 128 张 H100，8B 使用 512 张 H100；Yi-1.5 Turbo 34B 使用 768 张 H800 并叠加 5T tokens 合成语料。
 - **基础设施**：
   - 侧重端侧部署，结合量化（INT4/INT8）、蒸馏与分层缓存
   - LoRA、QLoRA、大规模推理评估框架与端侧评测体系
@@ -198,6 +207,20 @@
 - **软件栈**：
   - 主流选型：Megatron-LM、DeepSpeed、PyTorch FSDP、JAX + Pathways、Colossal-AI、MaxText、SGLang。
   - 自动化调度：Kubernetes + Slurm、Ray、Run:AI、NVIDIA Base Command。
+
+---
+
+## 7. 关键论文与评测索引（2024-2025）
+
+| 方向 | 核心论文 / 白皮书 | 重点指标 / Leaderboard 索引 |
+| --- | --- | --- |
+| Transformer 全参 | [OpenAI, *o4 System Card* (2025)](https://openai.com/research/o4-system-card)；[Anthropic, *Claude 3.5 Technical Report* (2025)](https://www.anthropic.com/news/claude-3-5)；[Google, *Gemini 1.5 & 2.0 Technical Report* (2024/2025)](https://arxiv.org/abs/2403.05530) | [lmsys-chatbot-arena](https://lmsys.org/arena/)；[OpenCompass 2025 Long-Context Track](https://opencompass.org.cn/) |
+| 稀疏专家（MoE） | [DeepSeek, *DeepSeek-V3 Technical Whitepaper* (2025)](https://github.com/deepseek-ai/DeepSeek-V3)；[Databricks, *DBRX: Training a 132B Sparse Mixture* (2024, 2025 附录)](https://www.databricks.com/blog/dbrx)；[Google, *Pathways Meets Gemini 2.0* (2025)](https://blog.google/technology/ai/google-gemini-update/) | [HELM Sparse Expert Benchmark 2025](https://crfm.stanford.edu/helm/latest/)；[Databricks Mosaic Eval Harness](https://github.com/mosaicml/llm-foundry) |
+| 多模态 | [OpenAI, *GPT-4o System Card* (2024) + Omni Update (2025)](https://openai.com/index/omni/)；[Google, *Gemini 2.0 Multimodal Report* (2025)](https://blog.google/technology/ai/google-gemini-update/)；[Meta, *LLaVA-NeXT Omni* (2025)](https://llava-vl.github.io/blog/2024-llava-next/) | [MMMU Benchmark 2025](https://mmmu-benchmark.github.io/)；[LiveBench Real-Time Multimodal](https://www.livebench.ai/) |
+| 轻量化与蒸馏 | [Microsoft, *Phi-3.5 Technical Report* (2025)](https://www.microsoft.com/en-us/research/publication/phi-3/)；[Alibaba, *Qwen2.5 Paper* (2025)](https://qwenlm.github.io/blog/qwen2.5/)；[SenseTime, *MiniCPM 3.0 Report* (2025)](https://github.com/OpenBMB/MiniCPM) | [MLPerf Inference v4.1 LLM Closed Division](https://mlcommons.org/benchmarks/inference/)；[HuggingFace Open LLM Leaderboard 2025-Q1](https://huggingface.co/spaces/open-llm-leaderboard/open_llm_leaderboard) |
+| Infra 与能耗 | [NVIDIA, *Hopper/B100 NVL72 Reference Architecture* (2025)](https://resources.nvidia.com/en-us-autonomous-systems/nvl72-architecture)；[Google, *TPU v5p/v6e Datasheet* (2024/2025)](https://cloud.google.com/tpu)；[Meta, *Data Center Efficiency 2025 Report*](https://engineering.fb.com/) | [SPEC ACCEL AI 2025](https://www.spec.org/accel/)；[Supercomputing Green500 (2024-2025)](https://www.top500.org/lists/green500/) |
+
+> **使用建议**：上述链接覆盖模型技术报告、系统卡（System Card）、训练白皮书与行业评测榜单，可作为进一步立项、算力规划或竞品分析的引用来源。请定期检查链接更新，保证指标与版本匹配当前迭代。
 
 ### 6.2 推理与服务
 - **模型压缩与量化**：INT8/INT4、FP8、KV Cache 量化、剪枝，推理侧引入自适应精度与推理蒸馏（Speculative Decoding）。
@@ -231,7 +254,7 @@
 
 ---
 
-## 7. 调研结论与建议
+## 8. 调研结论与建议
 1. **架构选择**：
    - 若追求极致性能，仍以 Transformer Decoder（全参数或稀疏 MoE）为主流；MoE + 推理强化成为 2025 年热点。
    - 多模态需求强烈的团队应从统一 Transformer 骨干入手，减少模态间切换开销，并结合工具调用能力。
