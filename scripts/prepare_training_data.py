@@ -27,7 +27,10 @@ import tempfile
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-import requests
+try:
+    import requests
+except ImportError:  # pragma: no cover - optional dependency not installed everywhere
+    requests = None  # type: ignore[assignment]
 
 # ---------------------------------------------------------------------------
 # SimHash utilities (adapted from previous scripts)
@@ -211,6 +214,10 @@ def download_file(url: str, dest: Path, force: bool = False) -> None:
     if dest.exists() and not force:
         print(f"[download] skip existing {dest}")
         return
+    if requests is None:
+        raise ModuleNotFoundError(
+            "requests is required to download missing corpora. Install it or run the script without --force-download when cleaned data already exists."
+        )
     print(f"[download] fetching {url} -> {dest}")
     with requests.get(url, stream=True, timeout=60) as resp:
         resp.raise_for_status()
@@ -370,6 +377,10 @@ def clean_existing_jsonl(input_path: Path, output_path: Path, force: bool) -> Pa
     if output_path.exists() and not force:
         print(f"[clean] skip existing {output_path}")
         return output_path
+    if not input_path.exists():
+        raise FileNotFoundError(
+            f"Required source file {input_path} not found. Provide the raw dataset or remove {output_path} and rerun."
+        )
     kept, dropped = simhash_dedupe([input_path], output_path)
     print(f"[clean] {input_path.name} kept {kept} dropped {dropped}")
     return output_path
@@ -462,14 +473,18 @@ def main() -> None:
     slimpajama_final = prepare_slimpajama(args.download_dir / "slimpajama", args.tmp_dir / "slimpajama", args.output_dir, args.workers, args.download_workers, args.force_download)
 
     pretrain_hq_input = Path("data/pretrain_hq.jsonl")
-    if not pretrain_hq_input.exists():
-        raise FileNotFoundError("data/pretrain_hq.jsonl not found")
-    pretrain_hq_final = clean_existing_jsonl(pretrain_hq_input, args.output_dir / "pretrain_hq.cleaned.jsonl", force=args.force_download)
+    pretrain_hq_final = clean_existing_jsonl(
+        pretrain_hq_input,
+        args.output_dir / "pretrain_hq.cleaned.jsonl",
+        force=args.force_download,
+    )
 
     sft_input = Path("data/sft_mini_512.jsonl")
-    if not sft_input.exists():
-        raise FileNotFoundError("data/sft_mini_512.jsonl not found")
-    sft_final = clean_existing_jsonl(sft_input, args.output_dir / "sft_mini_512.cleaned.jsonl", force=args.force_download)
+    sft_final = clean_existing_jsonl(
+        sft_input,
+        args.output_dir / "sft_mini_512.cleaned.jsonl",
+        force=args.force_download,
+    )
 
     token_targets = {
         "wiki_zh": 0.9e9,
