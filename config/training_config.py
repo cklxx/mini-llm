@@ -133,13 +133,13 @@ class BaseConfig:
                 "val_split": self.validation_split
             },
             "sft_mini_512.cleaned.jsonl": {
-                "sample_ratio": float(os.environ.get("MINIGPT_SFT_MAIN_RATIO", 0.4)),
-                "max_samples": int(os.environ.get("MINIGPT_SFT_MAIN_MAX", 450000)),
+                "sample_ratio": float(os.environ.get("MINIGPT_SFT_MAIN_RATIO", 0.2)),
+                "max_samples": int(os.environ.get("MINIGPT_SFT_MAIN_MAX", 150000)),
                 "val_split": self.validation_split
             },
             "sft_mini_512.jsonl": {
-                "sample_ratio": float(os.environ.get("MINIGPT_SFT_MAIN_RATIO", 0.4)),
-                "max_samples": int(os.environ.get("MINIGPT_SFT_MAIN_MAX", 450000)),
+                "sample_ratio": float(os.environ.get("MINIGPT_SFT_MAIN_RATIO", 0.2)),
+                "max_samples": int(os.environ.get("MINIGPT_SFT_MAIN_MAX", 150000)),
                 "val_split": self.validation_split
             },
             "alex_identity.jsonl": {
@@ -158,23 +158,23 @@ class BaseConfig:
                 "val_split": 0.05
             },
             "wiki_zh_full.simdedup.jsonl": {
-                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_WIKI_RATIO", 0.15)),
-                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_WIKI_MAX", 600000)),
+                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_WIKI_RATIO", 0.05)),
+                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_WIKI_MAX", 200000)),
                 "val_split": self.validation_split
             },
             "chinacorpus_full.simdedup.jsonl": {
-                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_CHINA_RATIO", 0.1)),
-                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_CHINA_MAX", 1200000)),
+                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_CHINA_RATIO", 0.03)),
+                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_CHINA_MAX", 300000)),
                 "val_split": self.validation_split
             },
             "pretrain_hq.cleaned.jsonl": {
-                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_HQ_RATIO", 0.4)),
-                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_HQ_MAX", 600000)),
+                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_HQ_RATIO", 0.1)),
+                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_HQ_MAX", 150000)),
                 "val_split": self.validation_split
             },
             "slimpajama_chunk1_part0_49.cleaned.jsonl": {
-                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_PJ_RATIO", 0.25)),
-                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_PJ_MAX", 250000)),
+                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_PJ_RATIO", 0.08)),
+                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_PJ_MAX", 80000)),
                 "val_split": self.validation_split
             },
         }
@@ -279,44 +279,37 @@ class SmallConfig(BaseConfig):
 
         # 模型参数 - 瘦长架构：更窄但更深，降低内存峰值
         self.vocab_size = 10000
-        self.d_model = 288        # 384 -> 288 (减少25%)
-        self.n_heads = 9          # 12 -> 9 (保持 d_model/n_heads = 32)
-        self.n_layers = 18        # 12 -> 18 (增加50%)
-        self.d_ff = 1152          # 1536 -> 1152 (4倍d_model)
+        self.d_model = 512
+        self.n_heads = 8
+        self.n_layers = 8
+        self.d_ff = 2048
         self.max_seq_len = 512
-        self.dropout = 0.1
+        self.dropout = 0.0
 
         # 训练参数 - 优化内存使用
         if self.device == "cuda":
             gpu_memory = self.gpu_info['devices'][0]['memory_total'] if self.gpu_info else 8
             gpu_name = self.gpu_info['devices'][0]['name'] if self.gpu_info else ""
 
-            if gpu_memory >= 40:
-                self.batch_size = 24
-                self.gradient_accumulation_steps = 3
-            elif gpu_memory >= 24:
-                if "4090" in gpu_name or "Ada" in gpu_name:
-                    self.batch_size = 20
-                    self.gradient_accumulation_steps = 3
-                else:
-                    self.batch_size = 16
-                    self.gradient_accumulation_steps = 4
+            if gpu_memory >= 24:
+                self.batch_size = 64
+                self.gradient_accumulation_steps = 4
             elif gpu_memory >= 12:
-                self.batch_size = 8
-                self.gradient_accumulation_steps = 6
-            else:
-                self.batch_size = 4
+                self.batch_size = 32
                 self.gradient_accumulation_steps = 8
+            else:
+                self.batch_size = 16
+                self.gradient_accumulation_steps = 16
         else:
-            self.batch_size = 4
-            self.gradient_accumulation_steps = 8
+            self.batch_size = 16
+            self.gradient_accumulation_steps = 16
 
-        self.learning_rate = 3e-4
+        self.learning_rate = 5e-4
         self.weight_decay = 0.01
-        self.warmup_steps = 2000
-        self.max_steps = 50000
-        self.eval_steps = 1000
-        self.save_steps = 2000
+        self.warmup_steps = 0
+        self.max_steps = 2500
+        self.eval_steps = 250
+        self.save_steps = 500
 
         # 优化器
         self.optimizer = "adamw"
