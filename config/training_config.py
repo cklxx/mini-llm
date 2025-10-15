@@ -269,8 +269,8 @@ class SmallConfig(BaseConfig):
                 # RTX 4090/3090/A6000等24GB显存
                 # RTX 4090 (Ada架构) 性能更优，可以使用稍大的batch size
                 if "4090" in gpu_name or "Ada" in gpu_name:
-                    self.batch_size = 16  # RTX 4090优化
-                    self.gradient_accumulation_steps = 9  # 有效批量 = 144
+                    self.batch_size = 24  # RTX 4090优化，提高单次吞吐
+                    self.gradient_accumulation_steps = 6  # 有效批量 = 144
                 else:
                     self.batch_size = 12  # RTX 3090/其他24GB卡
                     self.gradient_accumulation_steps = 10  # 有效批量 = 120
