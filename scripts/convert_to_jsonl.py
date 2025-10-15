@@ -13,18 +13,18 @@ Example:
 
 import argparse
 import json
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Generator, Optional
+from typing import Any
 
 
-def stream_json_array(path: Path) -> Generator[dict, None, None]:
+def stream_json_array(path: Path) -> Iterator[dict[str, Any]]:
     decoder = json.JSONDecoder()
     with path.open("r", encoding="utf-8") as f:
         buffer = ""
         chunk = f.read(65536)
         while chunk:
             buffer += chunk
-            idx = 0
             while True:
                 buffer = buffer.lstrip()
                 if not buffer:
@@ -54,7 +54,12 @@ def stream_json_array(path: Path) -> Generator[dict, None, None]:
                 yield obj
 
 
-def build_text(obj: dict, text_field: str, title_field: Optional[str], join_with: str) -> str:
+def build_text(
+    obj: dict[str, Any],
+    text_field: str,
+    title_field: str | None,
+    join_with: str,
+) -> str:
     pieces = []
     if title_field:
         title = obj.get(title_field)
