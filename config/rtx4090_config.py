@@ -1,18 +1,25 @@
-# -*- coding: utf-8 -*-
-"""
-RTX 4090 优化配置
-针对RTX 4090 24GB显存和Ada Lovelace架构进行优化
-相比RTX 3090，Ada架构具有更强的计算能力和更高效的内存带宽
-"""
-import os
-import sys
+"""RTX 4090 优化配置集。
 
-# 添加项目根目录到 Python 路径
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, project_root)
+该模块针对 RTX 4090 24GB 显存与 Ada Lovelace 架构进行了手工调优，
+提供多种模型规模下的推荐配置参数。
+"""
+
+import sys
+from importlib import import_module
+from pathlib import Path
 
 import torch
-from src.model.config import MiniGPTConfig
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _load_minigpt_config_class():
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+    return import_module("src.model.config").MiniGPTConfig
+
+
+MiniGPTConfig = _load_minigpt_config_class()
 
 
 def get_rtx4090_tiny_config() -> MiniGPTConfig:
@@ -41,7 +48,7 @@ def get_rtx4090_tiny_config() -> MiniGPTConfig:
 def get_rtx4090_small_config() -> MiniGPTConfig:
     """RTX 4090 优化的 small 配置 (~25-30M参数)
     充分利用RTX 4090的24GB显存和Ada架构性能
-    
+
     优化策略：
     - 相比RTX 3090配置，增加序列长度以充分利用显存
     - 使用梯度检查点节省显存
@@ -195,7 +202,7 @@ def get_rtx4090_moe_config() -> MiniGPTConfig:
 
 class RTX4090TrainingConfig:
     """RTX 4090 训练配置
-    
+
     RTX 4090 特点：
     - 24GB GDDR6X 显存
     - Ada Lovelace 架构
@@ -253,14 +260,14 @@ class RTX4090TrainingConfig:
             # 验证是否为RTX 4090
             gpu_name = torch.cuda.get_device_name(0)
             print(f"检测到GPU: {gpu_name}")
-            
+
             if "RTX 4090" in gpu_name or "4090" in gpu_name:
                 print("✓ RTX 4090 检测成功，已启用Ada架构优化")
             elif "40" in gpu_name and "90" in gpu_name:
                 print("✓ 可能是RTX 4090，已启用优化")
             else:
                 print(f"⚠ 配置针对RTX 4090优化，当前GPU: {gpu_name}")
-                
+
             return "cuda"
         else:
             print("未检测到CUDA，使用CPU")
@@ -268,7 +275,7 @@ class RTX4090TrainingConfig:
 
     def _get_optimal_batch_size(self) -> int:
         """根据模型大小和RTX 4090显存获取最优批量大小
-        
+
         RTX 4090 相比 RTX 3090 有相似的显存(24GB)，
         但Ada架构的内存控制器更高效，可以略微提高batch size
         """
@@ -293,21 +300,21 @@ class RTX4090TrainingConfig:
 
     def _get_gradient_accumulation_steps(self) -> int:
         """计算梯度累积步数以达到有效批量大小
-        
+
         目标有效批量大小：
         - small模型: 128-192
         - medium模型: 128
         - large模型: 128
         """
         hidden_size = self.model_config.hidden_size
-        
+
         if hidden_size <= 384:
             # small模型，目标有效batch size = 144
             target_batch_size = 144
         else:
             # medium/large模型，目标有效batch size = 128
             target_batch_size = 128
-            
+
         return max(1, target_batch_size // self.batch_size)
 
     def setup_cuda_optimizations(self):
@@ -319,7 +326,7 @@ class RTX4090TrainingConfig:
 
             # 启用CuDNN benchmark (固定输入尺寸时有效)
             torch.backends.cudnn.benchmark = True
-            
+
             # CuDNN deterministic (可选，用于可重复性)
             # torch.backends.cudnn.deterministic = False  # 保持非确定性以获得更好性能
 
@@ -359,37 +366,37 @@ class RTX4090TrainingConfig:
         print("\n" + "="*60)
         print("RTX 4090 训练配置摘要")
         print("="*60)
-        print(f"模型配置:")
+        print("模型配置:")
         print(f"  - Hidden Size:        {self.model_config.hidden_size}")
         print(f"  - Layers:             {self.model_config.num_hidden_layers}")
         print(f"  - Attention Heads:    {self.model_config.num_attention_heads}")
         print(f"  - FFN Size:           {self.model_config.intermediate_size}")
         print(f"  - Max Seq Length:     {self.model_config.max_position_embeddings}")
         print(f"  - Vocab Size:         {self.model_config.vocab_size}")
-        
-        print(f"\n训练参数:")
+
+        print("\n训练参数:")
         print(f"  - Batch Size:         {self.batch_size}")
         print(f"  - Grad Accumulation:  {self.gradient_accumulation_steps}")
         print(f"  - Effective Batch:    {self.batch_size * self.gradient_accumulation_steps}")
         print(f"  - Learning Rate:      {self.learning_rate}")
         print(f"  - Warmup Steps:       {self.warmup_steps}")
         print(f"  - Max Steps:          {self.max_steps}")
-        
-        print(f"\n优化设置:")
+
+        print("\n优化设置:")
         print(f"  - Mixed Precision:    {self.use_mixed_precision}")
         print(f"  - Gradient Checkpoint: {self.model_config.gradient_checkpointing}")
         print(f"  - Model Compile:      {self.compile_model}")
         print(f"  - Num Workers:        {self.num_workers}")
         print(f"  - Prefetch Factor:    {self.prefetch_factor}")
-        
+
         if self.device == "cuda":
             mem_info = self.get_memory_info()
-            print(f"\n显存信息:")
+            print("\n显存信息:")
             print(f"  - Total:              {mem_info['total_gb']:.1f} GB")
             print(f"  - Allocated:          {mem_info['allocated_gb']:.2f} GB")
             print(f"  - Cached:             {mem_info['cached_gb']:.2f} GB")
             print(f"  - Free:               {mem_info['free_gb']:.2f} GB")
-        
+
         print("="*60 + "\n")
 
 
@@ -407,13 +414,13 @@ RTX4090_CONFIG_MAPPING = {
 
 def get_rtx4090_config(config_name: str) -> MiniGPTConfig:
     """获取RTX 4090优化配置
-    
+
     Args:
         config_name: 配置名称 (tiny, small, small_30m, medium, foundation, large, moe)
-        
+
     Returns:
         MiniGPTConfig: 优化后的模型配置
-        
+
     Example:
         >>> config = get_rtx4090_config("small")
         >>> training_config = RTX4090TrainingConfig(config)
@@ -439,7 +446,7 @@ if __name__ == "__main__":
         print(f"\n{'='*60}")
         print(f"{config_name.upper()} 配置")
         print(f"{'='*60}")
-        
+
         config = get_rtx4090_config(config_name)
         training_config = RTX4090TrainingConfig(config)
         training_config.setup_cuda_optimizations()

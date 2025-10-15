@@ -1,13 +1,12 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Mac优化训练 - 一键启动脚本
 快速验证模型智能效果，避免Mac卡死
 """
 import os
-import sys
 import subprocess
-import time
+import sys
+
 
 def print_banner():
     """打印横幅"""
@@ -24,11 +23,6 @@ def check_environment():
     """检查环境"""
     print("🔍 检查环境...")
 
-    # 检查Python版本
-    if sys.version_info < (3, 7):
-        print("❌ 需要Python 3.7或更高版本")
-        return False
-
     # 检查必要的包
     required_packages = ['torch', 'psutil']
     missing_packages = []
@@ -42,7 +36,7 @@ def check_environment():
             print(f"❌ {package} 未安装")
 
     if missing_packages:
-        print(f"\n📦 安装缺失的包:")
+        print("\n📦 安装缺失的包:")
         print(f"pip install {' '.join(missing_packages)}")
         return False
 

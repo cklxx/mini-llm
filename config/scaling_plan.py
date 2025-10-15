@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 基于Scaling Laws研究的智能模型训练计划
 """
 
 from dataclasses import dataclass
-from typing import List, Dict
-import math
+
 
 @dataclass
 class ScalingConfig:
@@ -52,7 +50,7 @@ def calculate_chinchilla_tokens(d_model: int, n_layers: int, vocab_size: int) ->
     # Chinchilla比例: 20 tokens per parameter
     return int(total_params * 20)
 
-def get_intelligence_threshold_configs() -> Dict[str, ScalingConfig]:
+def get_intelligence_threshold_configs() -> dict[str, ScalingConfig]:
     """
     基于研究的智能阈值配置
 
@@ -129,7 +127,7 @@ def get_intelligence_threshold_configs() -> Dict[str, ScalingConfig]:
 
     return configs
 
-def calculate_scaling_metrics(config: ScalingConfig) -> Dict[str, float]:
+def calculate_scaling_metrics(config: ScalingConfig) -> dict[str, float]:
     """计算缩放指标"""
     params = config.get_params_estimate()
     flops = config.get_flops_estimate()
@@ -154,10 +152,10 @@ def print_scaling_analysis():
 
     configs = get_intelligence_threshold_configs()
 
-    print(f"📚 研究依据:")
-    print(f"  • Anthropic: 道德推理能力 ≥ 22B 参数")
-    print(f"  • Chinchilla: 最优比例 = 1参数:20tokens")
-    print(f"  • 当前medium模型: 59M 参数 (距离阈值 370x)")
+    print("📚 研究依据:")
+    print("  • Anthropic: 道德推理能力 ≥ 22B 参数")
+    print("  • Chinchilla: 最优比例 = 1参数:20tokens")
+    print("  • 当前medium模型: 59M 参数 (距离阈值 370x)")
     print()
 
     for name, config in configs.items():

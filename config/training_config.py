@@ -3,8 +3,8 @@
 支持 PyTorch 2.4 和 NVIDIA GPU 自动检测优化
 """
 import os
+
 import torch
-import subprocess
 
 
 def get_gpu_info():
@@ -132,6 +132,16 @@ class BaseConfig:
                 "max_samples": None,
                 "val_split": self.validation_split
             },
+            "sft_mini_512.cleaned.jsonl": {
+                "sample_ratio": float(os.environ.get("MINIGPT_SFT_MAIN_RATIO", 0.4)),
+                "max_samples": int(os.environ.get("MINIGPT_SFT_MAIN_MAX", 450000)),
+                "val_split": self.validation_split
+            },
+            "sft_mini_512.jsonl": {
+                "sample_ratio": float(os.environ.get("MINIGPT_SFT_MAIN_RATIO", 0.4)),
+                "max_samples": int(os.environ.get("MINIGPT_SFT_MAIN_MAX", 450000)),
+                "val_split": self.validation_split
+            },
             "alex_identity.jsonl": {
                 "sample_ratio": 0.25,
                 "max_samples": 3000,
@@ -203,7 +213,7 @@ class TinyConfig(BaseConfig):
     """超小型模型配置 (~1M参数) - 快速实验"""
     def __init__(self):
         super().__init__()
-        
+
         # 模型标识
         self.model_size = "tiny"
 
@@ -243,7 +253,7 @@ class SmallConfig(BaseConfig):
     """小型模型配置 (~25M参数) - 瘦长架构优化内存"""
     def __init__(self):
         super().__init__()
-        
+
         # 模型标识
         self.model_size = "small"
 
@@ -253,36 +263,33 @@ class SmallConfig(BaseConfig):
         self.n_heads = 9          # 12 -> 9 (保持 d_model/n_heads = 32)
         self.n_layers = 18        # 12 -> 18 (增加50%)
         self.d_ff = 1152          # 1536 -> 1152 (4倍d_model)
-        self.max_seq_len = 1024
+        self.max_seq_len = 512
         self.dropout = 0.1
 
         # 训练参数 - 优化内存使用
         if self.device == "cuda":
             gpu_memory = self.gpu_info['devices'][0]['memory_total'] if self.gpu_info else 8
             gpu_name = self.gpu_info['devices'][0]['name'] if self.gpu_info else ""
-            
+
             if gpu_memory >= 40:
-                # 高端GPU（A6000/A100等）：降低batch size以适应长序列
-                self.batch_size = 16
-                self.gradient_accumulation_steps = 8
+                self.batch_size = 24
+                self.gradient_accumulation_steps = 3
             elif gpu_memory >= 24:
-                # RTX 4090/3090/A6000等24GB显存
-                # RTX 4090 (Ada架构) 性能更优，可以使用稍大的batch size
                 if "4090" in gpu_name or "Ada" in gpu_name:
-                    self.batch_size = 24  # RTX 4090优化，提高单次吞吐
-                    self.gradient_accumulation_steps = 6  # 有效批量 = 144
+                    self.batch_size = 20
+                    self.gradient_accumulation_steps = 3
                 else:
-                    self.batch_size = 12  # RTX 3090/其他24GB卡
-                    self.gradient_accumulation_steps = 10  # 有效批量 = 120
+                    self.batch_size = 16
+                    self.gradient_accumulation_steps = 4
             elif gpu_memory >= 12:
                 self.batch_size = 8
-                self.gradient_accumulation_steps = 16
+                self.gradient_accumulation_steps = 6
             else:
                 self.batch_size = 4
-                self.gradient_accumulation_steps = 32
+                self.gradient_accumulation_steps = 8
         else:
             self.batch_size = 4
-            self.gradient_accumulation_steps = 32
+            self.gradient_accumulation_steps = 8
 
         self.learning_rate = 3e-4
         self.weight_decay = 0.01
@@ -308,7 +315,7 @@ class Small30MConfig(BaseConfig):
     """30M参数小型模型配置"""
     def __init__(self):
         super().__init__()
-        
+
         # 模型标识
         self.model_size = "small_30m"
 
@@ -421,7 +428,7 @@ class FoundationConfig(BaseConfig):
     """基础模型配置 (~200M参数) - 中型规模训练"""
     def __init__(self):
         super().__init__()
-        
+
         # 模型标识
         self.model_size = "foundation"
 
@@ -541,7 +548,7 @@ class MOEConfig(BaseConfig):
     """MOE (Mixture of Experts) 模型配置"""
     def __init__(self):
         super().__init__()
-        
+
         # 模型标识
         self.model_size = "moe"
 

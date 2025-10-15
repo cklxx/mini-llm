@@ -1,9 +1,24 @@
+"""RTX 3090 优化配置集。
+
+该模块为 RTX 3090 24GB 显存与 Ampere 架构提供推荐模型设置。
 """
-RTX 3090 优化配置
-针对RTX 3090 24GB显存和CUDA架构进行优化
-"""
+
+import sys
+from importlib import import_module
+from pathlib import Path
+
 import torch
-from src.model.config import MiniGPTConfig
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _load_minigpt_config_class():
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+    return import_module("src.model.config").MiniGPTConfig
+
+
+MiniGPTConfig = _load_minigpt_config_class()
 
 
 def get_rtx3090_tiny_config() -> MiniGPTConfig:
