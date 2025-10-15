@@ -31,7 +31,6 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 
 PLACEHOLDER_PATTERNS = [
     "……",  # Chinese ellipsis
@@ -74,7 +73,7 @@ class CleanConfig:
     drop_followups: bool = False
     strip_think: bool = False
     lowercase_signature: bool = False
-    max_refusal_count: Optional[int] = None
+    max_refusal_count: int | None = None
 
 
 @dataclass
@@ -87,7 +86,7 @@ class Stats:
     refusal_drops: int = 0
     think_stripped: int = 0
 
-    def as_dict(self) -> Dict[str, int]:
+    def as_dict(self) -> dict[str, int]:
         return {
             "total": self.total,
             "written": self.written,
@@ -176,19 +175,21 @@ def strip_think_blocks(text: str, stats: Stats) -> str:
     return new_text.strip()
 
 
-def load_json(line: str) -> Dict:
+def load_json(line: str) -> dict:
     return json.loads(line)
 
 
-def dump_json(obj: Dict) -> str:
+def dump_json(obj: dict) -> str:
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
-def clean_sft_entry(entry: Dict, cfg: CleanConfig, stats: Stats) -> Tuple[Optional[Dict], Optional[bytes]]:
+def clean_sft_entry(
+    entry: dict, cfg: CleanConfig, stats: Stats
+) -> tuple[dict | None, bytes | None]:
     convs = entry.get("conversations")
     if not isinstance(convs, list):
         return None, None
-    cleaned_convs: List[Dict[str, str]] = []
+    cleaned_convs: list[dict[str, str]] = []
     for turn in convs:
         role = turn.get("role")
         content = turn.get("content", "")
@@ -217,7 +218,9 @@ def clean_sft_entry(entry: Dict, cfg: CleanConfig, stats: Stats) -> Tuple[Option
     return entry, signature
 
 
-def clean_pretrain_entry(entry: Dict, cfg: CleanConfig, stats: Stats) -> Tuple[Optional[Dict], Optional[bytes]]:
+def clean_pretrain_entry(
+    entry: dict, cfg: CleanConfig, stats: Stats
+) -> tuple[dict | None, bytes | None]:
     text = entry.get("text")
     if not isinstance(text, str):
         return None, None
@@ -263,7 +266,7 @@ def clean_file(args: argparse.Namespace) -> Stats:
 
     cleaner = clean_sft_entry if cfg.dataset_type == "sft" else clean_pretrain_entry
 
-    with open(args.input, "r", encoding="utf-8") as src, open(
+    with open(args.input, encoding="utf-8") as src, open(
         args.output, "w", encoding="utf-8"
     ) as dst:
         for line in src:
