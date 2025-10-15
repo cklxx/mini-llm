@@ -1,13 +1,12 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Mac优化训练 - UV环境快速启动脚本
 使用uv环境管理，快速验证模型智能效果
 """
 import os
-import sys
 import subprocess
-import time
+import sys
+
 
 def print_banner():
     """打印横幅"""
@@ -67,7 +66,7 @@ def check_uv_environment():
             print(f"❌ {package} 未安装")
 
     if missing_packages:
-        print(f"\n📦 安装缺失的包:")
+        print("\n📦 安装缺失的包:")
         print(f"uv pip install {' '.join(missing_packages)}")
         return False
 
@@ -180,7 +179,7 @@ def environment_diagnosis():
     try:
         result = subprocess.run(['uv', '--version'], capture_output=True, text=True)
         print(f"UV版本: {result.stdout.strip()}")
-    except:
+    except (OSError, subprocess.SubprocessError):
         print("UV版本: 未安装")
 
     # PyTorch信息
@@ -212,7 +211,7 @@ def environment_diagnosis():
     for file in data_files:
         if os.path.exists(file):
             size = os.path.getsize(file) / 1024  # KB
-            with open(file, 'r') as f:
+            with open(file) as f:
                 lines = sum(1 for _ in f)
             print(f"  ✅ {file} ({lines}行, {size:.1f}KB)")
         else:

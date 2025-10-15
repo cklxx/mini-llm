@@ -3,8 +3,8 @@
 支持 PyTorch 2.4 和 NVIDIA GPU 自动检测优化
 """
 import os
+
 import torch
-import subprocess
 
 
 def get_gpu_info():
@@ -203,7 +203,7 @@ class TinyConfig(BaseConfig):
     """超小型模型配置 (~1M参数) - 快速实验"""
     def __init__(self):
         super().__init__()
-        
+
         # 模型标识
         self.model_size = "tiny"
 
@@ -243,7 +243,7 @@ class SmallConfig(BaseConfig):
     """小型模型配置 (~25M参数) - 瘦长架构优化内存"""
     def __init__(self):
         super().__init__()
-        
+
         # 模型标识
         self.model_size = "small"
 
@@ -260,7 +260,7 @@ class SmallConfig(BaseConfig):
         if self.device == "cuda":
             gpu_memory = self.gpu_info['devices'][0]['memory_total'] if self.gpu_info else 8
             gpu_name = self.gpu_info['devices'][0]['name'] if self.gpu_info else ""
-            
+
             if gpu_memory >= 40:
                 # 高端GPU（A6000/A100等）：降低batch size以适应长序列
                 self.batch_size = 16
@@ -308,7 +308,7 @@ class Small30MConfig(BaseConfig):
     """30M参数小型模型配置"""
     def __init__(self):
         super().__init__()
-        
+
         # 模型标识
         self.model_size = "small_30m"
 
@@ -421,7 +421,7 @@ class FoundationConfig(BaseConfig):
     """基础模型配置 (~200M参数) - 中型规模训练"""
     def __init__(self):
         super().__init__()
-        
+
         # 模型标识
         self.model_size = "foundation"
 
@@ -541,7 +541,7 @@ class MOEConfig(BaseConfig):
     """MOE (Mixture of Experts) 模型配置"""
     def __init__(self):
         super().__init__()
-        
+
         # 模型标识
         self.model_size = "moe"
 
