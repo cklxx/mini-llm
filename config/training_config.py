@@ -157,6 +157,26 @@ class BaseConfig:
                 "max_samples": 6000,
                 "val_split": 0.05
             },
+            "wiki_zh_full.simdedup.jsonl": {
+                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_WIKI_RATIO", 0.15)),
+                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_WIKI_MAX", 600000)),
+                "val_split": self.validation_split
+            },
+            "chinacorpus_full.simdedup.jsonl": {
+                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_CHINA_RATIO", 0.1)),
+                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_CHINA_MAX", 1200000)),
+                "val_split": self.validation_split
+            },
+            "pretrain_hq.cleaned.jsonl": {
+                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_HQ_RATIO", 0.4)),
+                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_HQ_MAX", 600000)),
+                "val_split": self.validation_split
+            },
+            "slimpajama_chunk1_part0_49.cleaned.jsonl": {
+                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_PJ_RATIO", 0.25)),
+                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_PJ_MAX", 250000)),
+                "val_split": self.validation_split
+            },
         }
 
         # 对话角色标记
