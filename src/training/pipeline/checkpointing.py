@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import glob
 import os
+import re
+import shutil
 
 import torch
 
@@ -100,7 +102,7 @@ class CheckpointManager:
         return self._load_checkpoint(path, model, optimizer)
 
     def save(self, model, optimizer, step: int, loss: float, tokenizer=None) -> str:
-        self._remove_old_checkpoints()
+        self._remove_old_checkpoints(current_step=step)
         checkpoint_path = os.path.join(self.output_dir, f"checkpoint_step_{step}.pt")
         payload = {
             "step": step,
@@ -142,9 +144,32 @@ class CheckpointManager:
         return final_path
 
     # ------------------------------------------------------------------
-    def _remove_old_checkpoints(self) -> None:
+    def _remove_old_checkpoints(self, *, current_step: int) -> None:
         pattern = os.path.join(self.output_dir, "checkpoint_step_*.pt")
+        archive_dir = os.path.join(self.output_dir, "archive")
+        os.makedirs(archive_dir, exist_ok=True)
+
+        step_pattern = re.compile(r"checkpoint_step_(\d+)\.pt$")
+
         for old_ckpt in glob.glob(pattern):
+            match = step_pattern.search(os.path.basename(old_ckpt))
+            step_value = int(match.group(1)) if match else None
+
+            if step_value is not None and step_value >= current_step:
+                target_path = os.path.join(archive_dir, os.path.basename(old_ckpt))
+                if os.path.exists(target_path):
+                    # Avoid overwriting an archived checkpoint with the same name.
+                    continue
+                try:
+                    shutil.move(old_ckpt, target_path)
+                    print(
+                        "📦 保留较高步数checkpoint → "
+                        f"{os.path.join('archive', os.path.basename(target_path))}"
+                    )
+                except Exception as exc:
+                    print(f"⚠️  移动checkpoint到归档失败: {exc}")
+                continue
+
             try:
                 os.remove(old_ckpt)
                 print(f"🗑️  删除旧checkpoint: {os.path.basename(old_ckpt)}")
