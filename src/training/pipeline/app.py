@@ -121,7 +121,7 @@ class MiniGPTTrainer:
 
         scaler = None
         if self.config.mixed_precision and self.device == "cuda":
-            scaler = torch.cuda.amp.GradScaler()
+            scaler = torch.amp.GradScaler("cuda")
             print("✅ 启用混合精度训练 (FP16)")
 
         if self.config.gradient_checkpointing and hasattr(model, "gradient_checkpointing_enable"):
