@@ -1,31 +1,53 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 MiniGPT优化套件集成演示
 展示高性能数据加载、内存优化、训练监控和性能基准测试的协同使用
 """
-import os
+import argparse
+import json
 import sys
 import time
-import json
-import argparse
+from importlib import import_module
 from pathlib import Path
 
-# 添加项目路径
-project_root = Path(__file__).parent
-sys.path.append(str(project_root))
-sys.path.append(str(project_root / "src"))
-
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 
-# 导入我们的优化模块
-from src.data.high_performance_loader import DataLoadingConfig, HighPerformanceDataset
-from src.training.memory_optimizer import MemoryOptimizer, MemoryConfig
-from src.training.training_monitor import TrainingMonitor
-from src.benchmarks.performance_benchmark import PerformanceBenchmarkSuite, BenchmarkConfig, ModelFactory
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _load_dependencies():
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+
+    benchmark_module = import_module("src.benchmarks.performance_benchmark")
+    data_module = import_module("src.data.high_performance_loader")
+    memory_module = import_module("src.training.memory_optimizer")
+    training_module = import_module("src.training.training_monitor")
+
+    return (
+        benchmark_module.BenchmarkConfig,
+        benchmark_module.ModelFactory,
+        benchmark_module.PerformanceBenchmarkSuite,
+        data_module.DataLoadingConfig,
+        memory_module.MemoryConfig,
+        memory_module.MemoryOptimizer,
+        training_module.TrainingMonitor,
+    )
+
+
+(
+    BenchmarkConfig,
+    ModelFactory,
+    PerformanceBenchmarkSuite,
+    DataLoadingConfig,
+    MemoryConfig,
+    MemoryOptimizer,
+    TrainingMonitor,
+) = _load_dependencies()
 
 
 class OptimizationDemo:
@@ -52,7 +74,7 @@ class OptimizationDemo:
             print(f"🎯 使用指定设备: {device}")
 
         # 创建演示目录
-        self.demo_dir = project_root / "demo_results"
+        self.demo_dir = PROJECT_ROOT / "demo_results"
         self.demo_dir.mkdir(exist_ok=True)
 
         print(f"📁 演示结果将保存到: {self.demo_dir}")
@@ -186,7 +208,7 @@ class OptimizationDemo:
                 # 测试加载速度
                 load_start = time.time()
                 batch_count = 0
-                for batch in dataloader:
+                for _batch in dataloader:
                     batch_count += 1
                     if batch_count >= 20:  # 限制测试批次
                         break
@@ -213,7 +235,7 @@ class OptimizationDemo:
             优化 = results["优化配置"]
 
             speedup = 优化['samples_per_sec'] / 基础['samples_per_sec']
-            print(f"\n🏆 性能提升总结:")
+            print("\n🏆 性能提升总结:")
             print(f"   基础配置: {基础['samples_per_sec']:.1f} samples/sec")
             print(f"   优化配置: {优化['samples_per_sec']:.1f} samples/sec")
             print(f"   加速比: {speedup:.2f}x")
@@ -287,7 +309,7 @@ class OptimizationDemo:
 
                 for step in range(steps):
                     try:
-                        with memory_optimizer.optimize_step_context(optimizer) as ctx:
+                        with memory_optimizer.optimize_step_context(optimizer):
                             # 前向传播
                             output = model(dummy_input)
                             loss = nn.CrossEntropyLoss()(
@@ -334,7 +356,7 @@ class OptimizationDemo:
         # 性能对比总结
         valid_results = {k: v for k, v in results.items() if 'error' not in v}
         if len(valid_results) >= 2:
-            print(f"\n🏆 内存优化效果总结:")
+            print("\n🏆 内存优化效果总结:")
             baseline = valid_results.get("基础配置")
             optimized = valid_results.get("完整优化")
 
@@ -367,7 +389,7 @@ class OptimizationDemo:
 
         print("📊 训练监控器已初始化")
         print(f"   日志目录: {self.demo_dir / 'training_logs'}")
-        print(f"   TensorBoard: 启用")
+        print("   TensorBoard: 启用")
 
         # 模拟训练过程
         optimizer = optim.AdamW(model.parameters(), lr=1e-4)
@@ -421,7 +443,7 @@ class OptimizationDemo:
                           f"LR = {lr:.2e}, "
                           f"Speed = {metrics.samples_per_sec:.1f} samples/sec")
 
-        print(f"\n✅ 训练监控演示完成!")
+        print("\n✅ 训练监控演示完成!")
         print(f"   总步数: {len(training_metrics)}")
         print(f"   最终损失: {training_metrics[-1].loss:.4f}")
         print(f"   平均训练速度: {np.mean([m.samples_per_sec for m in training_metrics]):.1f} samples/sec")
@@ -450,7 +472,7 @@ class OptimizationDemo:
             test_memory_optimization=True
         )
 
-        print(f"🔧 基准测试配置:")
+        print("🔧 基准测试配置:")
         print(f"   批处理大小: {config.test_batch_sizes}")
         print(f"   序列长度: {config.test_sequence_lengths}")
         print(f"   模型大小: {config.test_model_sizes}")
@@ -466,7 +488,7 @@ class OptimizationDemo:
         training_results = [r for r in results if r.test_name == "training_baseline"]
         if training_results:
             best_result = max(training_results, key=lambda x: x.metrics['samples_per_sec'])
-            print(f"\n🏆 最佳训练配置:")
+            print("\n🏆 最佳训练配置:")
             print(f"   模型: {best_result.config['model_size']}")
             print(f"   批处理大小: {best_result.config['batch_size']}")
             print(f"   序列长度: {best_result.config['seq_len']}")
@@ -475,7 +497,7 @@ class OptimizationDemo:
         inference_results = [r for r in results if r.test_name == "inference"]
         if inference_results:
             best_inference = max(inference_results, key=lambda x: x.metrics['tokens_per_sec'])
-            print(f"\n🚀 最佳推理配置:")
+            print("\n🚀 最佳推理配置:")
             print(f"   模型: {best_inference.config['model_size']}")
             print(f"   批处理大小: {best_inference.config['batch_size']}")
             print(f"   吞吐量: {best_inference.metrics['tokens_per_sec']:.0f} tokens/sec")
@@ -492,7 +514,7 @@ class OptimizationDemo:
 
     def run_complete_demo(self):
         """运行完整演示"""
-        print(f"🎬 开始MiniGPT优化套件完整演示")
+        print("🎬 开始MiniGPT优化套件完整演示")
         print(f"⚙️  设备: {self.device}")
         print()
 

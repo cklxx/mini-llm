@@ -64,7 +64,7 @@ class DataResolver:
             return None
 
         try:
-            with open(manifest_path, "r", encoding="utf-8") as handle:
+            with open(manifest_path, encoding="utf-8") as handle:
                 data = json.load(handle)
         except (OSError, json.JSONDecodeError) as exc:
             print(f"⚠️  读取 manifest 失败 {manifest_path}: {exc}")

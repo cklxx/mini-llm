@@ -31,8 +31,8 @@ import hashlib
 import json
 import pickle
 from collections import defaultdict
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
 
 
 def parse_args() -> argparse.Namespace:
@@ -50,7 +50,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def tokenize(text: str) -> Iterable[str]:
+def tokenize(text: str) -> list[str]:
     """Generate features for SimHash.
 
     Uses a mix of character bigrams/trigrams and whitespace tokens to better
@@ -58,7 +58,7 @@ def tokenize(text: str) -> Iterable[str]:
     """
     if not text:
         return []
-    features: List[str] = []
+    features: list[str] = []
     length = len(text)
     max_features = 32
     stride = max(1, length // max_features)
@@ -126,12 +126,12 @@ def band_keys(fp: int, bands: int, bits_per_band: int) -> Iterable[int]:
         yield (fp >> shift) & mask
 
 
-def dedupe(args: argparse.Namespace) -> Tuple[int, int, int]:
+def dedupe(args: argparse.Namespace) -> tuple[int, int, int]:
     ensure_config(args.bands, args.bits_per_band)
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
     # bucket -> list of fingerprints
-    band_maps: List[Dict[int, List[int]]] = [defaultdict(list) for _ in range(args.bands)]
+    band_maps: list[dict[int, list[int]]] = [defaultdict(list) for _ in range(args.bands)]
     if args.state and args.state.exists():
         with args.state.open("rb") as state_file:
             saved = pickle.load(state_file)
