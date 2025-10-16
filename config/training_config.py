@@ -296,15 +296,16 @@ class SmallConfig(BaseConfig):
             gpu_name = self.gpu_info['devices'][0]['name'].lower() if self.gpu_info else ""
 
             if gpu_memory >= 22 or "4090" in gpu_name or "ada" in gpu_name:
-                # RTX 4090/A6000: 减少梯度累积，增大batch size以提高GPU利用率
-                self.batch_size = 128  # 增大batch_size，提高GPU吞吐量
-                self.gradient_accumulation_steps = 2  # 减少梯度累积，加快迭代速度
+                # RTX 4090/A6000: 平衡batch size和梯度累积
+                # 保持有效batch=256，但避免单次batch太大导致OOM
+                self.batch_size = 64  # 适中的batch size
+                self.gradient_accumulation_steps = 4  # 有效batch = 64*4 = 256
             elif gpu_memory >= 16:
-                self.batch_size = 96
-                self.gradient_accumulation_steps = 3
+                self.batch_size = 48
+                self.gradient_accumulation_steps = 5
             elif gpu_memory >= 12:
-                self.batch_size = 64
-                self.gradient_accumulation_steps = 4
+                self.batch_size = 32
+                self.gradient_accumulation_steps = 8
             else:
                 self.batch_size = 32
                 self.gradient_accumulation_steps = 8
