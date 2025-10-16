@@ -28,9 +28,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 PLACEHOLDER_PATTERNS = [
@@ -101,8 +101,8 @@ class Stats:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Clean MiniGPT JSONL datasets")
-    parser.add_argument("--input", required=True, help="Path to input JSONL file")
-    parser.add_argument("--output", required=True, help="Path to output JSONL file")
+    parser.add_argument("--input", required=True, type=Path, help="Path to input JSONL file")
+    parser.add_argument("--output", required=True, type=Path, help="Path to output JSONL file")
     parser.add_argument(
         "--dataset-type",
         choices=["sft", "pretrain"],
@@ -248,10 +248,8 @@ def clean_pretrain_entry(
     return entry, signature
 
 
-def ensure_parent_dir(path: str) -> None:
-    directory = os.path.dirname(os.path.abspath(path))
-    if directory and not os.path.exists(directory):
-        os.makedirs(directory, exist_ok=True)
+def ensure_parent_dir(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
 
 
 def clean_file(args: argparse.Namespace) -> Stats:
@@ -266,13 +264,13 @@ def clean_file(args: argparse.Namespace) -> Stats:
     )
 
     stats = Stats()
-    seen_hashes = set()
+    seen_hashes: set[bytes] = set()
     ensure_parent_dir(args.output)
 
     cleaner = clean_sft_entry if cfg.dataset_type == "sft" else clean_pretrain_entry
 
-    with open(args.input, encoding="utf-8") as src, open(
-        args.output, "w", encoding="utf-8"
+    with args.input.open(encoding="utf-8") as src, args.output.open(
+        "w", encoding="utf-8"
     ) as dst:
         for line in src:
             line = line.strip()

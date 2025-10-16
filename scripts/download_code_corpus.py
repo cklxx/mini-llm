@@ -91,6 +91,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Keep the Hugging Face datasets cache on disk instead of removing files after export.",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing export files instead of skipping them.",
+    )
     return parser.parse_args()
 
 
@@ -187,19 +192,25 @@ def main() -> None:
 
             if args.file_format == "jsonl":
                 output_file = split_dir / f"{split}.jsonl"
-                export_jsonl(dataset, output_file=output_file, max_samples=args.max_samples)
-                print(f"Saved {dataset_name}:{split} to {output_file}")
+                if output_file.exists() and not args.force:
+                    print(f"Skipping existing file {output_file} (use --force to overwrite)")
+                else:
+                    export_jsonl(dataset, output_file=output_file, max_samples=args.max_samples)
+                    print(f"Saved {dataset_name}:{split} to {output_file}")
             else:
                 if isinstance(dataset, IterableDataset):
                     raise ValueError("Parquet export is not supported in streaming mode.")
                 output_file = split_dir / f"{split}.parquet"
-                export_parquet(
-                    dataset,
-                    output_file=output_file,
-                    compression=args.compression,
-                    max_samples=args.max_samples,
-                )
-                print(f"Saved {dataset_name}:{split} to {output_file}")
+                if output_file.exists() and not args.force:
+                    print(f"Skipping existing file {output_file} (use --force to overwrite)")
+                else:
+                    export_parquet(
+                        dataset,
+                        output_file=output_file,
+                        compression=args.compression,
+                        max_samples=args.max_samples,
+                    )
+                    print(f"Saved {dataset_name}:{split} to {output_file}")
 
     cache_dir = Path(os.getenv("HF_DATASETS_CACHE", Path.home() / ".cache/huggingface/datasets"))
     if not args.save_cache and cache_dir.exists():

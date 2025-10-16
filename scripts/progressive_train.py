@@ -4,19 +4,34 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from collections import OrderedDict
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
-SRC_DIR = os.path.join(PROJECT_ROOT, "src")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-if PROJECT_ROOT not in sys.path:
-    sys.path.append(PROJECT_ROOT)
-if SRC_DIR not in sys.path:
-    sys.path.append(SRC_DIR)
+
+@contextmanager
+def _project_import_context() -> Iterator[None]:
+    """Temporarily prepend the repo root and src directory to ``sys.path``."""
+
+    added: list[str] = []
+    for candidate in (PROJECT_ROOT, PROJECT_ROOT / "src"):
+        candidate_str = str(candidate)
+        if candidate_str not in sys.path:
+            sys.path.insert(0, candidate_str)
+            added.append(candidate_str)
+    try:
+        yield
+    finally:
+        for candidate_str in added:
+            try:
+                sys.path.remove(candidate_str)
+            except ValueError:  # pragma: no cover - defensive cleanup
+                pass
 
 
 @dataclass
@@ -292,8 +307,9 @@ def load_training_dependencies() -> tuple[object, type]:
     """Import heavy training dependencies lazily."""
 
     try:
-        from config.training_config import get_config as get_training_config  # type: ignore
-        from training.pipeline.app import MiniGPTTrainer  # type: ignore
+        with _project_import_context():
+            from config.training_config import get_config as get_training_config  # type: ignore
+            from training.pipeline.app import MiniGPTTrainer  # type: ignore
     except ModuleNotFoundError as exc:  # pragma: no cover - import error messaging
         if exc.name == "torch":
             raise SystemExit(

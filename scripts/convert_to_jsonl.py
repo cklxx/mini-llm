@@ -80,21 +80,33 @@ def main() -> None:
     parser.add_argument("--join-with", default="\n\n")
     parser.add_argument("--add-metadata", action="store_true", help="Keep non-text columns")
     parser.add_argument("--language", default=None)
+    parser.add_argument(
+        "--min-length",
+        type=int,
+        default=0,
+        help="Drop records whose assembled text is shorter than this length.",
+    )
     args = parser.parse_args()
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
     with args.output.open("w", encoding="utf-8") as out:
+        title_field = args.title_field
+        if isinstance(title_field, str) and title_field.lower() in {"none", ""}:
+            title_field = None
+
         for obj in stream_json_array(args.input):
-            text = build_text(obj, args.text_field, args.title_field, args.join_with)
+            text = build_text(obj, args.text_field, title_field, args.join_with)
             if not text:
+                continue
+            if args.min_length and len(text.strip()) < args.min_length:
                 continue
             record = {"text": text}
             if args.language:
                 record["lang"] = args.language
             if args.add_metadata:
                 for k, v in obj.items():
-                    if k in {args.text_field, args.title_field}:
+                    if k in {args.text_field, title_field}:
                         continue
                     record[k] = v
             out.write(json.dumps(record, ensure_ascii=False) + "\n")
