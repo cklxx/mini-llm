@@ -184,16 +184,16 @@ def get_small_config() -> MiniGPTConfig:
     """
     return MiniGPTConfig(
         vocab_size=10000,
-        hidden_size=288,  # 384 -> 288 (减少25%)，降低内存峰值
-        num_hidden_layers=18,  # 12 -> 18 (增加50%)，提升表达能力
-        num_attention_heads=9,  # 保持 hidden_size/n_heads = 32
-        num_key_value_heads=3,  # GQA优化：3:1比例 (9/3=3)
-        intermediate_size=1152,  # 4倍hidden_size
-        max_position_embeddings=1024,
-        dropout=0.1,
-        use_rope=True,  # ✅ RoPE位置编码
-        use_gqa=True,  # ✅ 分组查询注意力
-        tie_word_embeddings=True,  # ✅ 权重共享优化
+        hidden_size=512,
+        num_hidden_layers=8,
+        num_attention_heads=8,
+        num_key_value_heads=2,
+        intermediate_size=2048,
+        max_position_embeddings=512,
+        dropout=0.0,
+        use_rope=True,
+        use_gqa=True,
+        tie_word_embeddings=True,
     )
 
 

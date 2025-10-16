@@ -55,20 +55,38 @@ def build_parser() -> argparse.ArgumentParser:
 
 def apply_mode_defaults(config, mode: str, overrides) -> None:
     if mode == "pretrain":
-        config.max_steps = overrides.max_steps or config.max_steps or 50000
-        if overrides.learning_rate is None:
-            config.learning_rate = 1e-4
-        config.warmup_steps = min(500, int(config.max_steps * 0.05))
+        if overrides.max_steps is not None:
+            config.max_steps = overrides.max_steps
+        elif getattr(config, "max_steps", None) in (None, 0):
+            config.max_steps = 50000
+
+        if overrides.learning_rate is not None:
+            config.learning_rate = overrides.learning_rate
+
+        if overrides.warmup_steps is not None:
+            config.warmup_steps = overrides.warmup_steps
+        elif getattr(config, "warmup_steps", None) is None:
+            config.warmup_steps = min(500, int(config.max_steps * 0.05))
+
         print("📚 预训练模式：建立基础语言理解能力")
         print(f"   学习率: {config.learning_rate:.2e}")
         print(
             f"   Warmup steps: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)"
         )
     elif mode == "sft":
-        config.max_steps = overrides.max_steps or config.max_steps or 10000
-        if overrides.learning_rate is None:
-            config.learning_rate = 5e-5
-        config.warmup_steps = min(200, int(config.max_steps * 0.02))
+        if overrides.max_steps is not None:
+            config.max_steps = overrides.max_steps
+        elif getattr(config, "max_steps", None) in (None, 0):
+            config.max_steps = 10000
+
+        if overrides.learning_rate is not None:
+            config.learning_rate = overrides.learning_rate
+
+        if overrides.warmup_steps is not None:
+            config.warmup_steps = overrides.warmup_steps
+        elif getattr(config, "warmup_steps", None) is None:
+            config.warmup_steps = min(200, int(config.max_steps * 0.02))
+
         print("🎯 监督微调模式：训练对话和特定任务能力")
         print(f"   学习率: {config.learning_rate:.2e} (比预训练低，保护已学知识)")
         print(
@@ -76,10 +94,19 @@ def apply_mode_defaults(config, mode: str, overrides) -> None:
         )
         print("   💡 模型已有预训练基础，使用短warmup快速进入衰减阶段")
     elif mode == "dpo":
-        config.max_steps = overrides.max_steps or config.max_steps or 5000
-        if overrides.learning_rate is None:
-            config.learning_rate = 1e-5
-        config.warmup_steps = min(100, int(config.max_steps * 0.02))
+        if overrides.max_steps is not None:
+            config.max_steps = overrides.max_steps
+        elif getattr(config, "max_steps", None) in (None, 0):
+            config.max_steps = 5000
+
+        if overrides.learning_rate is not None:
+            config.learning_rate = overrides.learning_rate
+
+        if overrides.warmup_steps is not None:
+            config.warmup_steps = overrides.warmup_steps
+        elif getattr(config, "warmup_steps", None) is None:
+            config.warmup_steps = min(100, int(config.max_steps * 0.02))
+
         print("⚖️  直接偏好优化模式：根据人类偏好调整响应")
         print(f"   学习率: {config.learning_rate:.2e}")
         print(
@@ -87,10 +114,19 @@ def apply_mode_defaults(config, mode: str, overrides) -> None:
         )
         print("   💡 在SFT基础上优化，使用极短warmup")
     elif mode == "rlhf":
-        config.max_steps = overrides.max_steps or config.max_steps or 3000
-        if overrides.learning_rate is None:
-            config.learning_rate = 1e-5
-        config.warmup_steps = min(100, int(config.max_steps * 0.02))
+        if overrides.max_steps is not None:
+            config.max_steps = overrides.max_steps
+        elif getattr(config, "max_steps", None) in (None, 0):
+            config.max_steps = 3000
+
+        if overrides.learning_rate is not None:
+            config.learning_rate = overrides.learning_rate
+
+        if overrides.warmup_steps is not None:
+            config.warmup_steps = overrides.warmup_steps
+        elif getattr(config, "warmup_steps", None) is None:
+            config.warmup_steps = min(100, int(config.max_steps * 0.02))
+
         print("🔄 强化学习微调模式：通过奖励模型优化")
         print(f"   学习率: {config.learning_rate:.2e}")
         print(
