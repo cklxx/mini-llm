@@ -3,11 +3,11 @@ Stream a large JSON array (e.g. Common Crawl or Wikipedia exports) and convert i
 into JSONL so MiniGPT's data pipeline can process it. Handles memory-efficient
 parsing and optional metadata retention. Also supports dropping short records.
 
-Example:
+Example (limit to the first few records during smoke tests):
     python scripts/convert_to_jsonl.py \
         --input data/external/wikipedia_zh/wiki_pretrain_part1.json \
         --output data/processed/wiki_zh_part1.jsonl \
-        --text-field text --title-field title --join-with "\n\n"
+        --text-field text --title-field title --join-with "\n\n" --max-records 1000
 """
 
 import argparse
@@ -85,6 +85,12 @@ def main() -> None:
         default=0,
         help="Drop records whose assembled text is shorter than this length.",
     )
+    parser.add_argument(
+        "--max-records",
+        type=int,
+        default=None,
+        help="Write at most this many records (useful for smoke tests).",
+    )
     args = parser.parse_args()
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -94,6 +100,7 @@ def main() -> None:
         if isinstance(title_field, str) and title_field.lower() in {"none", ""}:
             title_field = None
 
+        written = 0
         for obj in stream_json_array(args.input):
             text = build_text(obj, args.text_field, title_field, args.join_with)
             if not text:
@@ -109,6 +116,9 @@ def main() -> None:
                         continue
                     record[k] = v
             out.write(json.dumps(record, ensure_ascii=False) + "\n")
+            written += 1
+            if args.max_records is not None and written >= args.max_records:
+                break
 
 
 if __name__ == "__main__":

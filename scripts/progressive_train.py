@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections import OrderedDict
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -268,6 +270,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="强制所有子阶段重新训练 tokenizer",
     )
+    parser.add_argument(
+        "--plan-output",
+        type=Path,
+        default=None,
+        help="将训练阶段计划导出为 JSON 文件",
+    )
     return parser.parse_args()
 
 
@@ -281,25 +289,57 @@ def apply_overrides(config, overrides: dict[str, int | float | bool]) -> None:
         setattr(config, key, value)
 
 
-def render_plan(stage_ids: Iterable[str]) -> None:
-    print("\n=== 渐进式训练路线图 ===")
+def plan_to_json(stage_ids: Iterable[str]) -> list[dict[str, Any]]:
+    plan = []
     for stage_id in stage_ids:
         stage = PROGRESSIVE_STAGES[stage_id]
-        print(
-            f"\n[{stage.id}] {stage.title}\n"
-            f"  目标参数量: {stage.target_params}\n"
-            f"  训练配置: {stage.base_config}\n"
-            f"  核心目标: {stage.focus}\n"
-            f"  数据范围: {stage.dataset_scope}\n"
-            f"  checkpoint 策略: {stage.checkpoints}\n"
-            f"  迭代建议: {stage.iteration_guidance}"
+        plan.append(
+            {
+                "id": stage.id,
+                "title": stage.title,
+                "target_params": stage.target_params,
+                "base_config": stage.base_config,
+                "focus": stage.focus,
+                "dataset_scope": stage.dataset_scope,
+                "checkpoints": stage.checkpoints,
+                "iteration_guidance": stage.iteration_guidance,
+                "phases": [
+                    {
+                        "name": phase.name,
+                        "mode": phase.mode,
+                        "description": phase.description,
+                        "overrides": phase.overrides,
+                        "resume_from_previous": phase.resume_from_previous,
+                        "auto_resume": phase.auto_resume,
+                        "retrain_tokenizer": phase.retrain_tokenizer,
+                        "config": phase.config or stage.base_config,
+                    }
+                    for phase in stage.phases
+                ],
+            }
         )
-        for phase in stage.phases:
+    return plan
+
+
+def render_plan(stage_ids: Iterable[str]) -> None:
+    plan = plan_to_json(stage_ids)
+    print("\n=== 渐进式训练路线图 ===")
+    for stage in plan:
+        print(
+            f"\n[{stage['id']}] {stage['title']}\n"
+            f"  目标参数量: {stage['target_params']}\n"
+            f"  训练配置: {stage['base_config']}\n"
+            f"  核心目标: {stage['focus']}\n"
+            f"  数据范围: {stage['dataset_scope']}\n"
+            f"  checkpoint 策略: {stage['checkpoints']}\n"
+            f"  迭代建议: {stage['iteration_guidance']}"
+        )
+        for phase in stage["phases"]:
             print(
-                f"    - {phase.name} ({phase.mode})\n"
-                f"      描述: {phase.description}\n"
-                f"      覆盖项: {phase.overrides or '无'}\n"
-                f"      继承上一阶段: {'是' if phase.resume_from_previous else '否'}"
+                f"    - {phase['name']} ({phase['mode']})\n"
+                f"      描述: {phase['description']}\n"
+                f"      覆盖项: {phase['overrides'] or '无'}\n"
+                f"      继承上一阶段: {'是' if phase['resume_from_previous'] else '否'}"
             )
 
 
@@ -378,6 +418,12 @@ def execute_plan(args: argparse.Namespace, stage_ids: Iterable[str]) -> None:
 def main() -> None:
     args = parse_args()
     stage_ids = args.stages
+    plan_json = plan_to_json(stage_ids)
+
+    if args.plan_output is not None:
+        args.plan_output.parent.mkdir(parents=True, exist_ok=True)
+        args.plan_output.write_text(json.dumps(plan_json, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(f"📄 渐进式计划已保存至 {args.plan_output}")
 
     if not args.execute:
         render_plan(stage_ids)

@@ -143,6 +143,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Lowercase signature text before hashing (useful for English corpora)",
     )
+    parser.add_argument(
+        "--stats-output",
+        type=Path,
+        default=None,
+        help="Optional path to write the cleaning statistics as JSON",
+    )
     return parser.parse_args()
 
 
@@ -305,6 +311,10 @@ def main() -> None:
     summary = stats.as_dict()
     summary_json = json.dumps(summary, ensure_ascii=False, indent=2)
     print(summary_json)
+    if args.stats_output is not None:
+        args.stats_output.parent.mkdir(parents=True, exist_ok=True)
+        args.stats_output.write_text(summary_json + "\n", encoding="utf-8")
+        print(f"📄 清洗统计已写入 {args.stats_output}")
 
 
 if __name__ == "__main__":
