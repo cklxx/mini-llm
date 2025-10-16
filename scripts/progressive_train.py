@@ -44,6 +44,7 @@ class StageDefinition:
     focus: str
     dataset_scope: str
     checkpoints: str
+    iteration_guidance: str
     phases: List[PhaseDefinition]
 
 
@@ -59,6 +60,7 @@ PROGRESSIVE_STAGES: "OrderedDict[str, StageDefinition]" = OrderedDict(
                 focus="验证 Tokenizer/数据清洗/日志是否工作，快速观察损失曲线",
                 dataset_scope="抽样 1–2B token，主语言 Python/TypeScript",
                 checkpoints="首次全量训练，无需继承 checkpoint",
+                iteration_guidance="在完成冒烟验证后再次迭代 1–2 次以确认修复后的数据/配置稳定",
                 phases=[
                     PhaseDefinition(
                         name="阶段0 预训练",
@@ -84,6 +86,7 @@ PROGRESSIVE_STAGES: "OrderedDict[str, StageDefinition]" = OrderedDict(
                 focus="建立稳定的多语言补全基线，并验证短 SFT 接口",
                 dataset_scope="4–6B token 预训练 + 约 20K 条指令微调样本",
                 checkpoints="从阶段 0 产出的权重开始可加速收敛",
+                iteration_guidance="建议至少循环两轮：第一轮获得基线，第二轮针对评测反馈调整学习率/采样",
                 phases=[
                     PhaseDefinition(
                         name="阶段1 预训练",
@@ -124,6 +127,7 @@ PROGRESSIVE_STAGES: "OrderedDict[str, StageDefinition]" = OrderedDict(
                 focus="扩展上下文到 4K，覆盖 15–25B token 并扩大指令集",
                 dataset_scope="主语言高质量仓库 + 80K–120K 指令/执行反馈",
                 checkpoints="继承阶段1权重，保留评测挂钩与蒸馏接口",
+                iteration_guidance="在不同数据混合或蒸馏策略之间做多次 A/B，对齐关键指标后再晋级下一阶段",
                 phases=[
                     PhaseDefinition(
                         name="阶段2 预训练",
@@ -164,6 +168,7 @@ PROGRESSIVE_STAGES: "OrderedDict[str, StageDefinition]" = OrderedDict(
                 focus="在确认 200M 满足应用需求后扩大深度与宽度",
                 dataset_scope="沿用阶段2清洗成果，追加大模型特化任务",
                 checkpoints="承接阶段2 指令微调后的最新 checkpoint",
+                iteration_guidance="通过多轮缩短版训练 (如 20K 步) 快速验证显存/吞吐，再进入正式全量训练",
                 phases=[
                     PhaseDefinition(
                         name="阶段3 预训练",
@@ -271,7 +276,8 @@ def render_plan(stage_ids: Iterable[str]) -> None:
             f"  训练配置: {stage.base_config}\n"
             f"  核心目标: {stage.focus}\n"
             f"  数据范围: {stage.dataset_scope}\n"
-            f"  checkpoint 策略: {stage.checkpoints}"
+            f"  checkpoint 策略: {stage.checkpoints}\n"
+            f"  迭代建议: {stage.iteration_guidance}"
         )
         for phase in stage.phases:
             print(

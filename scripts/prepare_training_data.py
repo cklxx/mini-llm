@@ -19,15 +19,16 @@ import concurrent.futures
 import hashlib
 import json
 import multiprocessing
-import os
 import shutil
 import subprocess
-import sys
 import tempfile
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-import requests
+try:
+    import requests
+except ImportError:  # pragma: no cover - optional dependency not installed everywhere
+    requests = None  # type: ignore[assignment]
 
 # ---------------------------------------------------------------------------
 # SimHash utilities (adapted from previous scripts)
@@ -38,12 +39,12 @@ def feature_hash(feature: str) -> int:
     return int.from_bytes(digest[:8], "big", signed=False)
 
 
-def tokenize_for_simhash(text: str, max_features: int = 32) -> List[str]:
+def tokenize_for_simhash(text: str, max_features: int = 32) -> list[str]:
     length = len(text)
     if not text or length < 2:
         return []
     stride = max(1, length // (max_features * 2))
-    feats: List[str] = []
+    feats: list[str] = []
     for n in (2, 3):
         for i in range(0, length - n + 1, stride):
             feats.append(text[i : i + n])
@@ -102,10 +103,10 @@ def simhash_dedupe(
     hamming_threshold: int = 3,
     max_bucket_size: int = 64,
     min_length: int = 10,
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """Stream multiple JSONL files and remove near duplicates."""
     ensure_config(bands, bits_per_band)
-    band_maps: List[Dict[int, List[int]]] = [dict() for _ in range(bands)]
+    band_maps: list[dict[int, list[int]]] = [{} for _ in range(bands)]
     kept = 0
     dropped = 0
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -152,7 +153,13 @@ def simhash_dedupe(
 # JSONL conversion utilities
 # ---------------------------------------------------------------------------
 
-def convert_json_array_to_jsonl(input_path: Path, output_path: Path, text_field: str = "text", title_field: Optional[str] = "title", join_with: str = "\n\n") -> None:
+def convert_json_array_to_jsonl(
+    input_path: Path,
+    output_path: Path,
+    text_field: str = "text",
+    title_field: str | None = "title",
+    join_with: str = "\n\n",
+) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     decoder = json.JSONDecoder()
     buffer = ""
@@ -211,6 +218,10 @@ def download_file(url: str, dest: Path, force: bool = False) -> None:
     if dest.exists() and not force:
         print(f"[download] skip existing {dest}")
         return
+    if requests is None:
+        raise ModuleNotFoundError(
+            "requests is required to download missing corpora. Install it or run the script without --force-download when cleaned data already exists."
+        )
     print(f"[download] fetching {url} -> {dest}")
     with requests.get(url, stream=True, timeout=60) as resp:
         resp.raise_for_status()
@@ -222,7 +233,7 @@ def download_file(url: str, dest: Path, force: bool = False) -> None:
     tmp_path.replace(dest)
 
 
-def parallel_download(urls: Sequence[Tuple[str, Path]], workers: int, force: bool = False) -> None:
+def parallel_download(urls: Sequence[tuple[str, Path]], workers: int, force: bool = False) -> None:
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
         futures = [executor.submit(download_file, url, path, force) for url, path in urls]
         for fut in concurrent.futures.as_completed(futures):
@@ -279,7 +290,7 @@ def prepare_wiki(download_dir: Path, tmp_dir: Path, final_dir: Path, workers: in
     urls = [(url, download_dir / fname) for fname, url in WIKI_PARTS]
     parallel_download(urls, workers=download_workers, force=force)
 
-    converted_paths: List[Path] = []
+    converted_paths: list[Path] = []
     with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
         futures = []
         for fname, _ in WIKI_PARTS:
@@ -311,7 +322,7 @@ def prepare_chinacorpus(download_dir: Path, tmp_dir: Path, final_dir: Path, work
     urls = [(url, download_dir / fname) for fname, url in CHINACORPUS_PARTS]
     parallel_download(urls, workers=download_workers, force=force)
 
-    converted: List[Path] = []
+    converted: list[Path] = []
     with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
         futures = []
         for fname, _ in CHINACORPUS_PARTS:
@@ -343,7 +354,7 @@ def prepare_slimpajama(download_dir: Path, tmp_dir: Path, final_dir: Path, worke
     urls = [(url, download_dir / fname) for fname, url in SLIMPAJAMA_FILES]
     parallel_download(urls, workers=download_workers, force=force)
 
-    decompressed: List[Path] = []
+    decompressed: list[Path] = []
     with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
         futures = []
         for fname, _ in SLIMPAJAMA_FILES:
@@ -370,12 +381,22 @@ def clean_existing_jsonl(input_path: Path, output_path: Path, force: bool) -> Pa
     if output_path.exists() and not force:
         print(f"[clean] skip existing {output_path}")
         return output_path
+    if not input_path.exists():
+        raise FileNotFoundError(
+            f"Required source file {input_path} not found. Provide the raw dataset or remove {output_path} and rerun."
+        )
     kept, dropped = simhash_dedupe([input_path], output_path)
     print(f"[clean] {input_path.name} kept {kept} dropped {dropped}")
     return output_path
 
 
-def write_manifests(final_dir: Path, pretrain_paths: Dict[str, Path], token_targets: Dict[str, float], configs_dir: Path, sft_path: Path) -> None:
+def write_manifests(
+    final_dir: Path,
+    pretrain_paths: dict[str, Path],
+    token_targets: dict[str, float],
+    configs_dir: Path,
+    sft_path: Path,
+) -> None:
     total = sum(token_targets.values())
     datasets = []
     for name, path in pretrain_paths.items():
@@ -462,14 +483,18 @@ def main() -> None:
     slimpajama_final = prepare_slimpajama(args.download_dir / "slimpajama", args.tmp_dir / "slimpajama", args.output_dir, args.workers, args.download_workers, args.force_download)
 
     pretrain_hq_input = Path("data/pretrain_hq.jsonl")
-    if not pretrain_hq_input.exists():
-        raise FileNotFoundError("data/pretrain_hq.jsonl not found")
-    pretrain_hq_final = clean_existing_jsonl(pretrain_hq_input, args.output_dir / "pretrain_hq.cleaned.jsonl", force=args.force_download)
+    pretrain_hq_final = clean_existing_jsonl(
+        pretrain_hq_input,
+        args.output_dir / "pretrain_hq.cleaned.jsonl",
+        force=args.force_download,
+    )
 
     sft_input = Path("data/sft_mini_512.jsonl")
-    if not sft_input.exists():
-        raise FileNotFoundError("data/sft_mini_512.jsonl not found")
-    sft_final = clean_existing_jsonl(sft_input, args.output_dir / "sft_mini_512.cleaned.jsonl", force=args.force_download)
+    sft_final = clean_existing_jsonl(
+        sft_input,
+        args.output_dir / "sft_mini_512.cleaned.jsonl",
+        force=args.force_download,
+    )
 
     token_targets = {
         "wiki_zh": 0.9e9,

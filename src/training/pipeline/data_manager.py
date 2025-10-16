@@ -31,6 +31,60 @@ class DataResolver:
     def __init__(self, config, mode: str):
         self.config = config
         self.mode = mode
+        self._manifest_cache: dict[str, list[str] | None] = {}
+
+    # ------------------------------------------------------------------
+    def _manifest_filename(self) -> str | None:
+        mapping = {
+            "pretrain": "pretrain_manifest.json",
+            "sft": "sft_manifest.json",
+        }
+        return mapping.get(self.mode)
+
+    def _manifest_dir(self) -> str:
+        if hasattr(self.config, "manifest_dir"):
+            return self.config.manifest_dir
+        if hasattr(self.config, "project_root"):
+            return os.path.join(self.config.project_root, "configs", "data")
+        return os.path.join(os.getcwd(), "configs", "data")
+
+    def _load_manifest_dataset_paths(self) -> list[str] | None:
+        if self.mode in self._manifest_cache:
+            return self._manifest_cache[self.mode]
+
+        filename = self._manifest_filename()
+        if not filename:
+            self._manifest_cache[self.mode] = None
+            return None
+
+        manifest_path = os.path.join(self._manifest_dir(), filename)
+        if not os.path.exists(manifest_path):
+            print(f"⚠️  未找到 manifest 文件: {manifest_path}")
+            self._manifest_cache[self.mode] = None
+            return None
+
+        try:
+            with open(manifest_path, encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"⚠️  读取 manifest 失败 {manifest_path}: {exc}")
+            self._manifest_cache[self.mode] = None
+            return None
+
+        datasets = data.get("datasets", []) if isinstance(data, dict) else []
+        paths: list[str] = []
+        for entry in datasets:
+            if isinstance(entry, dict):
+                path = entry.get("path")
+                if isinstance(path, str):
+                    paths.append(path)
+        if not paths:
+            print(f"⚠️  manifest {manifest_path} 中未找到有效的数据路径")
+            self._manifest_cache[self.mode] = None
+            return None
+
+        self._manifest_cache[self.mode] = paths
+        return paths
 
     def resolve_data_path(self, filename: str) -> str | None:
         search_dirs = []
@@ -53,8 +107,31 @@ class DataResolver:
                 return candidate
         return None
 
+    def _maybe_resolve_direct_path(self, name: str) -> str | None:
+        if os.path.isabs(name) and os.path.exists(name):
+            return name
+        # Treat path with directory separators as potentially relative to project or data dir
+        if os.path.sep in name or (os.path.altsep and os.path.altsep in name):
+            if hasattr(self.config, "project_root"):
+                project_candidate = os.path.join(self.config.project_root, name)
+                if os.path.exists(project_candidate):
+                    return project_candidate
+            if hasattr(self.config, "data_dir"):
+                data_candidate = os.path.join(self.config.data_dir, name)
+                if os.path.exists(data_candidate):
+                    return data_candidate
+            cwd_candidate = os.path.join(os.getcwd(), name)
+            if os.path.exists(cwd_candidate):
+                return cwd_candidate
+        return None
+
     def resolve_dataset_file(self, *candidates: str) -> str | None:
         for name in candidates:
+            direct = self._maybe_resolve_direct_path(name)
+            if direct:
+                if name != os.path.basename(direct):
+                    print(f"✅ 使用数据文件 {os.path.basename(direct)} (匹配路径 {name})")
+                return direct
             path = self.resolve_data_path(name)
             if path:
                 if name != os.path.basename(path):
@@ -64,6 +141,9 @@ class DataResolver:
         return None
 
     def dataset_candidates(self) -> Sequence[Sequence[str]]:
+        manifest_paths = self._load_manifest_dataset_paths()
+        if manifest_paths:
+            return [(path,) for path in manifest_paths]
         if self.mode == "pretrain":
             return [
                 ("wiki_zh_full.simdedup.jsonl", "wiki_zh_full.cleaned.jsonl", "wiki_pretrain_part1.json"),

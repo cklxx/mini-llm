@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-计算Medium模型与Small模型的资源对比
-"""
-import os
+"""计算 Medium 模型与 Small 模型的资源对比。"""
+
 import sys
-import torch
-import time
+from importlib import import_module
+from pathlib import Path
 
-# 添加项目路径
-sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-from model.transformer import create_model
+
+def _load_model_builder():
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+    return import_module("src.model.transformer").create_model
+
+
+create_model = _load_model_builder()
 
 
 def calculate_model_params(model):
@@ -83,7 +86,7 @@ def main():
     small_params, small_trainable = calculate_model_params(small_model)
     medium_params, medium_trainable = calculate_model_params(medium_model)
 
-    print(f"\n📊 参数量对比:")
+    print("\n📊 参数量对比:")
     print(f"  Small模型:  {small_params:,} 参数 ({small_params/1e6:.1f}M)")
     print(f"  Medium模型: {medium_params:,} 参数 ({medium_params/1e6:.1f}M)")
     print(f"  参数量比例: {medium_params/small_params:.2f}x")
@@ -103,7 +106,7 @@ def main():
         "n_layers": 10
     }
 
-    print(f"\n⚙️  配置对比:")
+    print("\n⚙️  配置对比:")
     print(f"  Small:  batch_size={small_config['batch_size']}, seq_len={small_config['seq_length']}, d_model={small_config['d_model']}, layers={small_config['n_layers']}")
     print(f"  Medium: batch_size={medium_config['batch_size']}, seq_len={medium_config['seq_length']}, d_model={medium_config['d_model']}, layers={medium_config['n_layers']}")
 
@@ -111,15 +114,15 @@ def main():
     small_memory = estimate_memory_usage(small_model, small_config["batch_size"], small_config["seq_length"])
     medium_memory = estimate_memory_usage(medium_model, medium_config["batch_size"], medium_config["seq_length"])
 
-    print(f"\n💾 内存使用估算:")
-    print(f"  Small模型:")
+    print("\n💾 内存使用估算:")
+    print("  Small模型:")
     print(f"    - 模型参数: {small_memory['model_memory']:.1f} MB")
     print(f"    - 激活值:   {small_memory['activation_memory']:.1f} MB")
     print(f"    - 梯度:     {small_memory['gradient_memory']:.1f} MB")
     print(f"    - 优化器:   {small_memory['optimizer_memory']:.1f} MB")
     print(f"    - 总计:     {small_memory['total_memory']:.1f} MB ({small_memory['total_memory']/1024:.2f} GB)")
 
-    print(f"\n  Medium模型:")
+    print("\n  Medium模型:")
     print(f"    - 模型参数: {medium_memory['model_memory']:.1f} MB")
     print(f"    - 激活值:   {medium_memory['activation_memory']:.1f} MB")
     print(f"    - 梯度:     {medium_memory['gradient_memory']:.1f} MB")
@@ -135,7 +138,7 @@ def main():
         small_config["batch_size"], medium_config["batch_size"]
     )
 
-    print(f"\n⏱️  训练时间估算:")
+    print("\n⏱️  训练时间估算:")
     print(f"  参数量影响: {medium_params/small_params:.2f}x")
     print(f"  批次大小影响: {small_config['batch_size']/medium_config['batch_size']:.2f}x")
     print(f"  预估时间比例: {time_ratio:.2f}x")
@@ -147,7 +150,7 @@ def main():
     effective_batch_small = small_config["batch_size"] * 4  # gradient_accumulation_steps
     effective_batch_medium = medium_config["batch_size"] * 12  # gradient_accumulation_steps
 
-    print(f"\n📈 训练设置对比:")
+    print("\n📈 训练设置对比:")
     print(f"  Small:  {small_steps} 步, 有效批次={effective_batch_small}")
     print(f"  Medium: {medium_steps} 步, 有效批次={effective_batch_medium}")
     print(f"  总步数比例: {medium_steps/small_steps:.2f}x")
@@ -160,13 +163,13 @@ def main():
 
     medium_estimated_time = small_estimated_time * time_ratio * (medium_steps/small_steps)
 
-    print(f"\n🕐 实际训练时间预估:")
+    print("\n🕐 实际训练时间预估:")
     print(f"  Small模型:  约 {small_estimated_time} 分钟")
     print(f"  Medium模型: 约 {medium_estimated_time:.0f} 分钟 ({medium_estimated_time/60:.1f} 小时)")
     print(f"  时间增加:   {medium_estimated_time/small_estimated_time:.1f}x")
 
     # 推荐配置
-    print(f"\n💡 推荐配置:")
+    print("\n💡 推荐配置:")
     if medium_memory['total_memory'] > 6000:  # > 6GB
         print("  ⚠️  Medium模型内存需求较高，建议:")
         print("     - 确保Mac有充足内存 (16GB+)")
@@ -174,12 +177,12 @@ def main():
         print("     - 考虑降低batch_size到1")
         print("     - 启用梯度检查点 (如果实现)")
 
-    print(f"\n📋 总结:")
-    print(f"  Medium模型比Small模型:")
+    print("\n📋 总结:")
+    print("  Medium模型比Small模型:")
     print(f"  - 参数量增加: {medium_params/small_params:.1f}倍")
     print(f"  - 内存需求增加: {memory_ratio:.1f}倍")
     print(f"  - 训练时间增加: {medium_estimated_time/small_estimated_time:.1f}倍")
-    print(f"  - 理论性能提升: 预计更好的生成质量和语言理解能力")
+    print("  - 理论性能提升: 预计更好的生成质量和语言理解能力")
 
 
 if __name__ == "__main__":

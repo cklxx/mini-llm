@@ -1,17 +1,25 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Mac优化训练配置
 针对Mac电脑优化，防止系统卡死，使用最小数据集快速验证智能效果
 """
-import os
-import psutil
-from dataclasses import dataclass
-from typing import Optional, List
 import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from config.training_config import TrainingConfig, ModelConfig, TokenizerConfig, DataConfig, PretrainConfig, OptimizationConfig
+from dataclasses import dataclass
+from importlib import import_module
+from pathlib import Path
+
+import psutil
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _load_training_config_class():
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+    return import_module("config.training_config").TrainingConfig
+
+
+TrainingConfig = _load_training_config_class()
 
 
 @dataclass
@@ -239,7 +247,7 @@ def estimate_model_size(config: TrainingConfig) -> dict:
     }
 
 
-def validate_config_for_mac(config: TrainingConfig) -> List[str]:
+def validate_config_for_mac(config: TrainingConfig) -> list[str]:
     """验证配置是否适合Mac环境"""
     warnings = []
 
@@ -286,23 +294,23 @@ if __name__ == "__main__":
     # 测试tiny配置
     tiny_config = get_mac_tiny_config()
     tiny_info = estimate_model_size(tiny_config)
-    print(f"\nTiny模型信息:")
+    print("\nTiny模型信息:")
     print(f"  参数量: {tiny_info['total_params']:,}")
     print(f"  内存需求: {tiny_info['training_memory_mb']:.1f}MB")
 
     # 验证配置
     warnings = validate_config_for_mac(tiny_config)
     if warnings:
-        print(f"\n⚠️  配置警告:")
+        print("\n⚠️  配置警告:")
         for warning in warnings:
             print(f"  - {warning}")
     else:
-        print(f"\n✅ 配置验证通过")
+        print("\n✅ 配置验证通过")
 
     # 测试资源监控
     monitor_config = MacResourceConfig()
     monitor = MacResourceMonitor(monitor_config)
     resources = monitor.check_resources()
-    print(f"\n当前资源使用:")
+    print("\n当前资源使用:")
     print(f"  CPU: {resources['cpu_percent']:.1f}%")
     print(f"  内存: {resources['memory_percent']:.1f}%")
