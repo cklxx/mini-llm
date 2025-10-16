@@ -2,37 +2,12 @@
 
 from __future__ import annotations
 
-import multiprocessing as mp
 import time
-from functools import partial
 from typing import Sequence
 
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-
-
-def _encode_text_worker(text: str, tokenizer, max_length: int) -> np.ndarray:
-    """多进程worker函数：编码单个文本"""
-    token_ids = tokenizer.encode(text, add_special_tokens=True)
-    if len(token_ids) < 2:
-        token_ids = [tokenizer.bos_id, tokenizer.eos_id]
-
-    if len(token_ids) > max_length:
-        token_ids = token_ids[:max_length]
-    else:
-        needed_padding = max(0, max_length - len(token_ids))
-        if needed_padding:
-            token_ids.extend([tokenizer.pad_id] * needed_padding)
-
-    if len(token_ids) < 2:
-        token_ids = [
-            tokenizer.bos_id,
-            tokenizer.eos_id,
-            *([tokenizer.pad_id] * max(0, max_length - 2)),
-        ]
-
-    return np.asarray(token_ids, dtype=np.int64)
 
 
 class LanguageModelingDataset(Dataset):
@@ -75,38 +50,19 @@ class LanguageModelingDataset(Dataset):
         tokens = np.empty((total, self.max_length), dtype=np.int64)
         start_time = time.time()
 
-        # 使用多进程加速预编码
-        num_workers = min(mp.cpu_count(), 16)  # 最多使用16个进程
+        print(f"  🔄 开始预编码 {total:,} 个样本...")
 
-        if total < 1000 or num_workers <= 1:
-            # 数据量小或单核，使用单线程
-            for idx, text in enumerate(texts):
-                tokens[idx] = self._encode_numpy(text)
-                if (idx + 1) % 5000 == 0 or idx == total - 1:
-                    elapsed = time.time() - start_time
-                    speed = (idx + 1) / elapsed if elapsed > 0 else 0.0
-                    print(f"  🔄 预编码 {idx + 1:,}/{total:,} 样本 (速度 {speed:.1f}/s)")
-        else:
-            # 数据量大，使用多进程
-            print(f"  🚀 使用 {num_workers} 个进程并行预编码...")
+        # 单线程编码（简单稳定，避免multiprocessing问题）
+        # tokenizer通常是C++实现，速度已经很快
+        for idx, text in enumerate(texts):
+            tokens[idx] = self._encode_numpy(text)
 
-            # 创建编码函数
-            encode_func = partial(
-                _encode_text_worker,
-                tokenizer=self.tokenizer,
-                max_length=self.max_length
-            )
-
-            # 分批处理并显示进度
-            chunk_size = max(100, total // (num_workers * 10))
-            with mp.Pool(processes=num_workers) as pool:
-                results = []
-                for i, encoded in enumerate(pool.imap(encode_func, texts, chunksize=chunk_size)):
-                    tokens[i] = encoded
-                    if (i + 1) % 5000 == 0 or i == total - 1:
-                        elapsed = time.time() - start_time
-                        speed = (i + 1) / elapsed if elapsed > 0 else 0.0
-                        print(f"  🔄 预编码 {i + 1:,}/{total:,} 样本 (速度 {speed:.1f}/s)")
+            # 定期显示进度
+            if (idx + 1) % 5000 == 0 or idx == total - 1:
+                elapsed = time.time() - start_time
+                speed = (idx + 1) / elapsed if elapsed > 0 else 0.0
+                eta = (total - idx - 1) / speed if speed > 0 else 0
+                print(f"  🔄 预编码 {idx + 1:,}/{total:,} 样本 (速度 {speed:.1f}/s, 预计剩余 {eta/60:.1f}分钟)")
 
         elapsed = time.time() - start_time
         avg_speed = total / elapsed if elapsed > 0 else 0.0

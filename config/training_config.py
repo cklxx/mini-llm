@@ -158,23 +158,23 @@ class BaseConfig:
                 "val_split": 0.05
             },
             "wiki_zh_full.simdedup.jsonl": {
-                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_WIKI_RATIO", 0.05)),
-                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_WIKI_MAX", 200000)),
+                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_WIKI_RATIO", 0.01)),
+                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_WIKI_MAX", 30000)),
                 "val_split": self.validation_split
             },
             "chinacorpus_full.simdedup.jsonl": {
-                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_CHINA_RATIO", 0.03)),
-                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_CHINA_MAX", 300000)),
+                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_CHINA_RATIO", 0.006)),
+                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_CHINA_MAX", 50000)),
                 "val_split": self.validation_split
             },
             "pretrain_hq.cleaned.jsonl": {
-                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_HQ_RATIO", 0.1)),
-                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_HQ_MAX", 150000)),
+                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_HQ_RATIO", 0.03)),
+                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_HQ_MAX", 40000)),
                 "val_split": self.validation_split
             },
             "slimpajama_chunk1_part0_49.cleaned.jsonl": {
-                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_PJ_RATIO", 0.08)),
-                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_PJ_MAX", 80000)),
+                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_PJ_RATIO", 0.04)),
+                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_PJ_MAX", 20000)),
                 "val_split": self.validation_split
             },
         }
