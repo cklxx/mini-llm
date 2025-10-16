@@ -199,6 +199,9 @@ class BaseConfig:
         self.memory_cleanup_interval = int(os.environ.get("MINIGPT_MEMORY_CLEANUP_INTERVAL", 200))
         self.memory_log_interval = int(os.environ.get("MINIGPT_MEMORY_LOG_INTERVAL", 200))
 
+        # 数据预处理选项
+        self.pretokenize_lm = os.environ.get("MINIGPT_PRETOKENIZE_LM", "1") == "1"
+
         # 训练后回归评估配置
         self.regression_eval_enabled = os.environ.get("MINIGPT_REGRESSION_EVAL", "1") == "1"
         self.regression_eval_prompts = os.path.join(self.data_dir, "eval", "regression_prompts.jsonl")
@@ -213,13 +216,14 @@ class BaseConfig:
         self.gradient_checkpointing = True
         self.flash_attention = self.device == "cuda"
 
-        # 数据加载优化 - 针对A6000和16核CPU优化
+        # 数据加载优化 - 针对RTX 4090和多核CPU优化
         if self.device == "cuda":
-            self.num_workers = 8  # 增加到8个worker (16核CPU的一半)
-            self.prefetch_factor = 4  # 每个worker预取4个batch
+            # 大幅提升workers数量以充分利用CPU并行加载数据
+            self.num_workers = 16  # 使用更多workers加速数据加载
+            self.prefetch_factor = 8  # 每个worker预取更多batch，避免GPU等待
         else:
-            self.num_workers = 2
-            self.prefetch_factor = 2
+            self.num_workers = 4
+            self.prefetch_factor = 4
         self.pin_memory = self.device == "cuda"
         self.persistent_workers = True if self.num_workers > 0 else False
 
@@ -286,20 +290,24 @@ class SmallConfig(BaseConfig):
         self.max_seq_len = 512
         self.dropout = 0.0
 
-        # 训练参数 - 优化内存使用
+        # 训练参数 - 优化内存使用和GPU利用率
         if self.device == "cuda":
             gpu_memory = self.gpu_info['devices'][0]['memory_total'] if self.gpu_info else 8
-            gpu_name = self.gpu_info['devices'][0]['name'] if self.gpu_info else ""
+            gpu_name = self.gpu_info['devices'][0]['name'].lower() if self.gpu_info else ""
 
-            if gpu_memory >= 24:
+            if gpu_memory >= 22 or "4090" in gpu_name or "ada" in gpu_name:
+                # RTX 4090/A6000: 减少梯度累积，增大batch size以提高GPU利用率
+                self.batch_size = 128  # 增大batch_size，提高GPU吞吐量
+                self.gradient_accumulation_steps = 2  # 减少梯度累积，加快迭代速度
+            elif gpu_memory >= 16:
+                self.batch_size = 96
+                self.gradient_accumulation_steps = 3
+            elif gpu_memory >= 12:
                 self.batch_size = 64
                 self.gradient_accumulation_steps = 4
-            elif gpu_memory >= 12:
+            else:
                 self.batch_size = 32
                 self.gradient_accumulation_steps = 8
-            else:
-                self.batch_size = 16
-                self.gradient_accumulation_steps = 16
         else:
             self.batch_size = 16
             self.gradient_accumulation_steps = 16
