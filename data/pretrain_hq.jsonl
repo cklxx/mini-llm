@@ -1,0 +1,3 @@
+{"text": "Mini-LLM focuses on compact transformer experiments for quick iteration."}
+{"text": "Progressive training allows staged scaling without large compute."}
+{"text": "Curriculum style pretraining can warm up tokenizers and pipelines."}

@@ -1,10 +1,9 @@
-#!/usr/bin/env python
-"""Download and export open-source code corpora from Hugging Face datasets.
-
-The script focuses on smaller, license-friendly datasets that are suitable for
-training compact code models.  It supports JSONL export for streaming datasets
-and Parquet export for in-memory datasets.
 """
+Download code-focused datasets from Hugging Face and export them to disk for
+MiniGPT experiments. Supports both streaming and in-memory modes, optional
+language filters, and JSONL or Parquet export formats.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -12,8 +11,9 @@ import json
 import os
 import shutil
 from ast import literal_eval
+from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, Sequence
+from typing import Any
 
 from datasets import Dataset, IterableDataset, load_dataset
 
@@ -90,13 +90,24 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Keep the Hugging Face datasets cache on disk instead of removing files after export.",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing export files instead of skipping them.",
+    )
+    parser.add_argument(
+        "--stats-output",
+        type=Path,
+        default=None,
+        help="Optional path to store a JSON summary of exported files.",
+    )
     return parser.parse_args()
 
 
-def parse_extra_kwargs(pairs: Sequence[str] | None) -> Dict[str, Any]:
+def parse_extra_kwargs(pairs: Sequence[str] | None) -> dict[str, Any]:
     if not pairs:
         return {}
-    parsed: Dict[str, Any] = {}
+    parsed: dict[str, Any] = {}
     for pair in pairs:
         if "=" not in pair:
             raise ValueError(f"Invalid extra kwarg '{pair}', expected key=value format.")
@@ -114,9 +125,9 @@ def iter_samples(
     dataset: Dataset | IterableDataset,
     *,
     max_samples: int | None,
-) -> Iterator[Dict[str, Any]]:
+) -> Iterator[dict[str, Any]]:
     if isinstance(dataset, IterableDataset):
-        iterable: Iterable[Dict[str, Any]]
+        iterable: Iterable[dict[str, Any]]
         if max_samples is not None:
             iterable = dataset.take(max_samples)
         else:
@@ -138,11 +149,15 @@ def export_jsonl(
     *,
     output_file: Path,
     max_samples: int | None,
-) -> None:
+) -> tuple[int, int]:
     output_file.parent.mkdir(parents=True, exist_ok=True)
+    written = 0
     with output_file.open("w", encoding="utf-8") as fp:
         for example in iter_samples(dataset, max_samples=max_samples):
             fp.write(json.dumps(example, ensure_ascii=False) + "\n")
+            written += 1
+    size = output_file.stat().st_size if output_file.exists() else 0
+    return written, size
 
 
 def export_parquet(
@@ -151,23 +166,27 @@ def export_parquet(
     output_file: Path,
     compression: str | None,
     max_samples: int | None,
-) -> None:
+) -> tuple[int, int]:
     subset = dataset
     if max_samples is not None:
         capped = min(max_samples, len(dataset))
         subset = dataset.select(range(capped))
     output_file.parent.mkdir(parents=True, exist_ok=True)
     subset.to_parquet(str(output_file), compression=compression)
+    row_count = subset.num_rows
+    size = output_file.stat().st_size if output_file.exists() else 0
+    return row_count, size
 
 
 def main() -> None:
     args = parse_args()
     extra_kwargs = parse_extra_kwargs(args.extra_kwarg)
+    export_stats: list[dict[str, Any]] = []
 
     for dataset_name in args.datasets:
         print(f"==> Processing dataset: {dataset_name}")
         for split in args.splits:
-            load_kwargs: Dict[str, Any] = dict(extra_kwargs)
+            load_kwargs: dict[str, Any] = dict(extra_kwargs)
             if args.languages is not None:
                 load_kwargs.setdefault("languages", args.languages)
             dataset = load_dataset(
@@ -186,19 +205,75 @@ def main() -> None:
 
             if args.file_format == "jsonl":
                 output_file = split_dir / f"{split}.jsonl"
-                export_jsonl(dataset, output_file=output_file, max_samples=args.max_samples)
-                print(f"Saved {dataset_name}:{split} to {output_file}")
+                if output_file.exists() and not args.force:
+                    print(f"Skipping existing file {output_file} (use --force to overwrite)")
+                    export_stats.append(
+                        {
+                            "dataset": dataset_name,
+                            "split": split,
+                            "path": str(output_file),
+                            "format": "jsonl",
+                            "skipped": True,
+                        }
+                    )
+                else:
+                    records, bytes_written = export_jsonl(
+                        dataset, output_file=output_file, max_samples=args.max_samples
+                    )
+                    print(
+                        f"Saved {dataset_name}:{split} to {output_file}"
+                        f" ({records} records, {bytes_written} bytes)"
+                    )
+                    export_stats.append(
+                        {
+                            "dataset": dataset_name,
+                            "split": split,
+                            "path": str(output_file),
+                            "format": "jsonl",
+                            "records": records,
+                            "bytes": bytes_written,
+                            "max_samples": args.max_samples,
+                            "streaming": args.streaming,
+                        }
+                    )
             else:
                 if isinstance(dataset, IterableDataset):
                     raise ValueError("Parquet export is not supported in streaming mode.")
                 output_file = split_dir / f"{split}.parquet"
-                export_parquet(
-                    dataset,
-                    output_file=output_file,
-                    compression=args.compression,
-                    max_samples=args.max_samples,
-                )
-                print(f"Saved {dataset_name}:{split} to {output_file}")
+                if output_file.exists() and not args.force:
+                    print(f"Skipping existing file {output_file} (use --force to overwrite)")
+                    export_stats.append(
+                        {
+                            "dataset": dataset_name,
+                            "split": split,
+                            "path": str(output_file),
+                            "format": "parquet",
+                            "skipped": True,
+                        }
+                    )
+                else:
+                    records, bytes_written = export_parquet(
+                        dataset,
+                        output_file=output_file,
+                        compression=args.compression,
+                        max_samples=args.max_samples,
+                    )
+                    print(
+                        f"Saved {dataset_name}:{split} to {output_file}"
+                        f" ({records} rows, {bytes_written} bytes)"
+                    )
+                    export_stats.append(
+                        {
+                            "dataset": dataset_name,
+                            "split": split,
+                            "path": str(output_file),
+                            "format": "parquet",
+                            "records": records,
+                            "bytes": bytes_written,
+                            "compression": args.compression,
+                            "max_samples": args.max_samples,
+                        }
+                    )
 
     cache_dir = Path(os.getenv("HF_DATASETS_CACHE", Path.home() / ".cache/huggingface/datasets"))
     if not args.save_cache and cache_dir.exists():
@@ -207,7 +282,28 @@ def main() -> None:
     elif cache_dir.exists():
         print(f"Cache retained at {cache_dir}")
 
+    if export_stats:
+        print("\nExport summary:")
+        for item in export_stats:
+            if item.get("skipped"):
+                print(f" - {item['dataset']}:{item['split']} skipped (existing {item['path']})")
+            else:
+                print(
+                    " - {dataset}:{split} -> {path} ({records} records, {bytes} bytes)".format(
+                        dataset=item["dataset"],
+                        split=item["split"],
+                        path=item["path"],
+                        records=item.get("records", "?"),
+                        bytes=item.get("bytes", "?"),
+                    )
+                )
+        if args.stats_output is not None:
+            args.stats_output.parent.mkdir(parents=True, exist_ok=True)
+            args.stats_output.write_text(
+                json.dumps(export_stats, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+            )
+            print(f"📄 导出统计已保存至 {args.stats_output}")
+
 
 if __name__ == "__main__":
     main()
-

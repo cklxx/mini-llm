@@ -1,5 +1,9 @@
-#!/usr/bin/env python3
-"""Utility to clean MiniGPT training corpora.
+"""
+MiniGPT dataset cleaner.
+
+This script processes JSONL datasets to remove placeholders, optional follow-up
+requests, and repeated entries using signature hashing. It also strips
+<think>...</think> blocks when requested and provides summary statistics.
 
 Features
 --------
@@ -28,9 +32,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 PLACEHOLDER_PATTERNS = [
     "……",  # Chinese ellipsis
@@ -100,8 +105,8 @@ class Stats:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Clean MiniGPT JSONL datasets")
-    parser.add_argument("--input", required=True, help="Path to input JSONL file")
-    parser.add_argument("--output", required=True, help="Path to output JSONL file")
+    parser.add_argument("--input", required=True, type=Path, help="Path to input JSONL file")
+    parser.add_argument("--output", required=True, type=Path, help="Path to output JSONL file")
     parser.add_argument(
         "--dataset-type",
         choices=["sft", "pretrain"],
@@ -137,6 +142,12 @@ def parse_args() -> argparse.Namespace:
         "--lowercase-signature",
         action="store_true",
         help="Lowercase signature text before hashing (useful for English corpora)",
+    )
+    parser.add_argument(
+        "--stats-output",
+        type=Path,
+        default=None,
+        help="Optional path to write the cleaning statistics as JSON",
     )
     return parser.parse_args()
 
@@ -175,17 +186,19 @@ def strip_think_blocks(text: str, stats: Stats) -> str:
     return new_text.strip()
 
 
-def load_json(line: str) -> dict:
+def load_json(line: str) -> dict[str, Any]:
     return json.loads(line)
 
 
-def dump_json(obj: dict) -> str:
+def dump_json(obj: dict[str, Any]) -> str:
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
 def clean_sft_entry(
-    entry: dict, cfg: CleanConfig, stats: Stats
-) -> tuple[dict | None, bytes | None]:
+    entry: dict[str, Any],
+    cfg: CleanConfig,
+    stats: Stats,
+) -> tuple[dict[str, Any] | None, bytes | None]:
     convs = entry.get("conversations")
     if not isinstance(convs, list):
         return None, None
@@ -210,7 +223,7 @@ def clean_sft_entry(
         cleaned_convs.append({"role": role, "content": content})
     entry = {"conversations": cleaned_convs}
 
-    signature = None
+    signature: bytes | None = None
     if cfg.dedupe:
         signature = normalize_signature(
             dump_json(entry), lowercase=cfg.lowercase_signature
@@ -219,8 +232,10 @@ def clean_sft_entry(
 
 
 def clean_pretrain_entry(
-    entry: dict, cfg: CleanConfig, stats: Stats
-) -> tuple[dict | None, bytes | None]:
+    entry: dict[str, Any],
+    cfg: CleanConfig,
+    stats: Stats,
+) -> tuple[dict[str, Any] | None, bytes | None]:
     text = entry.get("text")
     if not isinstance(text, str):
         return None, None
@@ -235,7 +250,7 @@ def clean_pretrain_entry(
     if cfg.strip_think:
         text = strip_think_blocks(text, stats)
     entry = {"text": text}
-    signature = None
+    signature: bytes | None = None
     if cfg.dedupe:
         signature = normalize_signature(
             dump_json(entry), lowercase=cfg.lowercase_signature
@@ -243,10 +258,8 @@ def clean_pretrain_entry(
     return entry, signature
 
 
-def ensure_parent_dir(path: str) -> None:
-    directory = os.path.dirname(os.path.abspath(path))
-    if directory and not os.path.exists(directory):
-        os.makedirs(directory, exist_ok=True)
+def ensure_parent_dir(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
 
 
 def clean_file(args: argparse.Namespace) -> Stats:
@@ -261,13 +274,13 @@ def clean_file(args: argparse.Namespace) -> Stats:
     )
 
     stats = Stats()
-    seen_hashes = set()
+    seen_hashes: set[bytes] = set()
     ensure_parent_dir(args.output)
 
     cleaner = clean_sft_entry if cfg.dataset_type == "sft" else clean_pretrain_entry
 
-    with open(args.input, encoding="utf-8") as src, open(
-        args.output, "w", encoding="utf-8"
+    with args.input.open(encoding="utf-8") as src, args.output.open(
+        "w", encoding="utf-8"
     ) as dst:
         for line in src:
             line = line.strip()
@@ -298,6 +311,10 @@ def main() -> None:
     summary = stats.as_dict()
     summary_json = json.dumps(summary, ensure_ascii=False, indent=2)
     print(summary_json)
+    if args.stats_output is not None:
+        args.stats_output.parent.mkdir(parents=True, exist_ok=True)
+        args.stats_output.write_text(summary_json + "\n", encoding="utf-8")
+        print(f"📄 清洗统计已写入 {args.stats_output}")
 
 
 if __name__ == "__main__":

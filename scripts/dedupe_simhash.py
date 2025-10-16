@@ -50,7 +50,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def tokenize(text: str) -> Iterable[str]:
+def tokenize(text: str) -> list[str]:
     """Generate features for SimHash.
 
     Uses a mix of character bigrams/trigrams and whitespace tokens to better
