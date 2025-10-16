@@ -1,24 +1,14 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 MiniGPT简化优化演示
 专注于核心优化功能，避免复杂依赖
 """
-import os
-import sys
-import time
 import json
-from pathlib import Path
-
-# 添加项目路径
-project_root = Path(__file__).parent
-sys.path.append(str(project_root))
-sys.path.append(str(project_root / "src"))
+import time
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import TensorDataset, DataLoader
 
 
 class SimpleTransformer(nn.Module):
@@ -164,7 +154,7 @@ def benchmark_training(model, device, config_name, enable_amp=False, gradient_ac
         # 实际测试
         start_time = time.time()
 
-        for step in range(test_steps):
+        for _ in range(test_steps):
             if enable_amp and device.type == 'cuda':
                 from torch.cuda.amp import autocast
                 with autocast():
@@ -222,7 +212,7 @@ def benchmark_training(model, device, config_name, enable_amp=False, gradient_ac
 
 def benchmark_inference(model, device):
     """基准测试推理性能"""
-    print(f"\n🚀 推理性能测试")
+    print("\n🚀 推理性能测试")
 
     model.eval()
     vocab_size = 10000
@@ -250,7 +240,7 @@ def benchmark_inference(model, device):
                 start_time = time.time()
 
                 for _ in range(steps):
-                    output = model(dummy_input)
+                    _ = model(dummy_input)
 
                 if device.type == 'cuda':
                     torch.cuda.synchronize()
@@ -299,7 +289,7 @@ def main():
         print("🎯 使用CPU")
 
     # 创建模型
-    print(f"\n📊 创建测试模型...")
+    print("\n📊 创建测试模型...")
     model = SimpleTransformer(vocab_size=10000, d_model=256, n_heads=4, n_layers=6)
     model.to(device)
 
@@ -308,7 +298,7 @@ def main():
     print(f"   模型大小: ~{param_count * 4 / 1024 / 1024:.1f}MB")
 
     # 训练性能测试
-    print(f"\n" + "="*60)
+    print("\n" + "="*60)
     print("🧠 训练性能对比测试")
     print("="*60)
 
@@ -328,21 +318,21 @@ def main():
         training_results[config_name] = result
 
     # 推理性能测试
-    print(f"\n" + "="*60)
+    print("\n" + "="*60)
     print("🚀 推理性能测试")
     print("="*60)
 
     inference_results = benchmark_inference(model, device)
 
     # 性能总结
-    print(f"\n" + "="*60)
+    print("\n" + "="*60)
     print("📊 性能总结")
     print("="*60)
 
     # 训练性能对比
     valid_training = {k: v for k, v in training_results.items() if 'error' not in v}
     if len(valid_training) >= 2:
-        print(f"\n🏆 训练性能对比:")
+        print("\n🏆 训练性能对比:")
         baseline = None
         for name, result in valid_training.items():
             speed = result['samples_per_sec']
@@ -358,7 +348,7 @@ def main():
     # 推理性能总结
     valid_inference = {k: v for k, v in inference_results.items() if 'error' not in v}
     if valid_inference:
-        print(f"\n🚀 推理性能总结:")
+        print("\n🚀 推理性能总结:")
         best_batch = max(valid_inference.keys(), key=lambda k: valid_inference[k]['tokens_per_sec'])
         best_result = valid_inference[best_batch]
         print(f"   最佳配置: 批处理大小={best_batch}")
@@ -379,7 +369,7 @@ def main():
         json.dump(results, f, indent=2, ensure_ascii=False, default=str)
 
     print(f"\n📁 结果已保存到: {results_file}")
-    print(f"\n✅ 演示完成!")
+    print("\n✅ 演示完成!")
 
 
 if __name__ == "__main__":
