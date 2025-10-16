@@ -3,17 +3,12 @@
 测试轻量级监控的性能影响
 对比完整监控 vs 轻量级监控 vs 无监控的训练速度
 """
-import os
-import sys
 import time
+
 import torch
 import torch.nn as nn
 
-# 添加项目路径
-project_root = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.join(project_root, 'src'))
-
-from training.training_monitor import TrainingMonitor
+from src.training.training_monitor import TrainingMonitor
 
 
 def create_test_model(size="small"):
@@ -137,7 +132,7 @@ def main():
     num_steps = 500
     model_size = "medium"  # 使用中等大小模型，更接近实际情况
 
-    print(f"\n配置:")
+    print("\n配置:")
     print(f"  模型大小: {model_size}")
     print(f"  训练步数: {num_steps}")
     print(f"  设备: {'CUDA' if torch.cuda.is_available() else 'CPU'}")
