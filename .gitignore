@@ -40,9 +40,12 @@ ENV/
 
 # ===== 项目特定文件 =====
 # 大型数据集
-data/pretrain_hq.jsonl
-data/sft_mini_512.jsonl
 data/dataset/
+!data/pretrain_hq.jsonl
+!data/sft_mini_512.jsonl
+!data/alex_identity.jsonl
+!data/ultra_think.jsonl
+!data/dpo.jsonl
 
 # 检查点和日志
 checkpoints/

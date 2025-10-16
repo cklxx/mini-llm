@@ -35,6 +35,9 @@ class DataResolver:
 
     # ------------------------------------------------------------------
     def _manifest_filename(self) -> str | None:
+        if os.environ.get("MINIGPT_DISABLE_MANIFEST", "0") == "1":
+            return None
+
         mapping = {
             "pretrain": "pretrain_manifest.json",
             "sft": "sft_manifest.json",

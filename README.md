@@ -114,6 +114,27 @@ mini-llm/
 
    > ✅ **为什么逐行解释？** 初学者可将此示例作为调试脚本，快速理解模型、分词器、数据集与训练循环之间的协作关系，从而在迁移到完整管道时少走弯路。
 
+## ✅ 功能测试（Feature Tests）
+
+为确保最新特性在本地环境中稳定运行，可先安装测试依赖并执行内置的 PyTest 套件：
+
+```bash
+uv pip install .[test]
+uv run pytest
+```
+
+测试脚本覆盖了 RoPE、GQA、深窄架构等核心模型特性以及训练/推理端到端流程，全部通过即表示主要功能均可跑通。【F:scripts/tests/test_architecture.py†L1-L320】【F:scripts/tests/test_training_inference.py†L1-L450】
+
+### 🧪 烟雾测试：最小化运行完整训练与推理
+
+若希望在本地快速确认整个流水线（预训练→SFT→DPO→RLHF→推理）能够跑通，可执行内置的烟雾测试脚本：
+
+```bash
+uv run python scripts/run_smoke_pipeline.py
+```
+
+脚本会自动准备一套极小的合成数据集，禁用 manifest 配置后依次运行四个训练阶段，并在最后使用 RLHF checkpoint 做一次单轮文本生成，以验证训练与推理链路协同正常。【F:scripts/run_smoke_pipeline.py†L1-L231】
+
 4. **文本生成**
    ```python
    import torch
