@@ -107,6 +107,13 @@ class BaseConfig:
         # 设备配置
         self.device, self.gpu_info = get_device()
 
+        # 默认启用可扩展显存分段，缓解CUDA内存碎片问题
+        if self.device == "cuda":
+            alloc_conf = os.environ.get("PYTORCH_CUDA_ALLOC_CONF")
+            if alloc_conf is None:
+                os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+                print("🧠 已设置 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True 以减少显存碎片")
+
         # 数据集路径
         self.pretrain_data_path = os.path.join(self.data_dir, "pretrain_hq.jsonl")
         self.sft_data_path = os.path.join(self.data_dir, "sft_mini_512.jsonl")
@@ -297,7 +304,8 @@ class SmallConfig(BaseConfig):
         self.n_heads = 8
         self.n_layers = 8
         self.d_ff = 2048
-        self.max_seq_len = 512
+        # 适度缩短最大序列长度，降低显存占用
+        self.max_seq_len = 384
         self.dropout = 0.0
 
         # 训练参数 - 优化内存使用和GPU利用率
@@ -306,10 +314,9 @@ class SmallConfig(BaseConfig):
             gpu_name = self.gpu_info['devices'][0]['name'].lower() if self.gpu_info else ""
 
             if gpu_memory >= 22 or "4090" in gpu_name or "ada" in gpu_name:
-                # RTX 4090/A6000: 平衡batch size和梯度累积
-                # 保持有效batch=256，但避免单次batch太大导致OOM
-                self.batch_size = 64  # 适中的batch size
-                self.gradient_accumulation_steps = 4  # 有效batch = 64*4 = 256
+                # RTX 4090/A6000: 降低单次batch显存峰值，改用更高梯度累积
+                self.batch_size = 32
+                self.gradient_accumulation_steps = 8  # 有效batch = 32*8 = 256
             elif gpu_memory >= 16:
                 self.batch_size = 48
                 self.gradient_accumulation_steps = 5
