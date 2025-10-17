@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import random
 from collections.abc import Iterable, Sequence
@@ -226,6 +227,10 @@ class DatasetPreparer:
             else {}
         )
 
+        global_ratio = max(0.0, getattr(self.config, "dataset_global_sample_ratio", 1.0))
+        if global_ratio != 1.0:
+            print(f"⚙️  应用全局采样比例: {global_ratio:.3f}")
+
         for data_path in data_paths:
             dataset_name = os.path.basename(data_path)
             sampling_cfg = (
@@ -240,6 +245,12 @@ class DatasetPreparer:
                 print(f"⚠️  数据文件 {dataset_name} 未加载到有效样本，跳过")
                 continue
 
+            if global_ratio == 0.0:
+                print(
+                    f"⚠️  全局采样比例为 0，跳过数据集 {dataset_name} 以避免空样本。"
+                )
+                continue
+
             sample_ratio = sampling_cfg.get("sample_ratio", 1.0) or 1.0
             max_samples = sampling_cfg.get("max_samples")
             val_split = sampling_cfg.get("val_split", getattr(self.config, "validation_split", 0.0))
@@ -248,6 +259,13 @@ class DatasetPreparer:
             if max_samples is not None:
                 sample_size = min(sample_size, max_samples)
             sample_size = max(1, min(sample_size, original_count))
+
+            if global_ratio != 1.0:
+                scaled_size = max(1, int(math.ceil(sample_size * global_ratio)))
+                if global_ratio < 1.0:
+                    sample_size = min(sample_size, scaled_size)
+                else:
+                    sample_size = min(original_count, max(sample_size, scaled_size))
 
             if sample_size < original_count:
                 sampled_data = self.rng.sample(file_data, sample_size)

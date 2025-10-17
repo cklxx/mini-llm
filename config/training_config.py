@@ -125,6 +125,15 @@ class BaseConfig:
         self.early_stopping_delta = float(os.environ.get("MINIGPT_EARLY_STOP_DELTA", 0.0))
         self.label_smoothing = float(os.environ.get("MINIGPT_LABEL_SMOOTHING", 0.05))
 
+        # 全局数据采样控制
+        global_ratio_env = os.environ.get("MINIGPT_GLOBAL_SAMPLE_RATIO")
+        try:
+            self.dataset_global_sample_ratio = (
+                max(0.0, float(global_ratio_env)) if global_ratio_env is not None else 0.5
+            )
+        except ValueError:
+            self.dataset_global_sample_ratio = 0.5
+
         # 数据采样与验证划分策略（按文件名匹配）
         self.dataset_sampling = {
             "default": {
