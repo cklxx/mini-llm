@@ -88,8 +88,7 @@ class LanguageModelingDataset(Dataset):
             if cached_tokens is not None:
                 self._tokens = cached_tokens
             else:
-                self._tokens = self._pretokenize_texts(text_list)
-                self._save_tokens_to_cache(cache_path, self._tokens)
+                self._tokens = self._pretokenize_texts(text_list, cache_path=cache_path)
             self.texts: list[str] | None = None
         else:
             self.texts = list(texts)
@@ -107,7 +106,6 @@ class LanguageModelingDataset(Dataset):
             return torch.from_numpy(self._tokens[idx])
         return self._encode_to_tensor(self.texts[idx], idx)
 
-    # ------------------------------------------------------------------
     def _resolve_worker_count(self, total: int) -> int:
         if total <= 1:
             return 1
@@ -126,57 +124,74 @@ class LanguageModelingDataset(Dataset):
 
         return min(requested, total)
 
-    def _pretokenize_texts(self, texts: list[str]) -> np.ndarray:
+    def _pretokenize_texts(
+        self, texts: list[str], *, cache_path: str | None = None
+    ) -> np.ndarray:
         total = len(texts)
-        tokens = np.empty((total, self.max_length), dtype=np.int64)
+        tokens, tmp_path = self._prepare_token_buffer(total, cache_path)
         start_time = time.time()
 
         worker_count = self._resolve_worker_count(total)
-        print(
-            f"  🔄 开始预编码 {total:,} 个样本..."
-            + (f" (并行 {worker_count} workers)" if worker_count > 1 else "")
+        mode_desc = (
+            f" (并行 {worker_count} workers)" if worker_count > 1 else " (单线程)"
         )
+        print(f"  🔄 开始预编码 {total:,} 个样本...{mode_desc}")
 
-        if worker_count <= 1:
-            self._pretokenize_texts_single(texts, tokens, start_time)
-        else:
-            try:
-                serialized_tokenizer = pickle.dumps(self.tokenizer)
-            except Exception as exc:  # pragma: no cover - defensive fallback
-                print(f"  ⚠️ 无法序列化tokenizer以进行并行预编码: {exc}，回退到单线程模式。")
+        try:
+            if worker_count <= 1:
                 self._pretokenize_texts_single(texts, tokens, start_time)
             else:
-                mp_ctx = get_context("spawn")
-                with concurrent.futures.ProcessPoolExecutor(
-                    max_workers=worker_count,
-                    mp_context=mp_ctx,
-                    initializer=_init_pretokenize_worker,
-                    initargs=(serialized_tokenizer, self.max_length),
-                ) as executor:
-                    # ``executor.map`` streams results back in submission order without
-                    # building an unbounded future queue.  ``chunksize`` keeps each worker
-                    # busy while avoiding the enormous memory spike that ``submit``ing the
-                    # entire corpus at once would trigger when datasets contain millions of
-                    # samples.
-                    chunk_hint = max(1, min(64, total // max(worker_count, 1)))
-                    result_iter = executor.map(
-                        _worker_encode,
-                        enumerate(texts),
-                        chunksize=chunk_hint,
+                try:
+                    serialized_tokenizer = pickle.dumps(self.tokenizer)
+                except Exception as exc:  # pragma: no cover - defensive fallback
+                    print(
+                        f"  ⚠️ 无法序列化tokenizer以进行并行预编码: {exc}，回退到单线程模式。"
                     )
-                    for completed, (idx, encoded) in enumerate(result_iter, start=1):
-                        tokens[idx] = encoded
-                        if completed % 5000 == 0 or completed == total:
-                            elapsed = time.time() - start_time
-                            speed = completed / elapsed if elapsed > 0 else 0.0
-                            eta = (total - completed) / speed if speed > 0 else 0
-                            print(
-                                f"  🔄 预编码 {completed:,}/{total:,} 样本 (速度 {speed:.1f}/s, 预计剩余 {eta/60:.1f}分钟)"
-                            )
+                    self._pretokenize_texts_single(texts, tokens, start_time)
+                else:
+                    mp_ctx = get_context("spawn")
+                    with concurrent.futures.ProcessPoolExecutor(
+                        max_workers=worker_count,
+                        mp_context=mp_ctx,
+                        initializer=_init_pretokenize_worker,
+                        initargs=(serialized_tokenizer, self.max_length),
+                    ) as executor:
+                        chunk_hint = max(1, min(64, total // max(worker_count, 1)))
+                        result_iter = executor.map(
+                            _worker_encode,
+                            enumerate(texts),
+                            chunksize=chunk_hint,
+                        )
+                        for completed, (idx, encoded) in enumerate(result_iter, start=1):
+                            tokens[idx] = encoded
+                            if completed % 5000 == 0 or completed == total:
+                                elapsed = time.time() - start_time
+                                speed = completed / elapsed if elapsed > 0 else 0.0
+                                eta = (total - completed) / speed if speed > 0 else 0
+                                print(
+                                    f"  🔄 预编码 {completed:,}/{total:,} 样本 (速度 {speed:.1f}/s, 预计剩余 {eta/60:.1f}分钟)"
+                                )
+        except Exception:
+            self._cleanup_tmp_cache(tmp_path)
+            raise
 
         elapsed = time.time() - start_time
         avg_speed = total / elapsed if elapsed > 0 else 0.0
         print(f"  ✅ 预编码完成: {total:,} 样本, 耗时 {elapsed:.1f}s, 平均速度 {avg_speed:.1f}/s")
+
+        if cache_path and tmp_path:
+            # ``np.memmap`` needs to be explicitly flushed and closed before renaming.
+            if isinstance(tokens, np.memmap):
+                tokens.flush()
+            del tokens
+            os.replace(tmp_path, cache_path)
+            print(f"  💾 已缓存预编码结果: {cache_path}")
+            return np.memmap(
+                cache_path,
+                dtype=np.int64,
+                mode="r+",
+                shape=(total, self.max_length),
+            )
 
         return tokens
 
@@ -198,6 +213,34 @@ class LanguageModelingDataset(Dataset):
     def _encode_numpy(self, text: str) -> np.ndarray:
         token_ids = _encode_with_tokenizer(self.tokenizer, text, self.max_length)
         return np.asarray(token_ids, dtype=np.int64)
+
+    def _prepare_token_buffer(
+        self, total: int, cache_path: str | None
+    ) -> tuple[np.ndarray, str | None]:
+        if not cache_path:
+            return np.empty((total, self.max_length), dtype=np.int64), None
+
+        cache_dir = os.path.dirname(cache_path)
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+        except OSError as exc:  # pragma: no cover - filesystem errors
+            print(f"  ⚠️ 无法创建缓存目录 {cache_dir}: {exc}，跳过缓存。")
+            return np.empty((total, self.max_length), dtype=np.int64), None
+
+        fd, tmp_path = tempfile.mkstemp(prefix="cache-", suffix=".npy", dir=cache_dir)
+        os.close(fd)
+        token_buffer = np.memmap(
+            tmp_path, dtype=np.int64, mode="w+", shape=(total, self.max_length)
+        )
+        return token_buffer, tmp_path
+
+    def _cleanup_tmp_cache(self, tmp_path: str | None) -> None:
+        if not tmp_path:
+            return
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
 
     def _encode_to_tensor(self, text: str, idx: int) -> torch.Tensor:
         try:
