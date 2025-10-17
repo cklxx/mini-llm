@@ -75,7 +75,7 @@ mini-llm/
 #### 常见进阶覆写
 
 - **环境变量热补丁**：`BaseConfig` 会在初始化时读取 `MINIGPT_TRAIN_SEED`、`MINIGPT_VAL_SPLIT`、`MINIGPT_MEMORY_THRESHOLD` 等环境变量，无需改动源码即可调整随机种子、验证集比例与内存阈值。【F:config/training_config.py†L118-L209】
-- **数据配额控制**：在 JSONL 同名匹配的前提下，可通过 `dataset_sampling` 为特定文件指定采样比例与验证集占比，便于在组合多源数据时保持类别平衡。【F:config/training_config.py†L124-L173】【F:src/training/pipeline/data_manager.py†L92-L209】
+- **数据配额控制**：在 JSONL 同名匹配的前提下，可通过 `dataset_sampling` 为特定文件指定采样比例与验证集占比，便于在组合多源数据时保持类别平衡；若希望统一缩放全部语料，可设置 `MINIGPT_GLOBAL_SAMPLE_RATIO`（默认 `0.5`）快速降低预处理样本量。【F:config/training_config.py†L124-L182】【F:src/training/pipeline/data_manager.py†L92-L212】
 - **回归测试频率**：设置 `MINIGPT_REGRESSION_INTERVAL=0` 将使得 Regression Suite 每轮评估都执行，适合演示如何捕获指令退化；设置较大的间隔可降低训练开销。【F:config/training_config.py†L181-L206】【F:src/training/pipeline/regression_suite.py†L22-L87】
 
 3. **训练最小示例**（保留教学用途，便于理解基础训练循环）

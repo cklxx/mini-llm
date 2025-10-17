@@ -49,7 +49,8 @@ config = DatasetConfig(data_path="data/sft_mini.jsonl", max_length=512)
 ## 与训练管线的衔接
 
 - `DataResolver` 会按照训练模式（`pretrain`/`sft`/`dpo`/`rlhf`）从 `config.data_dir` 及环境变量指定目录中搜索候选文件，避免由于别名或软链接导致的重复加载。【F:src/training/pipeline/data_manager.py†L28-L99】
-- `DatasetPreparer` 根据 `dataset_sampling` 配置对每个数据源执行采样、验证集切分与统计汇总，并最终构造 `ConversationDataset` 或 `LanguageModelingDataset` 以供训练循环使用。【F:src/training/pipeline/data_manager.py†L115-L199】
+- `DatasetPreparer` 根据 `dataset_sampling` 配置对每个数据源执行采样、验证集切分与统计汇总，并最终构造 `ConversationDataset` 或 `LanguageModelingDataset` 以供训练循环使用。【F:src/training/pipeline/data_manager.py†L115-L214】
+- 通过设置 `MINIGPT_GLOBAL_SAMPLE_RATIO`（默认 `0.5`）可统一缩放所有数据集的采样量，便于在教学或调试场景中快速减少预处理样本数。【F:config/training_config.py†L124-L182】【F:src/training/pipeline/data_manager.py†L140-L214】
 - `ConversationDataset` 在构造时会自动插入角色标记、对非 assistant 位置填充 `pad_id` 掩码，并支持按概率截断尾部若干轮回复，以提升 SFT 泛化能力。【F:src/training/datasets/conversation.py†L12-L178】
 
 > **排查建议**：当发现样本数量与期望不符时，优先检查 `max_length` 是否设置过小、`dataset_sampling.max_samples` 是否生效，以及原始 JSONL 是否存在空行或非法 JSON 格式。
@@ -60,7 +61,7 @@ config = DatasetConfig(data_path="data/sft_mini.jsonl", max_length=512)
 
 | 字段 | 作用 | 触发位置 |
 | ---- | ---- | -------- |
-| `sample_ratio` | 按原始样本数的比例进行随机采样，未指定时默认 1.0 | `DatasetPreparer.build` 会根据比例与 `max_samples` 共同决定采样量。【F:config/training_config.py†L124-L173】【F:src/training/pipeline/data_manager.py†L146-L193】 |
+| `sample_ratio` | 按原始样本数的比例进行随机采样，未指定时默认 1.0 | `DatasetPreparer.build` 会根据比例与 `max_samples` 共同决定采样量。【F:config/training_config.py†L124-L182】【F:src/training/pipeline/data_manager.py†L146-L214】 |
 | `max_samples` | 对采样数量增加上限，常用于控制长尾数据集的权重 | 采样后会在日志中打印“原始→采样”对照，便于观察阈值是否生效。【F:src/training/pipeline/data_manager.py†L150-L200】 |
 | `val_split` | 针对单一数据文件覆盖默认验证比例 | 若采样后不足 `validation_min_samples` 会自动关闭验证集，避免极小验证集导致指标不稳定。【F:config/training_config.py†L124-L206】【F:src/training/pipeline/data_manager.py†L170-L189】 |
 
