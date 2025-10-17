@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import concurrent.futures
+import hashlib
 import os
 import pickle
 import time
+import tempfile
 from multiprocessing import get_context
 from typing import Any, Sequence
 
@@ -80,7 +82,14 @@ class LanguageModelingDataset(Dataset):
         self._explicit_worker_count = pretokenize_workers
 
         if pretokenize:
-            self._tokens = self._pretokenize_texts(list(texts))
+            text_list = list(texts)
+            cache_path = self._build_cache_path(text_list)
+            cached_tokens = self._load_cached_tokens(cache_path, len(text_list))
+            if cached_tokens is not None:
+                self._tokens = cached_tokens
+            else:
+                self._tokens = self._pretokenize_texts(text_list)
+                self._save_tokens_to_cache(cache_path, self._tokens)
             self.texts: list[str] | None = None
         else:
             self.texts = list(texts)
@@ -207,3 +216,96 @@ class LanguageModelingDataset(Dataset):
                 *([self.tokenizer.pad_id] * max(0, self.max_length - 2)),
             ]
             return torch.tensor(default_tokens, dtype=torch.long)
+
+    # ------------------------------------------------------------------
+    def _build_cache_path(self, texts: Sequence[str]) -> str | None:
+        cache_dir = os.environ.get("MINILLM_CACHE_DIR")
+        if not cache_dir:
+            home_dir = os.path.expanduser("~")
+            if not home_dir or home_dir == "~":
+                return None
+            cache_dir = os.path.join(home_dir, ".cache", "mini-llm")
+
+        cache_dir = os.path.join(cache_dir, "language_modeling")
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+        except OSError as exc:  # pragma: no cover - filesystem errors are environment specific
+            print(f"  ⚠️ 无法创建缓存目录 {cache_dir}: {exc}，跳过缓存。")
+            return None
+
+        hasher = hashlib.sha256()
+        try:
+            tokenizer_bytes = pickle.dumps(self.tokenizer)
+        except Exception:  # pragma: no cover - pickle failure is rare
+            tokenizer_bytes = repr(self.tokenizer).encode("utf-8", "ignore")
+        hasher.update(hashlib.sha256(tokenizer_bytes).digest())
+        hasher.update(str(self.max_length).encode("utf-8"))
+        hasher.update(len(texts).to_bytes(8, "little"))
+        for text in texts:
+            encoded = text.encode("utf-8", "ignore")
+            hasher.update(len(encoded).to_bytes(8, "little"))
+            hasher.update(hashlib.sha1(encoded).digest())
+
+        cache_key = hasher.hexdigest()
+        return os.path.join(cache_dir, f"{cache_key}.npy")
+
+    def _load_cached_tokens(
+        self, cache_path: str | None, expected_rows: int
+    ) -> np.ndarray | None:
+        if not cache_path or not os.path.exists(cache_path):
+            return None
+
+        try:
+            cached = np.load(cache_path, allow_pickle=False)
+        except Exception as exc:  # pragma: no cover - depends on external state
+            print(f"  ⚠️ 无法从缓存加载 {cache_path}: {exc}，重新预编码。")
+            return None
+
+        if not isinstance(cached, np.ndarray):
+            print(f"  ⚠️ 缓存文件 {cache_path} 非数组格式，重新预编码。")
+            return None
+
+        if cached.dtype != np.int64:
+            print(f"  ⚠️ 缓存文件 {cache_path} dtype 不匹配，重新预编码。")
+            return None
+
+        if cached.ndim != 2 or cached.shape[1] != self.max_length:
+            print(f"  ⚠️ 缓存文件 {cache_path} 形状不匹配，重新预编码。")
+            return None
+
+        if cached.shape[0] != expected_rows:
+            print(f"  ⚠️ 缓存文件 {cache_path} 行数不一致，重新预编码。")
+            return None
+
+        print(f"  💾 从缓存加载预编码数据: {cache_path}")
+        return cached
+
+    def _save_tokens_to_cache(
+        self, cache_path: str | None, tokens: np.ndarray
+    ) -> None:
+        if cache_path is None:
+            return
+
+        cache_dir = os.path.dirname(cache_path)
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+        except OSError as exc:  # pragma: no cover - filesystem errors
+            print(f"  ⚠️ 无法创建缓存目录 {cache_dir}: {exc}，跳过缓存。")
+            return
+
+        tmp_path = None
+        try:
+            fd, tmp_path = tempfile.mkstemp(prefix="cache-", suffix=".npy", dir=cache_dir)
+            with os.fdopen(fd, "wb") as tmp_file:
+                np.save(tmp_file, tokens, allow_pickle=False)
+            os.replace(tmp_path, cache_path)
+        except Exception as exc:  # pragma: no cover - depends on filesystem state
+            print(f"  ⚠️ 写入缓存失败 {cache_path}: {exc}，跳过缓存。")
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+        else:
+            print(f"  💾 已缓存预编码结果: {cache_path}")
+

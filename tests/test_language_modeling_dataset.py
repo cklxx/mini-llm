@@ -10,6 +10,13 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 try:  # pragma: no cover - dependency guard for minimal environments
+    import numpy as np
+except ModuleNotFoundError:  # pragma: no cover - skip when numpy absent
+    import pytest
+
+    pytest.skip("numpy is required for dataset tests", allow_module_level=True)
+
+try:  # pragma: no cover - dependency guard for minimal environments
     import torch  # noqa: F401
 except ModuleNotFoundError:  # pragma: no cover - skip when torch absent
     import pytest
@@ -69,3 +76,45 @@ def test_parallel_pretokenize_matches_serial() -> None:
         parallel_item = parallel_dataset[idx].tolist()
         serial_item = serial_dataset[idx].tolist()
         assert parallel_item == serial_item
+
+
+def test_pretokenize_uses_cache(tmp_path, monkeypatch) -> None:
+    cache_dir = tmp_path / "cache"
+    monkeypatch.setenv("MINILLM_CACHE_DIR", str(cache_dir))
+
+    texts = [
+        "缓存测试一",
+        "缓存测试二",
+        "缓存测试三",
+    ]
+
+    tokenizer = _build_tokenizer()
+
+    dataset_first = LanguageModelingDataset(
+        texts=texts,
+        tokenizer=tokenizer,
+        max_length=16,
+        pretokenize=True,
+        pretokenize_workers=2,
+    )
+
+    cached_tokens = dataset_first._tokens.copy()  # type: ignore[union-attr]
+
+    def _fail(*args, **kwargs):  # pragma: no cover - should never be called
+        raise AssertionError("预编码缓存未生效")
+
+    monkeypatch.setattr(
+        LanguageModelingDataset,
+        "_pretokenize_texts",
+        _fail,
+    )
+
+    dataset_second = LanguageModelingDataset(
+        texts=texts,
+        tokenizer=tokenizer,
+        max_length=16,
+        pretokenize=True,
+        pretokenize_workers=2,
+    )
+
+    np.testing.assert_array_equal(dataset_second._tokens, cached_tokens)  # type: ignore[union-attr]
