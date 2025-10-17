@@ -153,7 +153,6 @@ class DataResolver:
                 ("wiki_zh_full.simdedup.jsonl", "wiki_zh_full.cleaned.jsonl", "wiki_pretrain_part1.json"),
                 ("chinacorpus_full.simdedup.jsonl", "chinacorpus_full.cleaned.jsonl"),
                 ("pretrain_hq.cleaned.jsonl", "pretrain_hq.jsonl"),
-                ("slimpajama_chunk1_part0_49.cleaned.jsonl",),
             ]
         if self.mode == "sft":
             return [

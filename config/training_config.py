@@ -181,11 +181,6 @@ class BaseConfig:
                 "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_HQ_MAX", 40000)),
                 "val_split": self.validation_split
             },
-            "slimpajama_chunk1_part0_49.cleaned.jsonl": {
-                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_PJ_RATIO", 0.04)),
-                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_PJ_MAX", 20000)),
-                "val_split": self.validation_split
-            },
         }
 
         # 对话角色标记

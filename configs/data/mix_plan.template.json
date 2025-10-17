@@ -14,11 +14,6 @@
     "approx_tokens": 600007577.0,
     "target_tokens": 600000000.0
   },
-  "slimpajama_en": {
-    "path": "data/final/slimpajama_chunk1_part0_49.cleaned.jsonl",
-    "approx_tokens": 2161762249.0,
-    "target_tokens": 2100000000.0
-  },
   "code_corpus": {
     "path": "TBD (e.g., The Stack subset)",
     "approx_tokens": 0.0,
