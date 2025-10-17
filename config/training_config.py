@@ -201,6 +201,12 @@ class BaseConfig:
 
         # 数据预处理选项
         self.pretokenize_lm = os.environ.get("MINIGPT_PRETOKENIZE_LM", "1") == "1"
+        default_workers = min(16, os.cpu_count() or 1)
+        self.pretokenize_workers = int(
+            os.environ.get("MINIGPT_PRETOKENIZE_WORKERS", default_workers)
+        )
+        if self.pretokenize_workers < 1:
+            self.pretokenize_workers = 1
 
         # 训练后回归评估配置
         self.regression_eval_enabled = os.environ.get("MINIGPT_REGRESSION_EVAL", "1") == "1"

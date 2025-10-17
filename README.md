@@ -49,6 +49,15 @@ mini-llm/
    > `--config medium`：载入中等规模的 `BaseConfig` 派生体，决定模型宽深、批量大小以及优化器超参。【F:config/training_config.py†L355-L413】
    > `--auto-resume`：触发自动检查点恢复逻辑，便于因中断而续训。【F:src/training/pipeline/cli.py†L88-L119】
 
+   **想要快速体验？** 项目提供 Makefile 快捷命令用于常见训练场景：
+
+   ```bash
+   make train-sft        # 使用 small 配置运行监督微调，会自动重训分词器
+   make train-pretrain   # 使用 medium 配置执行预训练流程
+   make train-dpo        # 依赖已完成的 SFT 权重，启动 DPO 训练
+   ```
+   > 这些命令封装了常见的训练参数组合，可在初次体验或演示场景下直接复用；若需更细粒度控制，可继续使用上方的 CLI 参数自定义运行。【F:Makefile†L73-L107】
+
 ### 命令行字段详解
 
 > `--mode {pretrain,sft,dpo,rlhf}`：控制训练阶段，内部 `apply_mode_defaults` 会针对不同目标调整最大步数、warmup 以及学习率。例如预训练保持 1e-4 学习率与 5% warmup，SFT 则降低学习率保护语言能力，RLHF 则进一步缩小步长以稳定 PPO。【F:src/training/pipeline/cli.py†L41-L82】
