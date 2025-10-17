@@ -367,6 +367,7 @@ class DatasetPreparer:
             tokenizer=self.tokenizer,
             max_length=self.config.max_seq_len,
             pretokenize=getattr(self.config, "pretokenize_lm", True),
+            pretokenize_workers=getattr(self.config, "pretokenize_workers", None),
         )
 
     def _create_sft_dataset(self, data: Iterable[Any], augmentation=None):
@@ -392,6 +393,7 @@ class DatasetPreparer:
             texts=texts,
             tokenizer=self.tokenizer,
             max_length=self.config.max_seq_len,
+            pretokenize_workers=getattr(self.config, "pretokenize_workers", None),
         )
 
     @staticmethod
