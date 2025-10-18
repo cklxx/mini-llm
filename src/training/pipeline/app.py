@@ -8,9 +8,11 @@ import signal
 import sys
 import time
 from datetime import datetime
+from typing import Any
 
 import torch
 
+from model.config import MiniGPTConfig
 from model.transformer import create_model
 from training.training_monitor import TrainingMonitor
 
@@ -39,6 +41,7 @@ class MiniGPTTrainer:
         self.checkpoints = CheckpointManager(config, mode, self.output_dir, self.device)
         self.memory_hooks = MemoryHooks(config, self.device)
         self.regression_suite = RegressionSuite(config, self.output_dir, self.device)
+        self.reference_model = None
 
         print(f"=== MiniGPT {mode.upper()} 训练 ===")
         print(f"模型配置: {config.model_size}")
@@ -64,13 +67,74 @@ class MiniGPTTrainer:
 
     def setup_model(self, tokenizer):
         print("🧠 创建模型...")
-        model = create_model(vocab_size=tokenizer.vocab_size, model_size=self.config.model_size)
+        pretrain_path: str | None = None
+        pretrain_metadata: dict[str, Any] = {}
+
+        if self.mode in {"sft", "dpo", "rlhf"}:
+            pretrain_path, pretrain_metadata = self.checkpoints.peek_pretrain_metadata()
+            if pretrain_path:
+                print(f"🔍 检测到 pretrain checkpoint: {pretrain_path}")
+                stored_size = pretrain_metadata.get("model_size")
+                if stored_size and stored_size != self.config.model_size:
+                    print(
+                        "⚠️  当前训练配置的 model_size="
+                        f"{self.config.model_size} 与 pretrain checkpoint 的标记 {stored_size} 不一致"
+                    )
+
+        model_config: MiniGPTConfig | None = None
+        stored_config = pretrain_metadata.get("model_config") if pretrain_metadata else None
+        if isinstance(stored_config, dict):
+            try:
+                model_config = MiniGPTConfig.from_dict(stored_config)
+                print("♻️  使用 pretrain checkpoint 中保存的模型配置。")
+            except Exception as exc:
+                print(f"⚠️  无法从 pretrain checkpoint 解析模型配置: {exc}")
+                model_config = None
+
+        model_label = (
+            pretrain_metadata.get("model_size")
+            if pretrain_metadata.get("model_size")
+            else self.config.model_size
+        )
+
+        if model_config is not None:
+            model_config.vocab_size = tokenizer.vocab_size
+            model = create_model(
+                vocab_size=tokenizer.vocab_size,
+                model_size=model_label,
+                config=model_config,
+            )
+        else:
+            model = create_model(
+                vocab_size=tokenizer.vocab_size,
+                model_size=self.config.model_size,
+            )
+
         model = model.to(self.device)
+
+        self._validate_model_alignment(model, tokenizer, pretrain_metadata)
 
         total_params = sum(p.numel() for p in model.parameters())
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print(f"总参数量: {total_params:,}")
         print(f"可训练参数: {trainable_params:,}")
+
+        if self.mode == "dpo":
+            ref_config = None
+            if hasattr(model, "config") and hasattr(model.config, "to_dict"):
+                try:
+                    ref_config = MiniGPTConfig.from_dict(model.config.to_dict())
+                except Exception as exc:
+                    print(f"⚠️  无法复制模型配置用于参考模型: {exc}")
+                    ref_config = None
+            self.reference_model = create_model(
+                vocab_size=tokenizer.vocab_size,
+                model_size=model_label,
+                config=ref_config,
+            ).to(self.device)
+            for param in self.reference_model.parameters():
+                param.requires_grad_(False)
+
         return model
 
     # ------------------------------------------------------------------
@@ -135,6 +199,14 @@ class MiniGPTTrainer:
             auto_resume=auto_resume,
         )
 
+        if self.mode == "dpo" and self.reference_model is not None:
+            try:
+                self.reference_model.load_state_dict(model.state_dict())
+                self.reference_model.to(self.device)
+                self.reference_model.eval()
+            except Exception as exc:
+                print(f"⚠️  无法将策略模型权重拷贝到参考模型: {exc}")
+
         # Set initial_lr for scheduler (required when resuming from checkpoint)
         for param_group in optimizer.param_groups:
             if "initial_lr" not in param_group:
@@ -162,7 +234,14 @@ class MiniGPTTrainer:
             torch.cuda.reset_peak_memory_stats()
             print("🧹 GPU缓存已清理")
 
-        runner = TrainingLoopRunner(self.config, self.device, self.checkpoints, self.mode)
+        runner = TrainingLoopRunner(
+            self.config,
+            self.device,
+            self.checkpoints,
+            self.mode,
+            reference_model=self.reference_model,
+            dpo_beta=getattr(self.config, "dpo_beta", 0.1),
+        )
         final_path = runner.run(
             model,
             tokenizer,
@@ -184,6 +263,68 @@ class MiniGPTTrainer:
         print(f"📊 TensorBoard日志: {tensorboard_dir}")
         print(f"💡 查看训练过程: tensorboard --logdir={tensorboard_dir}")
         return final_path
+
+    def _validate_model_alignment(
+        self,
+        model,
+        tokenizer,
+        pretrain_metadata: dict[str, Any] | None,
+    ) -> None:
+        config = getattr(model, "config", None)
+        if config is None:
+            return
+
+        stored_config = (
+            pretrain_metadata.get("model_config")
+            if pretrain_metadata and "model_config" in pretrain_metadata
+            else None
+        )
+
+        if stored_config:
+            mismatches: list[tuple[str, Any, Any]] = []
+            for key in (
+                "hidden_size",
+                "num_hidden_layers",
+                "num_attention_heads",
+                "num_key_value_heads",
+                "intermediate_size",
+                "max_position_embeddings",
+            ):
+                expected = stored_config.get(key)
+                actual = getattr(config, key, None)
+                if expected is None or actual is None:
+                    continue
+                if expected != actual:
+                    mismatches.append((key, expected, actual))
+
+            if mismatches:
+                print("❌ 检测到 pretrain checkpoint 与当前模型配置不一致:")
+                for key, expected, actual in mismatches:
+                    print(f"   - {key}: pretrain={expected}, 当前={actual}")
+                raise RuntimeError(
+                    "当前模型架构与 pretrain checkpoint 不一致，请确保 SFT 与 pretrain 使用相同的模型配置。"
+                )
+
+            print("✅ 当前模型与 pretrain checkpoint 的核心架构参数一致。")
+        elif self.mode in {"sft", "dpo", "rlhf"}:
+            print("ℹ️  pretrain checkpoint 未提供模型配置，跳过自动架构对齐检查。")
+
+        current_vocab = getattr(config, "vocab_size", None)
+        if current_vocab is not None and current_vocab != tokenizer.vocab_size:
+            raise RuntimeError(
+                f"分词器词表大小 {tokenizer.vocab_size} 与模型配置 {current_vocab} 不一致，请重新对齐。"
+            )
+
+        max_positions = getattr(config, "max_position_embeddings", None)
+        if max_positions is not None:
+            if max_positions < self.config.max_seq_len:
+                raise RuntimeError(
+                    f"当前训练配置的 max_seq_len={self.config.max_seq_len} 超出 pretrain 模型支持的 {max_positions}。"
+                )
+            if max_positions != self.config.max_seq_len:
+                print(
+                    f"ℹ️  模型支持的最大序列长度为 {max_positions}，当前训练配置为 {self.config.max_seq_len}。"
+                )
 
     # ------------------------------------------------------------------
     def _log_scheduler_state(self, optimizer, start_step: int) -> None:

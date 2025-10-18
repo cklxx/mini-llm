@@ -6,6 +6,7 @@ import glob
 import os
 import re
 import shutil
+from typing import Any
 
 import torch
 
@@ -18,6 +19,7 @@ class CheckpointManager:
         self.mode = mode
         self.output_dir = output_dir
         self.device = device
+        self._pretrain_metadata_cache: tuple[str | None, dict[str, Any]] | None = None
 
     # ------------------------------------------------------------------
     def find_latest(self) -> str | None:
@@ -28,22 +30,45 @@ class CheckpointManager:
         checkpoints.sort(key=os.path.getmtime, reverse=True)
         return checkpoints[0]
 
-    def find_pretrain_source(self) -> str | None:
-        pretrain_dir = os.path.join(
-            self.config.checkpoint_dir, f"pretrain_{self.config.model_size}"
+    def _locate_stage_checkpoint(self, stage: str) -> str | None:
+        stage_dir = os.path.join(
+            self.config.checkpoint_dir, f"{stage}_{self.config.model_size}"
         )
         search_patterns = [
-            os.path.join(pretrain_dir, "checkpoint_step_*.pt"),
-            os.path.join(pretrain_dir, "final_model.pt"),
+            os.path.join(stage_dir, "final_model.pt"),
+            os.path.join(stage_dir, "checkpoint_step_*.pt"),
         ]
         for pattern in search_patterns:
             matches = glob.glob(pattern)
             if not matches:
                 continue
-            matches.sort(key=os.path.getmtime, reverse=True)
-            print(f"   ✅ 找到 pretrain checkpoint: {matches[0]}")
+            if pattern.endswith("checkpoint_step_*.pt"):
+                matches.sort(key=os.path.getmtime, reverse=True)
             return matches[0]
         return None
+
+    def _locate_pretrain_checkpoint(self) -> str | None:
+        return self._locate_stage_checkpoint("pretrain")
+
+    def find_pretrain_source(self) -> str | None:
+        path = self._locate_pretrain_checkpoint()
+        if path:
+            print(f"   ✅ 找到 pretrain checkpoint: {path}")
+        return path
+
+    def peek_pretrain_metadata(self) -> tuple[str | None, dict[str, Any]]:
+        if self._pretrain_metadata_cache is not None:
+            return self._pretrain_metadata_cache
+
+        path = self._locate_pretrain_checkpoint()
+        if not path:
+            self._pretrain_metadata_cache = (None, {})
+            return self._pretrain_metadata_cache
+
+        metadata = self._extract_checkpoint_metadata(path)
+        metadata["path"] = path
+        self._pretrain_metadata_cache = (path, metadata)
+        return self._pretrain_metadata_cache
 
     # ------------------------------------------------------------------
     def resume(
@@ -73,29 +98,42 @@ class CheckpointManager:
                 print(f"⚠️  Checkpoint文件不存在: {resume_from}")
 
         if not checkpoint_loaded and self.mode in {"sft", "dpo", "rlhf"}:
-            pretrain_model_path = self.find_pretrain_source()
-            if pretrain_model_path:
-                print(f"\n🎯 {self.mode.upper()} 模式：从 pretrain checkpoint 加载初始权重")
-                try:
-                    self._load_model_weights(pretrain_model_path, model)
-                    checkpoint_loaded = True
-                    print("✅ 成功加载 pretrain 模型权重")
-                except Exception as exc:
-                    print(f"⚠️  加载 pretrain 权重失败: {exc}")
-                    print("   将使用随机初始化的模型")
-            else:
+            for stage in self._initial_checkpoint_stages():
+                stage_path = self._locate_stage_checkpoint(stage)
+                if not stage_path:
+                    continue
                 print(
-                    f"\n⚠️  未找到 pretrain 模型: {os.path.join(self.config.checkpoint_dir, f'pretrain_{self.config.model_size}')}"
+                    f"\n🎯 {self.mode.upper()} 模式：从 {stage.upper()} checkpoint 加载初始权重"
+                )
+                try:
+                    self._load_model_weights(stage_path, model)
+                    checkpoint_loaded = True
+                    print("✅ 成功加载初始化模型权重")
+                    break
+                except Exception as exc:
+                    print(f"⚠️  加载 {stage} 权重失败: {exc}")
+                    print("   尝试其他可用的上游检查点...")
+            if not checkpoint_loaded:
+                print(
+                    f"\n⚠️  未找到可用的上游 checkpoint 初始化 {self.mode} 模式"
                 )
                 print(
-                    f"   建议先运行 pretrain 模式训练基础模型：\n"
-                    f"   uv run python scripts/train.py --mode pretrain --config {self.config.model_size}"
+                    f"   建议先完成前置阶段训练，例如运行 pretrain 或 sft 流程。"
                 )
                 print(f"   现在将使用随机初始化的模型进行 {self.mode} 训练")
         elif not checkpoint_loaded and self.mode == "pretrain":
             print("\n📚 Pretrain 模式：从随机初始化开始训练")
 
         return start_step, checkpoint_loaded
+
+    def _initial_checkpoint_stages(self) -> list[str]:
+        if self.mode == "sft":
+            return ["pretrain"]
+        if self.mode == "dpo":
+            return ["sft", "pretrain"]
+        if self.mode == "rlhf":
+            return ["dpo", "sft", "pretrain"]
+        return []
 
     # ------------------------------------------------------------------
     def load(self, path: str, model, optimizer) -> int:
@@ -111,7 +149,12 @@ class CheckpointManager:
             "loss": loss,
             "config": self.config,
             "mode": self.mode,
+            "model_size": getattr(self.config, "model_size", None),
         }
+
+        model_config = self._serialize_model_config(model)
+        if model_config is not None:
+            payload["model_config"] = model_config
         if tokenizer is not None:
             try:
                 payload.update(
@@ -139,7 +182,12 @@ class CheckpointManager:
             "config": self.config,
             "mode": self.mode,
             "step": step,
+            "model_size": getattr(self.config, "model_size", None),
         }
+
+        model_config = self._serialize_model_config(model)
+        if model_config is not None:
+            payload["model_config"] = model_config
         torch.save(payload, final_path)
         return final_path
 
@@ -220,3 +268,40 @@ class CheckpointManager:
             model.load_state_dict(checkpoint["model_state_dict"])
         else:
             model.load_state_dict(checkpoint)
+
+    def _serialize_model_config(self, model) -> dict[str, Any] | None:
+        config = getattr(model, "config", None)
+        if config is None:
+            return None
+        if hasattr(config, "to_dict"):
+            try:
+                return config.to_dict()
+            except Exception as exc:  # pragma: no cover - defensive logging
+                print(f"⚠️  无法序列化模型配置: {exc}")
+        return None
+
+    def _extract_checkpoint_metadata(self, path: str) -> dict[str, Any]:
+        metadata: dict[str, Any] = {}
+        try:
+            checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            print(f"⚠️  读取checkpoint元数据失败: {exc}")
+            return metadata
+
+        try:
+            model_config = checkpoint.get("model_config")
+            if isinstance(model_config, dict):
+                metadata["model_config"] = model_config
+            model_size = checkpoint.get("model_size")
+            if model_size:
+                metadata["model_size"] = model_size
+            config_obj = checkpoint.get("config")
+            config_model_size = getattr(config_obj, "model_size", None)
+            if config_model_size and "model_size" not in metadata:
+                metadata["model_size"] = config_model_size
+            metadata["mode"] = checkpoint.get("mode")
+            metadata["step"] = checkpoint.get("step", checkpoint.get("global_step"))
+        finally:
+            del checkpoint
+
+        return metadata
