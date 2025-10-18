@@ -6,13 +6,21 @@ import json
 import math
 import os
 import random
+import time
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from torch.utils.data import DataLoader
 
-from ..datasets import ConversationDataset, LanguageModelingDataset
+from data.high_performance_loader import (
+    DataLoadingConfig,
+    IntelligentDataCache,
+    ParallelDataProcessor,
+    StreamingJsonLoader,
+)
+
+from ..datasets import ConversationDataset, DPODataset, LanguageModelingDataset
 
 
 @dataclass
@@ -33,6 +41,7 @@ class DataResolver:
         self.config = config
         self.mode = mode
         self._manifest_cache: dict[str, list[str] | None] = {}
+        self._fast_cache: dict[tuple[str, str], list[Any]] = {}
 
     # ------------------------------------------------------------------
     def _manifest_filename(self) -> str | None:
@@ -186,8 +195,20 @@ class DataResolver:
             resolved.append(path)
         return resolved
 
-    @staticmethod
-    def load_records(path: str) -> list[Any]:
+    def load_records(self, path: str) -> list[Any]:
+        if (
+            getattr(self.config, "use_high_performance_data_loading", False)
+            and self.mode in {"sft", "pretrain"}
+        ):
+            try:
+                return self._load_records_fast(path)
+            except Exception as exc:  # pragma: no cover - 安全回退
+                print(
+                    f"⚠️  高性能数据加载失败，回退到标准模式: {exc}"
+                )
+        return self._load_records_standard(path)
+
+    def _load_records_standard(self, path: str) -> list[Any]:
         records: list[Any] = []
         with open(path, encoding="utf-8") as handle:
             for line in handle:
@@ -199,6 +220,79 @@ class DataResolver:
                 except json.JSONDecodeError:
                     continue
         return records
+
+    def _load_records_fast(self, path: str) -> list[Any]:
+        cache_key = (os.path.realpath(path), self.mode)
+        if cache_key in self._fast_cache:
+            return self._fast_cache[cache_key]
+
+        config = self._build_fast_loading_config(path)
+        cache: IntelligentDataCache | None = None
+        processed: list[Any] | None = None
+
+        if config.enable_cache:
+            cache = IntelligentDataCache(config.cache_dir)
+            if not config.force_rebuild_cache and cache.is_cache_valid(config):
+                cached = cache.load_cache(config)
+                if cached is not None:
+                    processed = cached
+
+        start_time = time.perf_counter()
+        if processed is None:
+            loader = StreamingJsonLoader(path, config.chunk_size)
+            data_chunks = list(loader.get_chunks())
+            processor = ParallelDataProcessor(config.max_parallel_workers)
+            if self.mode == "sft":
+                processed = processor.process_conversations(
+                    data_chunks, config.max_length
+                )
+            elif self.mode == "pretrain":
+                processed = processor.process_pretrain_texts(
+                    data_chunks, config.max_length
+                )
+                processed = [
+                    {"text": text}
+                    for text in processed
+                    if isinstance(text, str) and text
+                ]
+            else:  # pragma: no cover - 不支持的模式
+                raise ValueError(f"Unsupported fast loading mode: {self.mode}")
+
+            if cache and processed is not None:
+                cache.save_cache(config, processed)
+
+        processed = processed or []
+        duration = time.perf_counter() - start_time
+        sample_count = len(processed)
+        print(
+            f"⚡️  使用高性能数据加载 {os.path.basename(path)}: "
+            f"{sample_count} 条样本，耗时 {duration:.2f}s"
+        )
+
+        self._fast_cache[cache_key] = processed
+        return self._fast_cache[cache_key]
+
+    def _build_fast_loading_config(self, path: str) -> DataLoadingConfig:
+        return DataLoadingConfig(
+            data_path=path,
+            max_length=getattr(self.config, "max_seq_len", 512),
+            batch_size=getattr(self.config, "batch_size", 32),
+            num_workers=max(1, getattr(self.config, "num_workers", 1)),
+            prefetch_factor=getattr(self.config, "prefetch_factor", 2),
+            pin_memory=getattr(self.config, "pin_memory", False),
+            enable_cache=getattr(self.config, "data_cache_enabled", True),
+            cache_dir=getattr(self.config, "data_cache_dir", "data_cache"),
+            force_rebuild_cache=getattr(
+                self.config, "data_cache_force_rebuild", False
+            ),
+            streaming=getattr(self.config, "data_streaming_enabled", False),
+            chunk_size=getattr(self.config, "data_chunk_size", 10000),
+            buffer_size=getattr(self.config, "data_buffer_size", 50000),
+            parallel_processing=True,
+            max_parallel_workers=max(
+                1, getattr(self.config, "data_max_parallel_workers", 4)
+            ),
+        )
 
 
 class DatasetPreparer:
@@ -341,9 +435,12 @@ class DatasetPreparer:
                 self._create_sft_dataset(val_records, augmentation=None) if val_records else None,
             )
         if self.mode == "dpo":
+            train_dataset = self._create_dpo_dataset(train_records)
+            if train_dataset is None:
+                raise RuntimeError("DPO训练需要包含 'chosen'/'rejected' 成对样本的数据集")
             return (
-                self._create_dpo_dataset(train_records),
-                self._create_dpo_dataset(val_records) if val_records else None,
+                train_dataset,
+                None,
             )
         raise ValueError(f"不支持的训练模式: {self.mode}")
 
@@ -405,12 +502,25 @@ class DatasetPreparer:
         )
 
     def _create_dpo_dataset(self, data: Iterable[Any]):
-        texts = [item["chosen"] for item in data if "chosen" in item]
-        return LanguageModelingDataset(
-            texts=texts,
+        if not data:
+            return None
+
+        records: list[Any] = []
+        for item in data:
+            if isinstance(item, dict) and "chosen" in item and "rejected" in item:
+                records.append(item)
+
+        if not records:
+            print("⚠️  DPO 数据集中缺少有效的偏好样本，已跳过。")
+            return None
+
+        print(f"📊 DPO数据集包含 {len(records)} 组偏好对")
+        return DPODataset(
+            records=records,
             tokenizer=self.tokenizer,
             max_length=self.config.max_seq_len,
-            pretokenize_workers=getattr(self.config, "pretokenize_workers", None),
+            role_tokens=getattr(self.config, "role_tokens", None),
+            seed=getattr(self.config, "random_seed", 42),
         )
 
     @staticmethod

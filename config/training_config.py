@@ -131,6 +131,7 @@ class BaseConfig:
         self.early_stopping_patience = int(os.environ.get("MINIGPT_EARLY_STOP_PATIENCE", 4))
         self.early_stopping_delta = float(os.environ.get("MINIGPT_EARLY_STOP_DELTA", 0.0))
         self.label_smoothing = float(os.environ.get("MINIGPT_LABEL_SMOOTHING", 0.05))
+        self.dpo_beta = float(os.environ.get("MINIGPT_DPO_BETA", 0.1))
 
         # 全局数据采样控制
         global_ratio_env = os.environ.get("MINIGPT_GLOBAL_SAMPLE_RATIO")
@@ -203,6 +204,37 @@ class BaseConfig:
             "turn_truncate_prob": float(os.environ.get("MINIGPT_TURN_TRUNCATE_PROB", 0.1)),
             "max_turn_truncate": int(os.environ.get("MINIGPT_MAX_TURN_TRUNCATE", 1))
         }
+
+        # 数据加载性能优化
+        self.use_high_performance_data_loading = (
+            os.environ.get("MINIGPT_FAST_DATA_LOADING", "1") == "1"
+        )
+        cache_root = os.environ.get(
+            "MINIGPT_DATA_CACHE_DIR",
+            os.path.join(self.project_root, "cache", "data_loader"),
+        )
+        self.data_cache_dir = cache_root
+        os.makedirs(self.data_cache_dir, exist_ok=True)
+        self.data_cache_enabled = os.environ.get("MINIGPT_DATA_CACHE", "1") == "1"
+        self.data_cache_force_rebuild = (
+            os.environ.get("MINIGPT_DATA_CACHE_REBUILD", "0") == "1"
+        )
+        self.data_streaming_enabled = (
+            os.environ.get("MINIGPT_DATA_STREAMING", "0") == "1"
+        )
+        default_chunk = 20000
+        default_buffer = 100000
+        self.data_chunk_size = int(
+            os.environ.get("MINIGPT_DATA_CHUNK_SIZE", default_chunk)
+        )
+        self.data_buffer_size = int(
+            os.environ.get("MINIGPT_DATA_BUFFER_SIZE", default_buffer)
+        )
+        cpu_count = os.cpu_count() or 4
+        default_parallel = max(4, min(32, cpu_count))
+        self.data_max_parallel_workers = int(
+            os.environ.get("MINIGPT_DATA_MAX_WORKERS", default_parallel)
+        )
 
         # 训练内存监控与优化
         self.memory_monitor_enabled = os.environ.get("MINIGPT_MEMORY_MONITOR", "1") == "1"

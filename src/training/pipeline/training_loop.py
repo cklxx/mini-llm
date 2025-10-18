@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any
 
@@ -20,11 +21,22 @@ class TrainingControl:
 class TrainingLoopRunner:
     """Execute the gradient update loop and associated evaluations."""
 
-    def __init__(self, config, device: str, checkpoints, mode: str):
+    def __init__(
+        self,
+        config,
+        device: str,
+        checkpoints,
+        mode: str,
+        *,
+        reference_model=None,
+        dpo_beta: float = 0.1,
+    ):
         self.config = config
         self.device = device
         self.checkpoints = checkpoints
         self.mode = mode
+        self.reference_model = reference_model
+        self.dpo_beta = dpo_beta
 
     # ------------------------------------------------------------------
     def run(
@@ -47,6 +59,11 @@ class TrainingLoopRunner:
         model.train()
         step = start_step
         accumulation_steps = self.config.gradient_accumulation_steps
+
+        if self.mode == "dpo" and self.reference_model is None:
+            raise RuntimeError("DPO训练需要提供参考模型权重")
+        if self.mode == "dpo" and self.reference_model is not None:
+            self.reference_model.eval()
 
         print(f"开始训练，最大步数: {self.config.max_steps}")
         print(
@@ -77,10 +94,7 @@ class TrainingLoopRunner:
                 if step >= self.config.max_steps:
                     break
 
-                if isinstance(batch, dict):
-                    seq_length = batch["input_ids"].size(1)
-                else:
-                    seq_length = batch.size(1)
+                seq_length = self._resolve_sequence_length(batch)
                 if seq_length < 2:
                     continue
 
@@ -112,9 +126,7 @@ class TrainingLoopRunner:
                     epoch_loss += actual_loss
                     epoch_steps += 1
 
-                    current_batch_size = (
-                        batch["input_ids"].size(0) if isinstance(batch, dict) else batch.size(0)
-                    )
+                    current_batch_size = self._resolve_batch_size(batch)
                     monitor.log_step(
                         step=step,
                         epoch=epoch,
@@ -144,7 +156,7 @@ class TrainingLoopRunner:
                     if step % 100 == 0:
                         self.checkpoints.save(model, optimizer, step, actual_loss, tokenizer)
 
-                    if step % self.config.eval_steps == 0:
+                    if self.mode != "dpo" and step % self.config.eval_steps == 0:
                         eval_metrics = self._evaluate(
                             model,
                             tokenizer,
@@ -198,17 +210,24 @@ class TrainingLoopRunner:
 
     # ------------------------------------------------------------------
     def _forward_backward(self, model, tokenizer, batch, criterion, scaler, accumulation_steps):
+        if self.mode == "dpo":
+            return self._forward_backward_dpo(
+                model, tokenizer, batch, scaler, accumulation_steps
+            )
         try:
             if isinstance(batch, dict):
-                input_ids = batch["input_ids"].to(self.device, non_blocking=True)
+                full_input_ids = batch["input_ids"].to(self.device, non_blocking=True)
+                if full_input_ids.size(1) < 2:
+                    raise ValueError("批次序列长度过短")
+
                 if "labels" in batch:
-                    target_ids = batch["labels"].to(self.device, non_blocking=True)
+                    full_target_ids = batch["labels"].to(self.device, non_blocking=True)
                 else:
-                    target_ids = torch.cat(
+                    full_target_ids = torch.cat(
                         [
-                            input_ids[:, 1:],
+                            full_input_ids[:, 1:],
                             torch.full(
-                                (input_ids.size(0), 1),
+                                (full_input_ids.size(0), 1),
                                 tokenizer.pad_id,
                                 dtype=torch.long,
                                 device=self.device,
@@ -216,21 +235,38 @@ class TrainingLoopRunner:
                         ],
                         dim=1,
                     )
+
+                input_ids = full_input_ids[:, :-1]
+                target_ids = full_target_ids[:, 1:]
+
+                attention_mask = None
+                if "attention_mask" in batch:
+                    attention_mask = batch["attention_mask"].to(
+                        self.device, non_blocking=True
+                    )
+                    attention_mask = attention_mask[:, :-1]
             else:
                 batch = batch.to(self.device, non_blocking=True)
                 if batch.size(1) < 2:
                     raise ValueError("批次序列长度过短")
                 input_ids = batch[:, :-1]
                 target_ids = batch[:, 1:]
+                attention_mask = None
 
             if scaler is not None:
                 with torch.amp.autocast("cuda"):
-                    outputs = model(input_ids)
+                    model_kwargs = {}
+                    if attention_mask is not None:
+                        model_kwargs["attention_mask"] = attention_mask
+                    outputs = model(input_ids, **model_kwargs)
                     loss = criterion(outputs.reshape(-1, outputs.size(-1)), target_ids.reshape(-1))
                     loss = loss / accumulation_steps
                 scaler.scale(loss).backward()
             else:
-                outputs = model(input_ids)
+                model_kwargs = {}
+                if attention_mask is not None:
+                    model_kwargs["attention_mask"] = attention_mask
+                outputs = model(input_ids, **model_kwargs)
                 loss = criterion(outputs.reshape(-1, outputs.size(-1)), target_ids.reshape(-1))
                 loss = loss / accumulation_steps
                 loss.backward()
@@ -240,6 +276,91 @@ class TrainingLoopRunner:
         except torch.cuda.OutOfMemoryError:
             self._handle_oom(batch, tokenizer)
             raise
+
+    def _forward_backward_dpo(self, model, tokenizer, batch, scaler, accumulation_steps):
+        chosen_input_ids = batch["chosen_input_ids"].to(self.device, non_blocking=True)
+        rejected_input_ids = batch["rejected_input_ids"].to(self.device, non_blocking=True)
+        chosen_labels = batch["chosen_labels"].to(self.device, non_blocking=True)
+        rejected_labels = batch["rejected_labels"].to(self.device, non_blocking=True)
+
+        chosen_targets = chosen_labels[:, 1:]
+        rejected_targets = rejected_labels[:, 1:]
+
+        if chosen_targets.size(1) == 0 or rejected_targets.size(1) == 0:
+            raise ValueError("DPO 样本序列长度不足以计算对数概率")
+
+        chosen_mask = (chosen_targets != tokenizer.pad_id).float()
+        rejected_mask = (rejected_targets != tokenizer.pad_id).float()
+
+        autocast_ctx = torch.amp.autocast("cuda") if scaler is not None else nullcontext()
+        with autocast_ctx:
+            with torch.no_grad():
+                ref_chosen_logits = self._extract_logits(
+                    self.reference_model(chosen_input_ids)
+                )[:, :-1, :]
+                ref_rejected_logits = self._extract_logits(
+                    self.reference_model(rejected_input_ids)
+                )[:, :-1, :]
+
+            policy_chosen_logits = self._extract_logits(model(chosen_input_ids))[:, :-1, :]
+            policy_rejected_logits = self._extract_logits(model(rejected_input_ids))[:, :-1, :]
+
+            ref_chosen_logps = self._sequence_log_probs(
+                ref_chosen_logits, chosen_targets, chosen_mask
+            )
+            ref_rejected_logps = self._sequence_log_probs(
+                ref_rejected_logits, rejected_targets, rejected_mask
+            )
+            policy_chosen_logps = self._sequence_log_probs(
+                policy_chosen_logits, chosen_targets, chosen_mask
+            )
+            policy_rejected_logps = self._sequence_log_probs(
+                policy_rejected_logits, rejected_targets, rejected_mask
+            )
+
+            policy_diff = policy_chosen_logps - policy_rejected_logps
+            ref_diff = ref_chosen_logps - ref_rejected_logps
+            loss = -torch.logsigmoid(self.dpo_beta * (policy_diff - ref_diff)).mean()
+            loss = loss / accumulation_steps
+
+        if scaler is not None:
+            scaler.scale(loss).backward()
+        else:
+            loss.backward()
+
+        return loss
+
+    @staticmethod
+    def _extract_logits(outputs):
+        if isinstance(outputs, tuple):
+            return outputs[0]
+        return outputs
+
+    @staticmethod
+    def _sequence_log_probs(logits, labels, mask):
+        log_probs = torch.log_softmax(logits, dim=-1)
+        selected = torch.gather(log_probs, dim=-1, index=labels.unsqueeze(-1)).squeeze(-1)
+        masked = selected * mask
+        token_counts = mask.sum(dim=-1).clamp(min=1.0)
+        return masked.sum(dim=-1) / token_counts
+
+    def _resolve_sequence_length(self, batch):
+        if isinstance(batch, dict):
+            if "input_ids" in batch:
+                return batch["input_ids"].size(1)
+            if "chosen_input_ids" in batch:
+                return batch["chosen_input_ids"].size(1)
+            raise ValueError("无法从批次数据中解析序列长度")
+        return batch.size(1)
+
+    def _resolve_batch_size(self, batch):
+        if isinstance(batch, dict):
+            if "input_ids" in batch:
+                return batch["input_ids"].size(0)
+            if "chosen_input_ids" in batch:
+                return batch["chosen_input_ids"].size(0)
+            raise ValueError("无法从批次数据中解析批次大小")
+        return batch.size(0)
 
     def _optimizer_step(self, model, optimizer, scheduler, scaler, step: int) -> tuple[int, float]:
         if scaler is not None:
@@ -293,6 +414,13 @@ class TrainingLoopRunner:
         self, model, tokenizer, val_loader, criterion, monitor, step, regression_suite=None
     ):
         metrics: dict[str, Any] = {}
+        if self.mode == "dpo":
+            print("ℹ️ DPO 模式暂不执行验证评估，跳过。")
+            try:
+                self._smoke_generation(model, tokenizer, step)
+            except Exception as exc:
+                print(f"⚠️  生成验证失败: {exc}")
+            return metrics
         if val_loader:
             model.eval()
             total_loss = 0.0
@@ -301,8 +429,16 @@ class TrainingLoopRunner:
             with torch.no_grad():
                 for batch in val_loader:
                     if isinstance(batch, dict):
-                        input_ids = batch["input_ids"].to(self.device, non_blocking=True)
-                        target_ids = batch["labels"].to(self.device, non_blocking=True)
+                        full_input_ids = batch["input_ids"].to(
+                            self.device, non_blocking=True
+                        )
+                        full_target_ids = batch["labels"].to(
+                            self.device, non_blocking=True
+                        )
+                        if full_input_ids.size(1) < 2:
+                            continue
+                        input_ids = full_input_ids[:, :-1]
+                        target_ids = full_target_ids[:, 1:]
                     else:
                         batch = batch.to(self.device, non_blocking=True)
                         input_ids = batch[:, :-1]

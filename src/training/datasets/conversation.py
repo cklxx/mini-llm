@@ -50,6 +50,10 @@ class ConversationDataset(Dataset):
         messages = self._normalize_conversation(self.conversations[idx])
         messages = self._apply_augmentation(messages, idx)
 
+        return self._build_sample(messages)
+
+    def _build_sample(self, messages: list[dict[str, str]]) -> dict[str, torch.Tensor]:
+        
         bos_id = self.tokenizer.bos_id
         eos_id = self.tokenizer.eos_id
         pad_id = self.tokenizer.pad_id
@@ -176,3 +180,55 @@ class ConversationDataset(Dataset):
                     truncated.pop()
 
         return truncated if truncated else messages
+
+
+class DPODataset(Dataset):
+    """Preference dataset that pairs chosen/rejected conversations for DPO."""
+
+    def __init__(
+        self,
+        records: list[Any],
+        tokenizer,
+        max_length: int = 1024,
+        role_tokens: dict[str, str] | None = None,
+        seed: int = 42,
+    ):
+        valid_records = [
+            record
+            for record in records
+            if isinstance(record, dict) and "chosen" in record and "rejected" in record
+        ]
+        if not valid_records:
+            raise ValueError("DPO数据集中缺少包含 'chosen' 和 'rejected' 字段的样本")
+
+        self.records = valid_records
+        # 复用 ConversationDataset 的格式化逻辑，但禁用数据增强。
+        self.formatter = ConversationDataset(
+            [],
+            tokenizer,
+            max_length=max_length,
+            role_tokens=role_tokens,
+            augmentation=None,
+            seed=seed,
+        )
+
+    def __len__(self) -> int:
+        return len(self.records)
+
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
+        record = self.records[idx]
+
+        chosen_messages = self.formatter._normalize_conversation(record["chosen"])
+        rejected_messages = self.formatter._normalize_conversation(record["rejected"])
+
+        chosen_sample = self.formatter._build_sample(chosen_messages)
+        rejected_sample = self.formatter._build_sample(rejected_messages)
+
+        return {
+            "chosen_input_ids": chosen_sample["input_ids"],
+            "chosen_labels": chosen_sample["labels"],
+            "chosen_attention_mask": chosen_sample["attention_mask"],
+            "rejected_input_ids": rejected_sample["input_ids"],
+            "rejected_labels": rejected_sample["labels"],
+            "rejected_attention_mask": rejected_sample["attention_mask"],
+        }
