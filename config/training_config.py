@@ -363,7 +363,7 @@ class SmallConfig(BaseConfig):
 
         self.learning_rate = 5e-4
         self.weight_decay = 0.01
-        self.warmup_steps = 0
+        self.warmup_steps = 500
         self.max_steps = 2500
         self.eval_steps = 250
         self.save_steps = 500
