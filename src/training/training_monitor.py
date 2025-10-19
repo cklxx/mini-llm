@@ -9,7 +9,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, Optional
 
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
@@ -532,6 +532,47 @@ class TrainingMonitor:
             if extra_metrics:
                 for key, value in extra_metrics.items():
                     self.tensorboard_writer.add_scalar(f"Validation/{key}", value, step)
+
+    def log_benchmark(self, step: int, metrics: dict[str, float], task: Optional[str] = None) -> None:
+        """记录行业标准评测集的指标。"""
+
+        summary_parts = []
+        loss = metrics.get("loss")
+        if loss is None:
+            loss = metrics.get("benchmark_loss")
+        if isinstance(loss, (int, float)):
+            summary_parts.append(f"loss={loss:.4f}")
+
+        ppl = metrics.get("perplexity")
+        if ppl is None:
+            ppl = metrics.get("benchmark_perplexity")
+        if isinstance(ppl, (int, float)):
+            summary_parts.append(f"ppl={ppl:.2f}")
+
+        tokens = metrics.get("tokens")
+        if tokens is None:
+            tokens = metrics.get("benchmark_tokens")
+        if isinstance(tokens, (int, float)):
+            summary_parts.append(f"tokens={int(tokens)}")
+
+        accuracy = metrics.get("accuracy")
+        if isinstance(accuracy, (int, float)):
+            summary_parts.append(f"acc={accuracy:.2%}")
+
+        samples = metrics.get("samples")
+        if isinstance(samples, (int, float)):
+            summary_parts.append(f"samples={int(samples)}")
+
+        summary = ", ".join(summary_parts) if summary_parts else str(metrics)
+        task_label = f"[{task}]" if task else ""
+        print(f"🏁 Benchmark{task_label} @ Step {step}: {summary}")
+
+        if self.tensorboard_writer:
+            base_tag = f"Benchmark/{task}" if task else "Benchmark"
+            for key, value in metrics.items():
+                if isinstance(value, (int, float)):
+                    tag = f"{base_tag}/{key}" if task else f"Benchmark/{key}"
+                    self.tensorboard_writer.add_scalar(tag, value, step)
 
     def log_regression(self, step: int, pass_rate: float, results: list[dict[str, Any]]):
         """记录提示回归测试结果"""

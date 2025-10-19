@@ -55,6 +55,7 @@ class TrainingLoopRunner:
         start_time: float,
         memory_hooks=None,
         regression_suite=None,
+        benchmark_evaluator=None,
     ) -> str:
         model.train()
         step = start_step
@@ -181,6 +182,9 @@ class TrainingLoopRunner:
                     if step >= self.config.max_steps:
                         break
 
+                    if benchmark_evaluator is not None:
+                        benchmark_evaluator.maybe_run(model, step, monitor)
+
             if step >= self.config.max_steps or control.interrupted:
                 break
 
@@ -196,6 +200,9 @@ class TrainingLoopRunner:
             print("💡 可使用 --auto-resume 从此处恢复训练")
 
         final_path = self.checkpoints.save_final(model, tokenizer, step)
+
+        if benchmark_evaluator is not None:
+            benchmark_evaluator.maybe_run(model, step, monitor, force=True)
 
         if control.interrupted:
             print("\n⚠️  训练被用户中断")

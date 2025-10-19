@@ -259,6 +259,64 @@ class BaseConfig:
         self.regression_eval_temperature = float(os.environ.get("MINIGPT_REGRESSION_TEMPERATURE", 0.7))
         self.regression_eval_top_p = float(os.environ.get("MINIGPT_REGRESSION_TOP_P", 0.95))
 
+        # 行业评测基准配置（默认使用 WikiText-2、LAMBADA、HellaSwag、ARC 等行业通用任务）
+        self.benchmark_eval_enabled = os.environ.get("MINIGPT_BENCHMARK_ENABLED", "1") == "1"
+
+        tasks_env = os.environ.get("MINIGPT_BENCHMARK_TASKS")
+        default_tasks = [
+            "wikitext2",
+            "lambada_openai",
+            "hellaswag",
+            "arc_challenge",
+            "winogrande",
+            "piqa",
+            "boolq",
+        ]
+        if tasks_env:
+            parsed_tasks = [task.strip() for task in tasks_env.split(",") if task.strip()]
+            self.benchmark_eval_tasks = parsed_tasks or default_tasks
+        else:
+            self.benchmark_eval_tasks = default_tasks
+
+        def _normalize_env(key: str):
+            value = os.environ.get(key)
+            if value is None:
+                return None
+            value = value.strip()
+            return value or None
+
+        self.benchmark_eval_overrides = {
+            "dataset_name": _normalize_env("MINIGPT_BENCHMARK_DATASET"),
+            "dataset_config": _normalize_env("MINIGPT_BENCHMARK_DATASET_CONFIG"),
+            "split": _normalize_env("MINIGPT_BENCHMARK_SPLIT"),
+            "text_column": _normalize_env("MINIGPT_BENCHMARK_TEXT_COLUMN"),
+        }
+
+        self.benchmark_eval_frequency = int(
+            os.environ.get("MINIGPT_BENCHMARK_FREQUENCY", 500)
+        )
+        self.benchmark_eval_max_samples = int(
+            os.environ.get("MINIGPT_BENCHMARK_MAX_SAMPLES", 256)
+        )
+        self.benchmark_eval_batch_size = int(
+            os.environ.get("MINIGPT_BENCHMARK_BATCH_SIZE", 4)
+        )
+        benchmark_max_len = int(os.environ.get("MINIGPT_BENCHMARK_MAX_LENGTH", 0))
+        self.benchmark_eval_max_length = benchmark_max_len if benchmark_max_len > 0 else None
+
+        self.benchmark_eval_auto_download = (
+            os.environ.get("MINIGPT_BENCHMARK_AUTO_DOWNLOAD", "1") == "1"
+        )
+        cache_dir_override = _normalize_env("MINIGPT_BENCHMARK_CACHE_DIR")
+        if cache_dir_override:
+            self.benchmark_eval_cache_dir = cache_dir_override
+        else:
+            self.benchmark_eval_cache_dir = os.path.join(
+                self.data_dir, "eval", "benchmarks"
+            )
+        if self.benchmark_eval_cache_dir:
+            os.makedirs(self.benchmark_eval_cache_dir, exist_ok=True)
+
         # NVIDIA GPU 优化设置
         self.mixed_precision = self.device == "cuda"
         self.compile_model = self.device == "cuda"  # PyTorch 2.4 编译优化

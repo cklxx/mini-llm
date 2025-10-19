@@ -16,6 +16,8 @@ from model.config import MiniGPTConfig
 from model.transformer import create_model
 from training.training_monitor import TrainingMonitor
 
+from evaluation.benchmark_suite import BenchmarkEvaluator, BenchmarkSettings
+
 from .checkpointing import CheckpointManager
 from .data_manager import DataResolver, DatasetPreparer
 from .environment import TrainingEnvironment
@@ -229,6 +231,33 @@ class MiniGPTTrainer:
             log_interval=10,
         )
 
+        benchmark_evaluator = None
+        if getattr(self.config, "benchmark_eval_enabled", False):
+            max_length = self.config.benchmark_eval_max_length
+            if max_length is None:
+                max_length = getattr(self.config, "max_seq_len", None)
+            try:
+                settings = BenchmarkSettings.from_task_names(
+                    self.config.benchmark_eval_tasks,
+                    frequency=self.config.benchmark_eval_frequency,
+                    max_samples=self.config.benchmark_eval_max_samples,
+                    batch_size=self.config.benchmark_eval_batch_size,
+                    max_length=max_length,
+                    overrides=getattr(self.config, "benchmark_eval_overrides", None),
+                    cache_dir=getattr(self.config, "benchmark_eval_cache_dir", None),
+                    auto_download=getattr(
+                        self.config, "benchmark_eval_auto_download", True
+                    ),
+                )
+            except ValueError as exc:
+                print(f"⚠️  未能启用行业评测: {exc}")
+            else:
+                benchmark_evaluator = BenchmarkEvaluator(
+                    device=self.device,
+                    tokenizer=tokenizer,
+                    settings=settings,
+                )
+
         if self.device == "cuda":
             torch.cuda.empty_cache()
             torch.cuda.reset_peak_memory_stats()
@@ -257,6 +286,7 @@ class MiniGPTTrainer:
             start_time,
             memory_hooks=self.memory_hooks,
             regression_suite=self.regression_suite,
+            benchmark_evaluator=benchmark_evaluator,
         )
 
         monitor.close()
