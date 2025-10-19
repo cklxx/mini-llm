@@ -16,6 +16,10 @@ from typing import Any, Callable, Iterable, Sequence
 
 import torch
 import torch.nn.functional as F
+
+# 设置国内镜像源以支持数据集下载
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+
 try:
     from datasets import load_dataset
 except Exception as exc:  # pragma: no cover - optional dependency
@@ -682,7 +686,10 @@ class BenchmarkEvaluator:
         if load_dataset is None:
             return
 
-        load_kwargs: dict[str, Any] = {"download_mode": "reuse_dataset_if_exists"}
+        load_kwargs: dict[str, Any] = {
+            "download_mode": "reuse_dataset_if_exists",
+            "trust_remote_code": True,
+        }
         if self.settings.cache_dir:
             load_kwargs["cache_dir"] = self.settings.cache_dir
 
@@ -731,7 +738,10 @@ class BenchmarkEvaluator:
             print(f"⚠️  Benchmark evaluator disabled for {task.name}: {reason}")
             return None
 
-        load_kwargs: dict[str, Any] = {"download_mode": "reuse_dataset_if_exists"}
+        load_kwargs: dict[str, Any] = {
+            "download_mode": "reuse_dataset_if_exists",
+            "trust_remote_code": True,
+        }
         if self.settings.cache_dir:
             load_kwargs["cache_dir"] = self.settings.cache_dir
 
