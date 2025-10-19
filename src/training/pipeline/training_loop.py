@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 
 
 @dataclass
@@ -327,7 +328,7 @@ class TrainingLoopRunner:
 
             policy_diff = policy_chosen_logps - policy_rejected_logps
             ref_diff = ref_chosen_logps - ref_rejected_logps
-            loss = -torch.logsigmoid(self.dpo_beta * (policy_diff - ref_diff)).mean()
+            loss = -F.logsigmoid(self.dpo_beta * (policy_diff - ref_diff)).mean()
             loss = loss / accumulation_steps
 
         if scaler is not None:
