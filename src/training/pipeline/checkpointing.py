@@ -92,8 +92,28 @@ class CheckpointManager:
                 print("ℹ️  未找到当前模式的checkpoint")
         elif resume_from:
             if os.path.exists(resume_from):
-                start_step = self._load_checkpoint(resume_from, model, optimizer)
-                checkpoint_loaded = True
+                metadata = self._extract_checkpoint_metadata(resume_from)
+                checkpoint_mode = metadata.get("mode")
+                has_optimizer_state = metadata.get("has_optimizer_state", False)
+                if checkpoint_mode and checkpoint_mode != self.mode:
+                    print(
+                        "ℹ️  检测到来自不同训练阶段的checkpoint，将其作为初始化权重使用。"
+                    )
+                    self._load_model_weights(resume_from, model)
+                    print("✅ 已加载模型权重")
+                    checkpoint_loaded = True
+                    start_step = 0
+                elif not has_optimizer_state:
+                    print(
+                        "ℹ️  指定的checkpoint不包含优化器状态，将仅加载模型权重并重新开始训练。"
+                    )
+                    self._load_model_weights(resume_from, model)
+                    print("✅ 已加载模型权重")
+                    checkpoint_loaded = True
+                    start_step = 0
+                else:
+                    start_step = self._load_checkpoint(resume_from, model, optimizer)
+                    checkpoint_loaded = True
             else:
                 print(f"⚠️  Checkpoint文件不存在: {resume_from}")
 
@@ -301,6 +321,7 @@ class CheckpointManager:
                 metadata["model_size"] = config_model_size
             metadata["mode"] = checkpoint.get("mode")
             metadata["step"] = checkpoint.get("step", checkpoint.get("global_step"))
+            metadata["has_optimizer_state"] = "optimizer_state_dict" in checkpoint
         finally:
             del checkpoint
 
