@@ -416,7 +416,7 @@ class Small30MConfig(BaseConfig):
 
         self.learning_rate = 3e-4
         self.weight_decay = 0.01
-        self.warmup_steps = 3000
+        self.warmup_steps = 1500
         self.max_steps = 60000
         self.eval_steps = 1500
         self.save_steps = 3000
@@ -475,8 +475,8 @@ class MediumConfig(BaseConfig):
         # 采用与 MiniMind 相近的较高学习率，加速瘦长模型收敛
         self.learning_rate = 5e-4
         self.weight_decay = 0.01
-        # MiniMind 默认 warmup 比例约为 10%，在此保持一致
-        self.warmup_steps = 10000
+        # 使用 3% warmup 比例，平衡训练稳定性和收敛速度
+        self.warmup_steps = 3000
         self.max_steps = 100000
         self.eval_steps = 2000
         self.save_steps = 5000
@@ -532,7 +532,7 @@ class FoundationConfig(BaseConfig):
 
         self.learning_rate = 2e-4
         self.weight_decay = 0.01
-        self.warmup_steps = 5000
+        self.warmup_steps = 3000
         self.max_steps = 150000
         self.eval_steps = 3000
         self.save_steps = 8000
@@ -593,7 +593,7 @@ class LargeConfig(BaseConfig):
 
         self.learning_rate = 2e-4
         self.weight_decay = 0.01
-        self.warmup_steps = 8000
+        self.warmup_steps = 4000
         self.max_steps = 200000
         self.eval_steps = 5000
         self.save_steps = 10000
@@ -655,7 +655,7 @@ class MOEConfig(BaseConfig):
 
         self.learning_rate = 3e-4
         self.weight_decay = 0.01
-        self.warmup_steps = 2000
+        self.warmup_steps = 1000
         self.max_steps = 50000
         self.eval_steps = 1000
         self.save_steps = 2000
