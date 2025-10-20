@@ -63,7 +63,7 @@
 3. **逐步试训**：先小规模实训验证拒答率、回答完整度及英文表现，再逐步放大。
 
 ---
-本文档路径：`docs/data_analysis.md`
+本文档路径：`docs/research/data_analysis.md`
 
 ## 7. 数据清洗脚本
 脚本路径：`scripts/clean_datasets.py`，支持以下核心能力：

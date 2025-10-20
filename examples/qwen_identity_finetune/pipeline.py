@@ -1,7 +1,7 @@
 """Utilities for fine-tuning Qwen models with persona-aligned identity data.
 
 This module provides a complete pipeline that mirrors the accompanying
-`docs/qwen_identity_finetune.md` tutorial.  It can download and prepare the
+`docs/case_studies/qwen_identity_finetune.md` tutorial.  It can download and prepare the
 Delicate Medical R1 dataset, generate additional persona-aligned samples via
 inference, mix them with the training data, and launch a supervised fine-tuning
 run that tracks metrics in SwanLab.

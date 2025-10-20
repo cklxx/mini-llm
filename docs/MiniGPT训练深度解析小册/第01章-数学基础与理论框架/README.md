@@ -28,4 +28,4 @@
 ## 1.5 进一步阅读
 - 《Attention Is All You Need》：理解自注意力的原理。
 - 《A Primer in BERTology》：了解预训练语言模型的损失建模方式。
-- mini-llm [`docs/training.md`](../../training.md)：介绍完整的训练流水线。
+- mini-llm [`docs/guides/training.md`](../../guides/training.md)：介绍完整的训练流水线。
