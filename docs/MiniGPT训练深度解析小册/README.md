@@ -25,4 +25,4 @@
 | 推理与服务 | 生成策略、聊天接口 | `src/inference/generator.py` |
 | 对齐 (RLHF) | 奖励模型、策略优化 | `src/rl/reward_model/reward_trainer.py`, `src/rl/ppo/ppo_trainer.py` |
 
-> **温馨提示**：所有章节都默认你已经读过顶层的 [docs/getting_started.md](../getting_started.md) 和 [docs/training.md](../training.md)。如果你还没配置好环境，请先完成基础教程。
+> **温馨提示**：所有章节都默认你已经读过顶层的 [docs/guides/getting_started.md](../guides/getting_started.md) 和 [docs/guides/training.md](../guides/training.md)。如果你还没配置好环境，请先完成基础教程。

@@ -166,12 +166,15 @@ uv run python scripts/run_smoke_pipeline.py
 
 ## 📚 深入阅读
 - [docs/README.md](docs/README.md)：文档索引与阅读指引
-- [docs/getting_started.md](docs/getting_started.md)：环境配置与实践示例
-- [docs/model.md](docs/model.md)：模型与配置说明
-- [docs/data.md](docs/data.md)：数据与分词流程
-- [docs/training.md](docs/training.md)：训练循环与内存优化
-- [docs/inference.md](docs/inference.md)：推理策略与配置
-- [docs/rlhf.md](docs/rlhf.md)：RLHF 流程概览与扩展思路
+- [docs/guides/getting_started.md](docs/guides/getting_started.md)：环境配置与实践示例
+- [docs/guides/dataset_preparation.md](docs/guides/dataset_preparation.md)：数据清洗、采样与格式规范
+- [docs/guides/model.md](docs/guides/model.md)：模型与配置说明
+- [docs/guides/data.md](docs/guides/data.md)：数据与分词流程
+- [docs/guides/training.md](docs/guides/training.md)：训练循环与内存优化
+- [docs/guides/inference.md](docs/guides/inference.md)：推理策略与配置
+- [docs/guides/rlhf.md](docs/guides/rlhf.md)：RLHF 流程概览与扩展思路
+- [docs/research/minimind_comparison.md](docs/research/minimind_comparison.md)：与 MiniMind 的对比分析
+- [docs/planning/training_optimization_plan.md](docs/planning/training_optimization_plan.md)：训练优化路线图
 
 欢迎在阅读源码的同时配合文档理解每个组件的职责，便于根据自身需求进行裁剪或扩展。
 

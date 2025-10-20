@@ -4,16 +4,16 @@
 
 ## 概览
 
-- **共同点**：两者都围绕现代 Transformer 解码器搭建，提供 RoPE 旋转位置编码、Grouped-Query Attention（GQA）和可选的 Mixture-of-Experts（MoE）前馈层，同时支持 Flash Attention 等显存优化手段。【F:docs/model.md†L1-L49】【F:src/model/config.py†L17-L88】【F:src/model/config.py†L214-L264】（MiniMind 参见其文档与源码：`docs/01_MiniMindConfig.md`、`docs/07_ModelArchitecture.md`、`model/model_minimind.py`）
+- **共同点**：两者都围绕现代 Transformer 解码器搭建，提供 RoPE 旋转位置编码、Grouped-Query Attention（GQA）和可选的 Mixture-of-Experts（MoE）前馈层，同时支持 Flash Attention 等显存优化手段。【F:docs/guides/model.md†L1-L49】【F:src/model/config.py†L17-L88】【F:src/model/config.py†L214-L264】（MiniMind 参见其文档与源码：`docs/01_MiniMindConfig.md`、`docs/07_ModelArchitecture.md`、`model/model_minimind.py`）
 - **差异概览**：Mini-LLM 更强调可插拔的配置族与训练流水线抽象，便于在不同资源环境间切换；MiniMind 则沿用 HuggingFace `PretrainedConfig`/`PreTrainedModel` 框架，聚焦于极简脚本化训练与多阶段任务覆盖（预训练、SFT、LoRA、DPO、蒸馏）。
 
 ## 模型架构对比
 
 | 方面 | Mini-LLM | MiniMind |
 | --- | --- | --- |
-| 基础模块 | `MiniGPT` 由嵌入层、RoPE 位置编码、TransformerBlock 列表、末端 RMSNorm 与共享词表投影组成；可在 block 级别选择 GQA、SwiGLU 或 MoE。【F:docs/model.md†L11-L49】 | `MiniMindModel` 使用相同的嵌入 → TransformerBlock → RMSNorm → 线性输出结构，默认共享嵌入权重；源码直接继承 `PreTrainedModel`，并在 `MiniMindForCausalLM` 中封装推理接口（来源：MiniMind `docs/07_ModelArchitecture.md`、`model/model_minimind.py`）。 |
-| 注意力机制 | 默认启用 RoPE，`use_gqa` 控制 KV 头压缩；可通过配置切换 Flash Attention 与梯度检查点。【F:src/model/config.py†L29-L65】【F:docs/model.md†L27-L41】 | 同样提供 RoPE/GQA/Flash Attention；注意力模块在 `Attention` 中手动实现 KV repeat 与可选 Flash 路径（来源：MiniMind `model/model_minimind.py`）。 |
-| 前馈层 | 默认使用 SwiGLU，可按需替换为 MoE；MoE 支持路由/共享专家及辅助损失权重调节。【F:docs/model.md†L31-L41】【F:src/model/config.py†L66-L88】 | 支持密集层与 MoE，MoE 参数与 Mini-LLM 类似但整体集成在 HuggingFace 风格模型中（来源：MiniMind `docs/01_MiniMindConfig.md`、`model/model_minimind.py`）。 |
+| 基础模块 | `MiniGPT` 由嵌入层、RoPE 位置编码、TransformerBlock 列表、末端 RMSNorm 与共享词表投影组成；可在 block 级别选择 GQA、SwiGLU 或 MoE。【F:docs/guides/model.md†L11-L49】 | `MiniMindModel` 使用相同的嵌入 → TransformerBlock → RMSNorm → 线性输出结构，默认共享嵌入权重；源码直接继承 `PreTrainedModel`，并在 `MiniMindForCausalLM` 中封装推理接口（来源：MiniMind `docs/07_ModelArchitecture.md`、`model/model_minimind.py`）。 |
+| 注意力机制 | 默认启用 RoPE，`use_gqa` 控制 KV 头压缩；可通过配置切换 Flash Attention 与梯度检查点。【F:src/model/config.py†L29-L65】【F:docs/guides/model.md†L27-L41】 | 同样提供 RoPE/GQA/Flash Attention；注意力模块在 `Attention` 中手动实现 KV repeat 与可选 Flash 路径（来源：MiniMind `model/model_minimind.py`）。 |
+| 前馈层 | 默认使用 SwiGLU，可按需替换为 MoE；MoE 支持路由/共享专家及辅助损失权重调节。【F:docs/guides/model.md†L31-L41】【F:src/model/config.py†L66-L88】 | 支持密集层与 MoE，MoE 参数与 Mini-LLM 类似但整体集成在 HuggingFace 风格模型中（来源：MiniMind `docs/01_MiniMindConfig.md`、`model/model_minimind.py`）。 |
 | 位置长度 | 预设配置最高支持 4096（`foundation`/`large`）或 2048（`small_30m`/`medium`），聚焦教学与桌面实验规模。【F:src/model/config.py†L214-L264】 | 默认 `max_position_embeddings=32768` 以兼容长上下文实验，同时在推理脚本中对 8K 输出窗口做限制（来源：MiniMind `docs/01_MiniMindConfig.md`、`eval_model.py` 第 103-123 行注释）。 |
 
 **总结**：Mini-LLM 将多种现代组件包装为配置开关，便于课堂/实验扩展；MiniMind 更贴近 HuggingFace 生态，强调对高上下文长度和 MoE 的直接支持。
@@ -38,12 +38,12 @@
 
 Mini-LLM 的 `training.pipeline` 架构将训练划分为环境配置、数据准备、训练循环、检查点与监控等模块：
 
-- `TrainingEnvironment` 管理随机种子、设备检测、输出目录与配置快照。【F:docs/training.md†L8-L40】
-- `TokenizerManager` 负责分词器训练/缓存；`DatasetPreparer` 则按文件采样比例、最大样本数与验证拆分生成数据集。【F:docs/training.md†L40-L74】
-- `TrainingLoopRunner` 实现梯度累积、线性 warmup + 余弦退火调度、验证评估与早停；同时结合 `MemoryHooks` 进行显存监控。【F:docs/training.md†L74-L120】
-- `TrainingMonitor` 汇总损失、PPL、梯度范数、资源占用并输出 TensorBoard 与 JSON 摘要，支持提示回归评估。【F:docs/training.md†L120-L154】
+- `TrainingEnvironment` 管理随机种子、设备检测、输出目录与配置快照。【F:docs/guides/training.md†L8-L40】
+- `TokenizerManager` 负责分词器训练/缓存；`DatasetPreparer` 则按文件采样比例、最大样本数与验证拆分生成数据集。【F:docs/guides/training.md†L40-L74】
+- `TrainingLoopRunner` 实现梯度累积、线性 warmup + 余弦退火调度、验证评估与早停；同时结合 `MemoryHooks` 进行显存监控。【F:docs/guides/training.md†L74-L120】
+- `TrainingMonitor` 汇总损失、PPL、梯度范数、资源占用并输出 TensorBoard 与 JSON 摘要，支持提示回归评估。【F:docs/guides/training.md†L120-L154】
 
-整体流程通过 `scripts/train.py` 与 CLI 参数切换预训练、SFT、DPO、RLHF 等模式，强调可复现性和监控覆盖。近期 medium 训练预设同步引入瘦长超参（384×20 层）与更激进的 `lr=5e-4`、`warmup_steps=10000`，向 MiniMind 默认调度对齐以提升小模型收敛速度。【F:docs/training.md†L1-L74】【F:config/training_config.py†L197-L243】【F:src/model/config.py†L227-L252】
+整体流程通过 `scripts/train.py` 与 CLI 参数切换预训练、SFT、DPO、RLHF 等模式，强调可复现性和监控覆盖。近期 medium 训练预设同步引入瘦长超参（384×20 层）与更激进的 `lr=5e-4`、`warmup_steps=10000`，向 MiniMind 默认调度对齐以提升小模型收敛速度。【F:docs/guides/training.md†L1-L74】【F:config/training_config.py†L197-L243】【F:src/model/config.py†L227-L252】
 
 ### MiniMind 训练脚本
 
@@ -63,4 +63,4 @@ MiniMind 的预训练脚本采用更直接的单文件实现：
 
 ## 结论
 
-Mini-LLM 在架构上突出“模块化 + 可配置”，通过多套预设与训练流水线帮助学习者理解大型模型训练的完整闭环。MiniMind 则以 HuggingFace 兼容的极简实现为核心，提供一套覆盖预训练到强化学习的脚本化流程和更长上下文的默认配置。根据学习或实验目标的不同，可选择更注重系统抽象（Mini-LLM）或更贴近生产模型格式与脚本化实践（MiniMind）的方案。【F:docs/model.md†L1-L49】【F:docs/training.md†L1-L154】【F:src/model/config.py†L17-L264】
+Mini-LLM 在架构上突出“模块化 + 可配置”，通过多套预设与训练流水线帮助学习者理解大型模型训练的完整闭环。MiniMind 则以 HuggingFace 兼容的极简实现为核心，提供一套覆盖预训练到强化学习的脚本化流程和更长上下文的默认配置。根据学习或实验目标的不同，可选择更注重系统抽象（Mini-LLM）或更贴近生产模型格式与脚本化实践（MiniMind）的方案。【F:docs/guides/model.md†L1-L49】【F:docs/guides/training.md†L1-L154】【F:src/model/config.py†L17-L264】
