@@ -158,6 +158,12 @@ uv run python scripts/run_smoke_pipeline.py
    print(tokenizer.decode(output_ids[0].tolist()))
    ```
 
+5. **一键行业评测**
+   ```bash
+   uv run python scripts/run_benchmark_eval.py --checkpoint path/to/checkpoint_step_*.pt
+   ```
+   > 默认自动在与 checkpoint 同目录的 `tokenizer.pkl` 上下文中加载模型与分词器，并跑通 WikiText-2、LAMBADA、HellaSwag、ARC、Winogrande、PIQA、BoolQ 等评测任务，结果会写入同目录下带时间戳的 `benchmark_results_*.json`。如需自定义任务或缓存目录，可通过 `--tasks`、`--cache-dir`、`--disable-auto-download` 等参数覆盖默认值。【F:scripts/run_benchmark_eval.py†L24-L134】【F:scripts/run_benchmark_eval.py†L155-L210】
+
 ## 📚 深入阅读
 - [docs/README.md](docs/README.md)：文档索引与阅读指引
 - [docs/getting_started.md](docs/getting_started.md)：环境配置与实践示例
