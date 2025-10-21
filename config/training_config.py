@@ -7,6 +7,32 @@ import os
 import torch
 
 
+def _parse_cpu_reserve(default: int = 2) -> int:
+    """Parse the number of CPU cores to reserve for the system.
+
+    The user can override the default via the ``MINIGPT_CPU_RESERVE`` environment
+    variable. Invalid overrides fall back to ``default``.
+    """
+
+    reserve_env = os.environ.get("MINIGPT_CPU_RESERVE")
+    if reserve_env is None:
+        return max(0, default)
+
+    try:
+        return max(0, int(reserve_env))
+    except (TypeError, ValueError):
+        return max(0, default)
+
+
+def _get_available_cpu_count(reserve_default: int = 2) -> tuple[int, int]:
+    """Return a tuple of (total_cpus, available_cpus) respecting reservations."""
+
+    total = os.cpu_count() or 1
+    reserve = _parse_cpu_reserve(reserve_default)
+    available = max(1, total - reserve)
+    return total, available
+
+
 def get_gpu_info():
     """获取 GPU 详细信息"""
     if not torch.cuda.is_available():
@@ -106,6 +132,15 @@ class BaseConfig:
 
         # 设备配置
         self.device, self.gpu_info = get_device()
+        self.cpu_total_cores, self.cpu_available_cores = _get_available_cpu_count()
+        self.cpu_reserved_cores = max(0, self.cpu_total_cores - self.cpu_available_cores)
+        if self.cpu_reserved_cores > 0:
+            print(
+                "🧮 CPU 核心: 总计"
+                f" {self.cpu_total_cores}, 预留 {self.cpu_reserved_cores}, 可用于数据处理 {self.cpu_available_cores}"
+            )
+        else:
+            print(f"🧮 CPU 核心: 总计 {self.cpu_total_cores}, 全部可用于数据处理")
 
         # 默认启用可扩展显存分段，缓解CUDA内存碎片问题
         if self.device == "cuda":
@@ -251,8 +286,7 @@ class BaseConfig:
         self.data_buffer_size = int(
             os.environ.get("MINIGPT_DATA_BUFFER_SIZE", default_buffer)
         )
-        cpu_count = os.cpu_count() or 4
-        default_parallel = max(4, min(32, cpu_count))
+        default_parallel = max(1, min(32, self.cpu_available_cores))
         self.data_max_parallel_workers = int(
             os.environ.get("MINIGPT_DATA_MAX_WORKERS", default_parallel)
         )
@@ -265,12 +299,16 @@ class BaseConfig:
 
         # 数据预处理选项
         self.pretokenize_lm = os.environ.get("MINIGPT_PRETOKENIZE_LM", "1") == "1"
-        default_workers = min(16, os.cpu_count() or 1)
+        default_workers = min(16, self.cpu_available_cores)
+        if default_workers < 1:
+            default_workers = 1
         self.pretokenize_workers = int(
             os.environ.get("MINIGPT_PRETOKENIZE_WORKERS", default_workers)
         )
         if self.pretokenize_workers < 1:
             self.pretokenize_workers = 1
+        elif self.pretokenize_workers > self.cpu_available_cores:
+            self.pretokenize_workers = max(1, self.cpu_available_cores)
         initial_steps_env = os.environ.get("MINIGPT_INITIAL_PRETOKENIZE_STEPS", "50")
         try:
             self.initial_pretokenize_steps = max(0, int(initial_steps_env))
@@ -353,13 +391,14 @@ class BaseConfig:
         self.flash_attention = self.device == "cuda"
 
         # 数据加载优化 - 针对RTX 4090和多核CPU优化
+        available_workers = self.cpu_available_cores
         if self.device == "cuda":
-            # 大幅提升workers数量以充分利用CPU并行加载数据
-            self.num_workers = 16  # 使用更多workers加速数据加载
-            self.prefetch_factor = 8  # 每个worker预取更多batch，避免GPU等待
+            # 根据可用CPU核心动态调整，默认预留系统核心
+            self.num_workers = max(1, min(16, available_workers))
+            self.prefetch_factor = 8 if self.num_workers > 1 else 2
         else:
-            self.num_workers = 4
-            self.prefetch_factor = 4
+            self.num_workers = max(1, min(4, available_workers))
+            self.prefetch_factor = 4 if self.num_workers > 1 else 2
         self.pin_memory = self.device == "cuda"
         self.persistent_workers = True if self.num_workers > 0 else False
 
