@@ -108,17 +108,17 @@ mini-llm/
    > `from src.model.config import get_tiny_config`：拉取教学用最小配置，内部开启 GQA、RoPE 以演示现代结构选择的影响。【F:src/model/config.py†L159-L175】
    > `from src.model.transformer import MiniGPT`：导入 Transformer 主体，支持在不同配置间复用同一实现。【F:src/model/transformer.py†L314-L440】
    > `from src.tokenizer.bpe_tokenizer import BPETokenizer`：使用项目自带 BPE 分词器，便于快速训练新词表。【F:src/tokenizer/bpe_tokenizer.py†L1-L196】
-   > `from src.training.datasets import LanguageModelingDataset`：选择基础语言建模数据集封装，自动补齐 PAD 并输出张量。【F:src/training/datasets/language_modeling.py†L11-L51】
+   > `from src.training.datasets import LanguageModelingDataset`：选择基础语言建模数据集封装，自动补齐 PAD 并返回 `(X, Y, loss_mask)` 三元组，直接对齐 MiniMind 预训练损失。【F:src/training/datasets/language_modeling.py†L11-L123】
    > `from src.training.trainer import PreTrainer`：载入轻量训练循环，包含优化器、调度器与损失封装，方便课堂演示。【F:src/training/trainer.py†L13-L200】
-   > `texts = [...]`：准备极小的原始语料，演示数据格式要求。真实训练需替换为大规模文本。【F:src/training/datasets/language_modeling.py†L21-L40】
+   > `texts = [...]`：准备极小的原始语料，演示数据格式要求；数据集内部会自动处理 `dict`/`str` 并统一为文本输入。【F:src/training/datasets/language_modeling.py†L22-L63】
    > `tokenizer = BPETokenizer(vocab_size=256)`：实例化小词表，便于快速拟合；示例中 256 词表减少内存压力。【F:src/tokenizer/bpe_tokenizer.py†L25-L140】
    > `tokenizer.train(texts)`：直接在示例文本上拟合分词模型，展示离线训练流程的接口形式。【F:src/tokenizer/bpe_tokenizer.py†L76-L140】
-   > `dataset = LanguageModelingDataset(...)`：将纯文本包装成固定长度 token 序列，并提供 PAD/截断策略。【F:src/training/datasets/language_modeling.py†L21-L66】
-   > `dataloader = DataLoader(...)`：组建批次并在迭代时触发 `__getitem__`，可配合更多参数实现打乱或多进程加载。【F:src/training/trainer.py†L44-L118】
+   > `dataset = LanguageModelingDataset(...)`：将纯文本包装成固定长度 token 序列，执行截断/填充后产出 `(input, target, loss_mask)`。【F:src/training/datasets/language_modeling.py†L39-L115】
+   > `dataloader = DataLoader(...)`：组建批次并在迭代时触发 `__getitem__`，可配合更多参数实现打乱或多进程加载。【F:src/training/trainer.py†L56-L154】
    > `config = get_tiny_config()`：获取模型超参（层数、头数、上下文长度等），确保 `MiniGPT` 正确初始化权重矩阵。【F:src/model/config.py†L159-L175】
    > `model = MiniGPT(config)`：构建模型实例；内部根据配置拼装注意力、前馈与嵌入层。【F:src/model/transformer.py†L314-L440】
    > `trainer = PreTrainer(model, tokenizer, device="cpu")`：封装优化器、调度器与损失，默认使用 AdamW + 余弦退火并将模型迁移到 CPU。【F:src/training/trainer.py†L16-L52】
-   > `loss = trainer.train_epoch(dataloader)`：执行单轮训练，返回平均损失，内部自动生成右移标签并裁剪梯度。【F:src/training/trainer.py†L44-L129】
+   > `loss = trainer.train_epoch(dataloader)`：执行单轮训练，返回平均损失，内部自动生成右移标签并裁剪梯度。【F:src/training/trainer.py†L56-L154】
    > `print(f"epoch loss: {loss:.4f}")`：输出观测指标，帮助确认训练是否正常下降。【F:src/training/trainer.py†L127-L129】
 
    > ✅ **为什么逐行解释？** 初学者可将此示例作为调试脚本，快速理解模型、分词器、数据集与训练循环之间的协作关系，从而在迁移到完整管道时少走弯路。

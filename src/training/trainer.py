@@ -4,8 +4,8 @@ import os
 
 import matplotlib.pyplot as plt
 import torch
-import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -29,17 +29,29 @@ class PreTrainer:
         self.train_losses = []
         self.val_losses = []
 
-    def compute_loss(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    def compute_loss(
+        self,
+        logits: torch.Tensor,
+        labels: torch.Tensor,
+        loss_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """计算语言模型损失"""
-        # 展平张量
         logits = logits.reshape(-1, logits.size(-1))
         labels = labels.reshape(-1)
 
-        # 忽略PAD token
-        loss_fn = nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_id)
-        loss = loss_fn(logits, labels)
+        loss = F.cross_entropy(
+            logits,
+            labels,
+            ignore_index=self.tokenizer.pad_id,
+            reduction="none",
+        )
 
-        return loss
+        if loss_mask is not None:
+            mask = loss_mask.reshape(-1).to(dtype=loss.dtype)
+            denom = mask.sum().clamp_min(1.0)
+            return (loss * mask).sum() / denom
+
+        return loss.mean()
 
     def train_epoch(self, dataloader: DataLoader) -> float:
         """训练一个epoch"""
@@ -61,19 +73,43 @@ class PreTrainer:
                 if debug_mode:
                     print(f"\n--- 🔄 处理batch {batch_idx + 1} ---")
 
+                loss_mask = None
                 if isinstance(batch, dict):
                     input_ids = batch["input_ids"].to(self.device)
-                    labels = batch["labels"].to(self.device)
+                    labels = batch.get("labels")
+                    if labels is not None:
+                        labels = labels.to(self.device)
+                    else:
+                        labels = torch.cat(
+                            [
+                                input_ids[:, 1:],
+                                torch.full(
+                                    (input_ids.size(0), 1),
+                                    self.tokenizer.pad_id,
+                                    device=self.device,
+                                ),
+                            ],
+                            dim=1,
+                        )
                     if debug_mode:
                         print(f"📦 字典格式 - input_ids: {input_ids.shape}")
+                elif isinstance(batch, (list, tuple)):
+                    if len(batch) != 3:
+                        raise ValueError("预训练batch需要包含 (input, target, loss_mask)")
+                    input_ids, labels, loss_mask = [
+                        tensor.to(self.device) for tensor in batch
+                    ]
+                    if debug_mode:
+                        print(f"📦 三元组格式 - input_ids: {input_ids.shape}")
                 else:
                     input_ids = batch.to(self.device)
-                    # 对于预训练，标签就是输入向右移动一位
                     labels = torch.cat(
                         [
                             input_ids[:, 1:],
                             torch.full(
-                                (input_ids.size(0), 1), self.tokenizer.pad_id, device=self.device
+                                (input_ids.size(0), 1),
+                                self.tokenizer.pad_id,
+                                device=self.device,
                             ),
                         ],
                         dim=1,
@@ -86,7 +122,7 @@ class PreTrainer:
 
                 # 前向传播
                 logits = self.model(input_ids)
-                loss = self.compute_loss(logits, labels)
+                loss = self.compute_loss(logits, labels, loss_mask)
 
                 if debug_mode:
                     print(f"📉 损失: {loss.item():.4f}")
@@ -136,23 +172,46 @@ class PreTrainer:
 
         with torch.no_grad():
             for batch in tqdm(dataloader, desc="验证"):
+                loss_mask = None
                 if isinstance(batch, dict):
                     input_ids = batch["input_ids"].to(self.device)
-                    labels = batch["labels"].to(self.device)
+                    labels = batch.get("labels")
+                    if labels is not None:
+                        labels = labels.to(self.device)
+                    else:
+                        labels = torch.cat(
+                            [
+                                input_ids[:, 1:],
+                                torch.full(
+                                    (input_ids.size(0), 1),
+                                    self.tokenizer.pad_id,
+                                    device=self.device,
+                                ),
+                            ],
+                            dim=1,
+                        )
+                elif isinstance(batch, (list, tuple)):
+                    if len(batch) != 3:
+                        raise ValueError("预训练batch需要包含 (input, target, loss_mask)")
+                    input_ids, labels, loss_mask = [
+                        tensor.to(self.device) for tensor in batch
+                    ]
                 else:
                     input_ids = batch.to(self.device)
                     labels = torch.cat(
                         [
                             input_ids[:, 1:],
                             torch.full(
-                                (input_ids.size(0), 1), self.tokenizer.pad_id, device=self.device
+                                (input_ids.size(0), 1),
+                                self.tokenizer.pad_id,
+                                device=self.device,
                             ),
                         ],
                         dim=1,
                     )
 
                 logits = self.model(input_ids)
-                loss = self.compute_loss(logits, labels)
+                loss = self.compute_loss(logits, labels, loss_mask)
 
                 total_loss += loss.item()
                 num_batches += 1

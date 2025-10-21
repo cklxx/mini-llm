@@ -29,7 +29,7 @@
 
 ### 语言建模与偏好数据
 
-`LanguageModelingDataset` 则面向纯文本或偏好数据 `chosen` 字段，将输入向右平移一位作为标签。对于 DPO 模式当前仍返回语言建模视角的数据，后续可在 `DatasetPreparer._create_dpo_dataset` 中扩展为双通道样本。【F:src/training/datasets/language_modeling.py†L11-L75】【F:src/training/pipeline/data_manager.py†L473-L520】
+`LanguageModelingDataset` 则面向纯文本或偏好数据 `chosen` 字段，直接产出 `(input, target, loss_mask)`，其中 loss mask 会屏蔽 PAD，保持与 MiniMind 预训练脚本一致。对于 DPO 模式当前仍返回语言建模视角的数据，后续可在 `DatasetPreparer._create_dpo_dataset` 中扩展为双通道样本。【F:src/training/datasets/language_modeling.py†L11-L115】【F:src/training/pipeline/data_manager.py†L473-L520】
 
 ## 训练循环细节
 

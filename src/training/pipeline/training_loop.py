@@ -253,29 +253,104 @@ class TrainingLoopRunner:
                         self.device, non_blocking=True
                     )
                     attention_mask = attention_mask[:, :-1]
-            else:
-                batch = batch.to(self.device, non_blocking=True)
-                if batch.size(1) < 2:
-                    raise ValueError("批次序列长度过短")
-                input_ids = batch[:, :-1]
-                target_ids = batch[:, 1:]
-                attention_mask = None
 
-            if scaler is not None:
-                with torch.amp.autocast("cuda"):
+                if scaler is not None:
+                    with torch.amp.autocast("cuda"):
+                        model_kwargs = {}
+                        if attention_mask is not None:
+                            model_kwargs["attention_mask"] = attention_mask
+                        outputs = model(input_ids, **model_kwargs)
+                        loss = criterion(
+                            outputs.reshape(-1, outputs.size(-1)),
+                            target_ids.reshape(-1),
+                        )
+                        loss = loss / accumulation_steps
+                    scaler.scale(loss).backward()
+                else:
                     model_kwargs = {}
                     if attention_mask is not None:
                         model_kwargs["attention_mask"] = attention_mask
                     outputs = model(input_ids, **model_kwargs)
-                    loss = criterion(outputs.reshape(-1, outputs.size(-1)), target_ids.reshape(-1))
+                    loss = criterion(
+                        outputs.reshape(-1, outputs.size(-1)),
+                        target_ids.reshape(-1),
+                    )
+                    loss = loss / accumulation_steps
+                    loss.backward()
+
+                return loss
+
+            if isinstance(batch, (list, tuple)):
+                if len(batch) != 3:
+                    raise ValueError("预训练批次应包含 (X, Y, loss_mask)")
+
+                inputs, targets, loss_mask = [
+                    tensor.to(self.device, non_blocking=True) for tensor in batch
+                ]
+
+                if inputs.size(1) == 0 or targets.size(1) == 0:
+                    raise ValueError("批次序列长度过短")
+
+                valid_mask = loss_mask.to(dtype=torch.float32)
+
+                if scaler is not None:
+                    with torch.amp.autocast("cuda"):
+                        outputs = model(inputs)
+                        per_token_loss = F.cross_entropy(
+                            outputs.reshape(-1, outputs.size(-1)),
+                            targets.reshape(-1),
+                            ignore_index=tokenizer.pad_id,
+                            reduction="none",
+                            label_smoothing=getattr(
+                                self.config, "label_smoothing", 0.0
+                            ),
+                        )
+                        per_token_loss = per_token_loss.view_as(targets)
+                        denom = valid_mask.sum().clamp_min(1.0)
+                        loss = (per_token_loss * valid_mask).sum() / denom
+                        loss = loss / accumulation_steps
+                    scaler.scale(loss).backward()
+                else:
+                    outputs = model(inputs)
+                    per_token_loss = F.cross_entropy(
+                        outputs.reshape(-1, outputs.size(-1)),
+                        targets.reshape(-1),
+                        ignore_index=tokenizer.pad_id,
+                        reduction="none",
+                        label_smoothing=getattr(
+                            self.config, "label_smoothing", 0.0
+                        ),
+                    )
+                    per_token_loss = per_token_loss.view_as(targets)
+                    denom = valid_mask.sum().clamp_min(1.0)
+                    loss = (per_token_loss * valid_mask).sum() / denom
+                    loss = loss / accumulation_steps
+                    loss.backward()
+
+                return loss
+
+            batch = batch.to(self.device, non_blocking=True)
+            if batch.size(1) < 2:
+                raise ValueError("批次序列长度过短")
+            input_ids = batch[:, :-1]
+            target_ids = batch[:, 1:]
+            attention_mask = None
+
+            if scaler is not None:
+                with torch.amp.autocast("cuda"):
+                    outputs = model(input_ids)
+                    loss = criterion(
+                        outputs.reshape(-1, outputs.size(-1)),
+                        target_ids.reshape(-1),
+                    )
                     loss = loss / accumulation_steps
                 scaler.scale(loss).backward()
             else:
-                model_kwargs = {}
-                if attention_mask is not None:
-                    model_kwargs["attention_mask"] = attention_mask
-                outputs = model(input_ids, **model_kwargs)
-                loss = criterion(outputs.reshape(-1, outputs.size(-1)), target_ids.reshape(-1))
+                outputs = model(input_ids)
+                loss = criterion(
+                    outputs.reshape(-1, outputs.size(-1)),
+                    target_ids.reshape(-1),
+                )
                 loss = loss / accumulation_steps
                 loss.backward()
 
@@ -359,6 +434,13 @@ class TrainingLoopRunner:
             if "chosen_input_ids" in batch:
                 return batch["chosen_input_ids"].size(1)
             raise ValueError("无法从批次数据中解析序列长度")
+        if isinstance(batch, (list, tuple)):
+            if not batch:
+                raise ValueError("空批次无法解析序列长度")
+            first = batch[0]
+            if isinstance(first, torch.Tensor):
+                return first.size(1)
+            raise ValueError("批次元素不是张量，无法解析序列长度")
         return batch.size(1)
 
     def _resolve_batch_size(self, batch):
@@ -368,6 +450,13 @@ class TrainingLoopRunner:
             if "chosen_input_ids" in batch:
                 return batch["chosen_input_ids"].size(0)
             raise ValueError("无法从批次数据中解析批次大小")
+        if isinstance(batch, (list, tuple)):
+            if not batch:
+                raise ValueError("空批次无法解析批次大小")
+            first = batch[0]
+            if isinstance(first, torch.Tensor):
+                return first.size(0)
+            raise ValueError("批次元素不是张量，无法解析批次大小")
         return batch.size(0)
 
     def _optimizer_step(self, model, optimizer, scheduler, scaler, step: int) -> tuple[int, float]:
@@ -432,8 +521,9 @@ class TrainingLoopRunner:
         if val_loader:
             model.eval()
             total_loss = 0.0
-            total_tokens = 0
+            total_tokens = 0.0
             pad_id = tokenizer.pad_id
+            label_smoothing = getattr(self.config, "label_smoothing", 0.0)
             with torch.no_grad():
                 for batch in val_loader:
                     if isinstance(batch, dict):
@@ -447,17 +537,55 @@ class TrainingLoopRunner:
                             continue
                         input_ids = full_input_ids[:, :-1]
                         target_ids = full_target_ids[:, 1:]
+                        logits = model(input_ids)
+                        loss = criterion(
+                            logits.reshape(-1, logits.size(-1)),
+                            target_ids.reshape(-1),
+                        )
+                        valid_tokens = torch.count_nonzero(target_ids != pad_id).item()
+                        if valid_tokens == 0:
+                            continue
+                        total_loss += loss.item() * valid_tokens
+                        total_tokens += float(valid_tokens)
+                    elif isinstance(batch, (list, tuple)):
+                        if len(batch) != 3:
+                            continue
+                        inputs, targets, loss_mask = [
+                            tensor.to(self.device, non_blocking=True) for tensor in batch
+                        ]
+                        if inputs.size(1) == 0 or targets.size(1) == 0:
+                            continue
+                        logits = model(inputs)
+                        per_token_loss = F.cross_entropy(
+                            logits.reshape(-1, logits.size(-1)),
+                            targets.reshape(-1),
+                            ignore_index=pad_id,
+                            reduction="none",
+                            label_smoothing=label_smoothing,
+                        )
+                        per_token_loss = per_token_loss.view_as(targets)
+                        mask = loss_mask.to(dtype=torch.float32)
+                        tokens = mask.sum().item()
+                        if tokens <= 0:
+                            continue
+                        total_loss += (per_token_loss * mask).sum().item()
+                        total_tokens += tokens
                     else:
                         batch = batch.to(self.device, non_blocking=True)
+                        if batch.size(1) < 2:
+                            continue
                         input_ids = batch[:, :-1]
                         target_ids = batch[:, 1:]
-                    logits = model(input_ids)
-                    loss = criterion(logits.reshape(-1, logits.size(-1)), target_ids.reshape(-1))
-                    valid_tokens = torch.count_nonzero(target_ids != pad_id).item()
-                    if valid_tokens == 0:
-                        continue
-                    total_loss += loss.item() * valid_tokens
-                    total_tokens += valid_tokens
+                        logits = model(input_ids)
+                        loss = criterion(
+                            logits.reshape(-1, logits.size(-1)),
+                            target_ids.reshape(-1),
+                        )
+                        valid_tokens = torch.count_nonzero(target_ids != pad_id).item()
+                        if valid_tokens == 0:
+                            continue
+                        total_loss += loss.item() * valid_tokens
+                        total_tokens += float(valid_tokens)
             avg_loss = total_loss / total_tokens if total_tokens > 0 else float("inf")
             perplexity = (
                 math.exp(min(20, avg_loss))
@@ -513,6 +641,10 @@ class TrainingLoopRunner:
         if isinstance(batch, dict):
             batch_size = batch["input_ids"].size(0)
             seq_length = batch["input_ids"].size(1)
+        elif isinstance(batch, (list, tuple)) and batch:
+            first = batch[0]
+            batch_size = first.size(0)
+            seq_length = first.size(1) if first.dim() > 1 else 0
         else:
             batch_size = batch.size(0)
             seq_length = batch.size(1) if batch.dim() > 1 else 0

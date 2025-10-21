@@ -83,8 +83,8 @@ print(f"epoch loss: {loss:.4f}")
 - `get_tiny_config()` 返回约 1M 参数的默认配置，自动验证注意力头与隐藏维度的整除关系，适合 CPU 快速实验。【F:src/model/config.py†L159-L176】
 - `MiniGPT(config)` 会根据配置选择是否启用 RoPE、GQA 以及 MoE，并构建完整的 Transformer Decoder。【F:src/model/transformer.py†L314-L443】
 - `BPETokenizer` 在 `train(texts)` 时完成中文友好预处理与 BPE 合并，默认注册 `<PAD>/<UNK>/<BOS>/<EOS>` 四个特殊符号，对应的 ID 会在数据集和模型中复用。【F:src/tokenizer/bpe_tokenizer.py†L77-L199】
-- `LanguageModelingDataset` 会将文本向右平移一位作为标签并填充 `pad_id`，确保预训练损失忽略填充部分；可直接输入 `DataLoader`。【F:src/training/datasets/language_modeling.py†L11-L75】
-- `PreTrainer` 初始化时绑定 `AdamW` 与余弦退火调度器，`train_epoch` 会在每个 batch 上执行前向、反向与梯度裁剪，演示最小化训练闭环。【F:src/training/trainer.py†L13-L130】
+- `LanguageModelingDataset` 会在截断/填充后返回 `(input, target, loss_mask)`，完全复用 MiniMind 的预训练样本结构，loss mask 自动忽略 PAD 区域。【F:src/training/datasets/language_modeling.py†L11-L115】
+- `PreTrainer` 初始化时绑定 `AdamW` 与余弦退火调度器，`train_epoch` 会在每个 batch 上执行前向、反向与梯度裁剪，演示最小化训练闭环。【F:src/training/trainer.py†L13-L204】
 
 ## 推理示例
 训练结束后可以直接复用模型进行文本生成：

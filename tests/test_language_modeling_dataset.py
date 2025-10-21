@@ -37,30 +37,32 @@ def test_dataset_pads_and_truncates() -> None:
 
     dataset = LanguageModelingDataset(texts=texts, tokenizer=tokenizer, max_length=16)
 
-    sample = dataset[0]
-    assert set(sample.keys()) == {"input_ids", "labels", "attention_mask"}
+    inputs, targets, loss_mask = dataset[0]
+    expected_length = 16 - 1
 
-    input_ids = sample["input_ids"]
-    labels = sample["labels"]
-    attention_mask = sample["attention_mask"]
+    assert inputs.shape == (expected_length,)
+    assert targets.shape == (expected_length,)
+    assert loss_mask.shape == (expected_length,)
+    assert inputs.dtype == torch.long
+    assert targets.dtype == torch.long
+    assert loss_mask.dtype == torch.long
 
-    assert input_ids.shape == (16,)
-    assert torch.equal(input_ids, labels)
-    assert attention_mask.dtype == torch.long
-    assert attention_mask.sum() == (input_ids != tokenizer.pad_id).sum()
+    # Targets should be the next token of inputs.
+    assert torch.equal(inputs[1:], targets[:-1])
+
+    non_pad_targets = (targets != tokenizer.pad_id).long()
+    assert torch.equal(loss_mask, non_pad_targets)
 
 
 def test_dataset_handles_empty_text() -> None:
     tokenizer = _build_tokenizer()
     dataset = LanguageModelingDataset(texts=[""], tokenizer=tokenizer, max_length=8)
 
-    sample = dataset[0]
-    input_ids = sample["input_ids"]
-
-    # Should at least contain BOS/EOS tokens followed by padding.
-    assert input_ids[0].item() == tokenizer.bos_id
-    assert input_ids[1].item() == tokenizer.eos_id
-    assert input_ids.shape[0] == 8
+    inputs, targets, loss_mask = dataset[0]
+    assert inputs[0].item() == tokenizer.bos_id
+    assert targets[0].item() == tokenizer.eos_id
+    assert loss_mask[0].item() == 1
+    assert inputs.shape[0] == 7
 
 
 def test_dataset_truncation_resets_eos() -> None:
@@ -68,7 +70,6 @@ def test_dataset_truncation_resets_eos() -> None:
     long_text = "这是一个很长的文本，用于测试截断后末尾的EOS是否保留。" * 10
 
     dataset = LanguageModelingDataset(texts=[long_text], tokenizer=tokenizer, max_length=12)
-    sample = dataset[0]
+    _, targets, _ = dataset[0]
 
-    input_ids = sample["input_ids"]
-    assert input_ids[-1].item() == tokenizer.eos_id
+    assert targets[-1].item() == tokenizer.eos_id
