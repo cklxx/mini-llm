@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -160,3 +161,92 @@ def test_incremental_pretokenize_encodes_on_demand(tmp_path, monkeypatch) -> Non
     ready_mask = dataset._ensure_ready_buffer()  # type: ignore[attr-defined]
     assert ready_mask[2] == 1  # type: ignore[index]
     np.testing.assert_array_equal(tokens[2], third.numpy())  # type: ignore[index]
+
+
+def test_waits_for_background_ready(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("MINILLM_CACHE_DIR", str(tmp_path))
+
+    texts = [
+        "等待测试一",
+        "等待测试二",
+        "等待测试三",
+    ]
+
+    tokenizer = _build_tokenizer()
+
+    original_range = LanguageModelingDataset._pretokenize_range
+
+    def _slow_background(self, start_idx, end_idx, texts, worker_count, start_time):
+        if start_idx >= 1:
+            time.sleep(0.2)
+        return original_range(self, start_idx, end_idx, texts, worker_count, start_time)
+
+    monkeypatch.setattr(
+        LanguageModelingDataset,
+        "_pretokenize_range",
+        _slow_background,
+    )
+
+    dataset = LanguageModelingDataset(
+        texts=texts,
+        tokenizer=tokenizer,
+        max_length=32,
+        pretokenize=True,
+        pretokenize_workers=2,
+        initial_pretokenize_items=1,
+        background_pretokenize=True,
+    )
+
+    # Ensure an unready index exists
+    ready_mask = dataset._ensure_ready_buffer()  # type: ignore[attr-defined]
+    assert ready_mask[1] == 0  # type: ignore[index]
+
+    dataset._ready_wait_timeout = 2.0  # type: ignore[attr-defined]
+
+    def _guard_encode(text: str, idx: int):  # pragma: no cover - should not run
+        raise AssertionError("不应在等待后台预编码时回退到同步编码")
+
+    original_encode = dataset._encode_to_tensor
+    dataset._encode_to_tensor = _guard_encode  # type: ignore[assignment]
+
+    try:
+        start = time.time()
+        item = dataset[1]
+        elapsed = time.time() - start
+        assert isinstance(item, torch.Tensor)
+        assert elapsed >= 0.15
+    finally:
+        dataset._encode_to_tensor = original_encode  # type: ignore[assignment]
+        if dataset._background_thread is not None:  # type: ignore[attr-defined]
+            dataset._background_thread.join(timeout=5)  # pragma: no cover - cleanup
+
+    # Background thread should eventually mark the item as ready
+    ready_mask = dataset._ensure_ready_buffer()  # type: ignore[attr-defined]
+    assert ready_mask[1] == 1  # type: ignore[index]
+
+
+def test_wait_for_ready_times_out_without_background() -> None:
+    tokenizer = _build_tokenizer()
+    texts = ["超时测试一", "超时测试二"]
+
+    dataset = LanguageModelingDataset(
+        texts=texts,
+        tokenizer=tokenizer,
+        max_length=16,
+        pretokenize=True,
+        pretokenize_workers=1,
+        initial_pretokenize_items=len(texts),
+        background_pretokenize=False,
+    )
+
+    ready = dataset._ensure_ready_buffer()  # type: ignore[attr-defined]
+    assert ready is not None
+
+    dataset._background_in_flight = True  # type: ignore[attr-defined]
+    dataset._ready_wait_timeout = 0.05  # type: ignore[attr-defined]
+
+    # Clear readiness for index 0 to force timeout behaviour
+    ready[0] = 0
+
+    result = dataset._wait_for_ready(0, ready)  # type: ignore[attr-defined]
+    assert result is False

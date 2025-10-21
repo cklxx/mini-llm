@@ -94,6 +94,14 @@ class LanguageModelingDataset(Dataset):
         self._ready_tmp_path: str | None = None
         self._background_thread: threading.Thread | None = None
         self._background_error: BaseException | None = None
+        self._background_in_flight: bool = False
+        try:
+            wait_env = os.environ.get("MINILLM_PRETOKENIZE_WAIT_TIMEOUT")
+            self._ready_wait_timeout = (
+                max(0.0, float(wait_env)) if wait_env is not None else 5.0
+            )
+        except (TypeError, ValueError):  # pragma: no cover - env parsing guard
+            self._ready_wait_timeout = 5.0
         self._total_texts: int = 0
 
         if pretokenize:
@@ -135,6 +143,8 @@ class LanguageModelingDataset(Dataset):
             tokens = self._ensure_token_buffer()
             ready = self._ensure_ready_buffer()
             if ready is not None and ready[idx]:
+                return torch.from_numpy(tokens[idx])
+            if self._wait_for_ready(idx, ready):
                 return torch.from_numpy(tokens[idx])
 
         if self.texts is None:
@@ -208,9 +218,11 @@ class LanguageModelingDataset(Dataset):
             )
             self._finalize_cache()
             self.texts = None
+            self._background_in_flight = False
             return self._ensure_token_buffer()
 
         if self._background_enabled:
+            self._background_in_flight = True
             self._background_thread = threading.Thread(
                 target=self._background_worker,
                 args=(target, texts, worker_count, start),
@@ -243,11 +255,44 @@ class LanguageModelingDataset(Dataset):
         except BaseException as exc:  # pragma: no cover - defensive guard
             self._background_error = exc
             print(f"  ❌ 后台预编码失败: {exc}")
+        finally:
+            self._background_in_flight = False
 
     def _resolve_initial_target(self, total: int) -> int:
         if self._initial_target is None:
             return total
         return max(0, min(total, self._initial_target))
+
+    def _background_active(self) -> bool:
+        thread = self._background_thread
+        if thread is not None and thread.is_alive():
+            return True
+        return self._background_in_flight
+
+    def _wait_for_ready(
+        self,
+        idx: int,
+        ready: np.ndarray | np.memmap | None,
+    ) -> bool:
+        if ready is None or self._ready_wait_timeout <= 0:
+            return False
+        if not self._background_active():
+            return False
+
+        deadline = time.time() + self._ready_wait_timeout
+        sleep_interval = 0.05
+
+        while True:
+            if ready[idx]:
+                return True
+            self._check_background_status()
+            if not self._background_active():
+                return bool(ready[idx])
+            now = time.time()
+            if now >= deadline:
+                break
+            time.sleep(min(sleep_interval, max(0.0, deadline - now)))
+        return bool(ready[idx])
 
     def _pretokenize_range(
         self,
@@ -610,8 +655,12 @@ class LanguageModelingDataset(Dataset):
             )
         else:
             self._ready_mask = np.ones(self._total_texts, dtype=np.uint8)
+        self._background_in_flight = False
 
     def _check_background_status(self) -> None:
+        thread = self._background_thread
+        if thread is not None and not thread.is_alive():
+            self._background_in_flight = False
         if self._background_error is not None:
             raise RuntimeError("后台预编码失败") from self._background_error
 
