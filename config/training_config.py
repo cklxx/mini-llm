@@ -137,10 +137,31 @@ class BaseConfig:
         global_ratio_env = os.environ.get("MINIGPT_GLOBAL_SAMPLE_RATIO")
         try:
             self.dataset_global_sample_ratio = (
-                max(0.0, float(global_ratio_env)) if global_ratio_env is not None else 0.5
+                max(0.0, float(global_ratio_env)) if global_ratio_env is not None else 1.0
             )
         except ValueError:
-            self.dataset_global_sample_ratio = 0.5
+            self.dataset_global_sample_ratio = 1.0
+
+        def _parse_sample_ratio(env_key: str, default: float) -> float:
+            value = os.environ.get(env_key)
+            if value is None:
+                return default
+            try:
+                return max(0.0, float(value))
+            except (TypeError, ValueError):
+                return default
+
+        def _parse_max_samples(env_key: str, default: int | None) -> int | None:
+            value = os.environ.get(env_key)
+            if value is None:
+                return default
+            value = str(value).strip()
+            if value == "":
+                return default
+            try:
+                return max(1, int(value))
+            except (TypeError, ValueError):
+                return default
 
         # 数据采样与验证划分策略（按文件名匹配）
         self.dataset_sampling = {
@@ -175,18 +196,18 @@ class BaseConfig:
                 "val_split": 0.05
             },
             "wiki_zh_full.simdedup.jsonl": {
-                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_WIKI_RATIO", 0.01)),
-                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_WIKI_MAX", 30000)),
+                "sample_ratio": _parse_sample_ratio("MINIGPT_PRETRAIN_WIKI_RATIO", 1.0),
+                "max_samples": _parse_max_samples("MINIGPT_PRETRAIN_WIKI_MAX", None),
                 "val_split": self.validation_split
             },
             "chinacorpus_full.simdedup.jsonl": {
-                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_CHINA_RATIO", 0.006)),
-                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_CHINA_MAX", 50000)),
+                "sample_ratio": _parse_sample_ratio("MINIGPT_PRETRAIN_CHINA_RATIO", 1.0),
+                "max_samples": _parse_max_samples("MINIGPT_PRETRAIN_CHINA_MAX", None),
                 "val_split": self.validation_split
             },
             "pretrain_hq.cleaned.jsonl": {
-                "sample_ratio": float(os.environ.get("MINIGPT_PRETRAIN_HQ_RATIO", 0.03)),
-                "max_samples": int(os.environ.get("MINIGPT_PRETRAIN_HQ_MAX", 40000)),
+                "sample_ratio": _parse_sample_ratio("MINIGPT_PRETRAIN_HQ_RATIO", 1.0),
+                "max_samples": _parse_max_samples("MINIGPT_PRETRAIN_HQ_MAX", None),
                 "val_split": self.validation_split
             },
         }
@@ -421,10 +442,10 @@ class SmallConfig(BaseConfig):
 
         self.learning_rate = 5e-4
         self.weight_decay = 0.01
-        self.warmup_steps = 500
-        self.max_steps = 2500
-        self.eval_steps = 250
-        self.save_steps = 500
+        self.warmup_steps = 2000
+        self.max_steps = 60000
+        self.eval_steps = 2000
+        self.save_steps = 4000
 
         # 优化器
         self.optimizer = "adamw"

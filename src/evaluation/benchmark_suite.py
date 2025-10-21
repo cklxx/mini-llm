@@ -184,7 +184,7 @@ INDUSTRY_BENCHMARK_TASKS: dict[str, BenchmarkTask] = {
     "lambada_openai": BenchmarkTask(
         name="lambada_openai",
         dataset_name="lambada",
-        dataset_config="openai",
+        dataset_config="plain_text",
         split="test",
         text_column="text",
         max_samples=500,
