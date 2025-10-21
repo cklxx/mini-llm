@@ -1,24 +1,12 @@
 {
   "type": "pretrain",
-  "total_target_tokens": 2300000000.0,
+  "total_target_tokens": 600000000.0,
   "datasets": [
-    {
-      "name": "wiki_zh",
-      "path": "data/final/wiki_zh_full.simdedup.jsonl",
-      "target_tokens": 900000000.0,
-      "weight": 0.391304
-    },
-    {
-      "name": "chinacorpus",
-      "path": "data/final/chinacorpus_full.simdedup.jsonl",
-      "target_tokens": 800000000.0,
-      "weight": 0.347826
-    },
     {
       "name": "pretrain_hq",
       "path": "data/final/pretrain_hq.cleaned.jsonl",
       "target_tokens": 600000000.0,
-      "weight": 0.26087
+      "weight": 1.0
     }
   ]
 }
