@@ -17,6 +17,22 @@ import torch
 from torch.utils.data import Dataset
 
 
+def _available_cpu_cores(reserve_default: int = 2) -> int:
+    """Compute available CPU cores after reserving some for the system."""
+
+    total = os.cpu_count() or 1
+    reserve_env = os.environ.get("MINIGPT_CPU_RESERVE")
+    if reserve_env is not None:
+        try:
+            reserve = max(0, int(reserve_env))
+        except (TypeError, ValueError):
+            reserve = max(0, reserve_default)
+    else:
+        reserve = max(0, reserve_default)
+
+    return max(1, total - reserve)
+
+
 _WORKER_TOKENIZER: Any | None = None
 _WORKER_MAX_LENGTH: int | None = None
 
@@ -180,6 +196,7 @@ class LanguageModelingDataset(Dataset):
         if total <= 1:
             return 1
 
+        available = _available_cpu_cores()
         if self._explicit_worker_count is not None:
             requested = max(1, self._explicit_worker_count)
         else:
@@ -190,9 +207,9 @@ class LanguageModelingDataset(Dataset):
                 except ValueError:
                     requested = 1
             else:
-                requested = min(16, os.cpu_count() or 1)
+                requested = min(16, available)
 
-        return min(requested, total)
+        return min(requested, min(total, available))
 
     def _pretokenize_incremental(self, texts: list[str]) -> np.ndarray | np.memmap:
         total = len(texts)
