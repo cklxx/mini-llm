@@ -1,9 +1,10 @@
-"""
-文本生成和推理模块
-支持多种生成策略：贪心搜索、采样、beam search等
-"""
+"""High-level text generation helpers aligned with MiniMind practices."""
 
+from __future__ import annotations
+
+from contextlib import nullcontext
 from dataclasses import dataclass
+from typing import Iterable
 
 import torch
 import torch.nn.functional as F
@@ -11,7 +12,7 @@ import torch.nn.functional as F
 
 @dataclass
 class GenerationConfig:
-    """生成配置"""
+    """Generation configuration shared across decoding strategies."""
 
     max_length: int = 100
     temperature: float = 1.0
@@ -22,309 +23,225 @@ class GenerationConfig:
     num_beams: int = 1
     do_sample: bool = True
     early_stopping: bool = True
+    history_turns: int = 0
+    use_chat_template: bool = True
 
 
 class TextGenerator:
-    """文本生成器
+    """Text generator supporting common decoding strategies."""
 
-    支持多种解码策略：
-    1. 贪心搜索 (Greedy Search)
-    2. 随机采样 (Random Sampling)
-    3. Top-k采样
-    4. Top-p采样 (Nucleus Sampling)
-    5. Beam Search
-    """
-
-    def __init__(self, model, tokenizer, device="cpu"):
+    def __init__(
+        self,
+        model,
+        tokenizer,
+        device: str = "cpu",
+        *,
+        autocast_dtype: torch.dtype | None = None,
+    ) -> None:
         self.model = model
         self.tokenizer = tokenizer
         self.device = device
         self.model.to(device)
         self.model.eval()
+        self._device_type = torch.device(device).type
+        self.autocast_dtype = autocast_dtype if self._device_type == "cuda" else None
 
+    # ------------------------------------------------------------------
     def apply_repetition_penalty(
         self, logits: torch.Tensor, input_ids: torch.Tensor, penalty: float = 1.1
     ) -> torch.Tensor:
-        """应用重复惩罚"""
+        """Apply a repetition penalty to discourage repeated tokens."""
+
         if penalty == 1.0:
             return logits
 
-        # 获取已生成的token
-        unique_tokens = input_ids.unique()
-
-        # 对已出现的token应用惩罚
-        for token in unique_tokens:
-            if logits[0, token] > 0:
-                logits[0, token] = logits[0, token] / penalty
-            else:
-                logits[0, token] = logits[0, token] * penalty
-
+        token_mask = torch.zeros_like(logits)
+        token_mask.scatter_(1, input_ids, 1.0)
+        positive_logits = torch.where(token_mask.bool(), logits.clamp(min=0), torch.zeros_like(logits))
+        negative_logits = torch.where(token_mask.bool(), logits.clamp(max=0), torch.zeros_like(logits))
+        logits = logits.clone()
+        logits += positive_logits * (1.0 / penalty - 1.0)
+        logits += negative_logits * (penalty - 1.0)
         return logits
 
+    # ------------------------------------------------------------------
     def top_k_filtering(self, logits: torch.Tensor, top_k: int = 50) -> torch.Tensor:
-        """Top-k过滤"""
+        """Filter logits using top-k sampling."""
+
         if top_k <= 0:
             return logits
 
-        # 获取top-k的值和索引
         top_k = min(top_k, logits.size(-1))
         top_k_scores, top_k_indices = torch.topk(logits, top_k)
-
-        # 创建掩码
         mask = torch.full_like(logits, -float("inf"))
         mask.scatter_(1, top_k_indices, top_k_scores)
-
         return mask
 
+    # ------------------------------------------------------------------
     def top_p_filtering(self, logits: torch.Tensor, top_p: float = 0.9) -> torch.Tensor:
-        """Top-p (nucleus) 过滤"""
+        """Filter logits using nucleus (top-p) sampling."""
+
         if top_p >= 1.0:
             return logits
 
-        # 按概率排序
         sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
         cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
-
-        # 找到累积概率超过top_p的位置
         sorted_indices_to_remove = cumulative_probs > top_p
-
-        # 保留第一个超过阈值的token
         sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
         sorted_indices_to_remove[..., 0] = 0
+        indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
+        return logits.masked_fill(indices_to_remove, -float("inf"))
 
-        # 创建掩码
-        indices_to_remove = sorted_indices_to_remove.scatter(
-            1, sorted_indices, sorted_indices_to_remove
-        )
-        logits = logits.masked_fill(indices_to_remove, -float("inf"))
-
-        return logits
-
+    # ------------------------------------------------------------------
     def greedy_search(self, input_ids: torch.Tensor, max_length: int = 100) -> torch.Tensor:
-        """贪心搜索"""
-        with torch.no_grad():
+        """Greedy decoding."""
+
+        eos_id = getattr(self.tokenizer, "eos_id", getattr(self.tokenizer, "eos_token_id", None))
+        with torch.inference_mode():
             for _ in range(max_length):
-                # 前向传播
-                outputs = self.model(input_ids)
-
-                # 获取下一个token的logits
+                with self._autocast_context():
+                    outputs = self.model(input_ids)
                 next_token_logits = outputs[:, -1, :]
-
-                # 选择概率最大的token
                 next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
-
-                # 拼接到输入序列
                 input_ids = torch.cat([input_ids, next_token], dim=-1)
-
-                # 检查是否生成了结束符
-                if next_token.item() == self.tokenizer.eos_id:
+                if eos_id is not None and next_token.item() == eos_id:
                     break
-
         return input_ids
 
-    def sample_generate(self, input_ids: torch.Tensor, config: GenerationConfig) -> torch.Tensor:
-        """采样生成"""
-        with torch.no_grad():
+    # ------------------------------------------------------------------
+    def sample_generate(
+        self,
+        input_ids: torch.Tensor,
+        config: GenerationConfig,
+        attention_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Stochastic decoding with MiniMind-aligned heuristics."""
+
+        eos_id = getattr(self.tokenizer, "eos_id", getattr(self.tokenizer, "eos_token_id", None))
+        device = input_ids.device
+        attn = attention_mask.to(device) if attention_mask is not None else None
+
+        with torch.inference_mode():
             for _ in range(config.max_length):
-                # 前向传播
-                outputs = self.model(input_ids)
+                with self._autocast_context():
+                    model_kwargs = {"attention_mask": attn} if attn is not None else {}
+                    outputs = self.model(input_ids, **model_kwargs)
 
-                # 获取下一个token的logits
-                next_token_logits = outputs[:, -1, :] / config.temperature
+                next_token_logits = outputs[:, -1, :]
+                temperature = max(config.temperature, 1e-5)
+                next_token_logits = next_token_logits / temperature
 
-                # 应用重复惩罚
                 if config.repetition_penalty != 1.0:
                     next_token_logits = self.apply_repetition_penalty(
                         next_token_logits, input_ids, config.repetition_penalty
                     )
 
-                # 应用top-k过滤
                 if config.top_k > 0:
                     next_token_logits = self.top_k_filtering(next_token_logits, config.top_k)
 
-                # 应用top-p过滤
                 if config.top_p < 1.0:
                     next_token_logits = self.top_p_filtering(next_token_logits, config.top_p)
 
-                # 计算概率分布
                 probs = F.softmax(next_token_logits, dim=-1)
 
-                # 采样下一个token
                 if config.do_sample:
                     next_token = torch.multinomial(probs, num_samples=1)
                 else:
                     next_token = torch.argmax(probs, dim=-1, keepdim=True)
 
-                # 拼接到输入序列
                 input_ids = torch.cat([input_ids, next_token], dim=-1)
 
-                # 检查是否生成了结束符
-                if next_token.item() == self.tokenizer.eos_id:
+                if attn is not None:
+                    attn = torch.cat(
+                        [attn, torch.ones((attn.size(0), 1), device=device, dtype=attn.dtype)],
+                        dim=-1,
+                    )
+
+                if eos_id is not None and next_token.item() == eos_id:
                     break
 
         return input_ids
 
+    # ------------------------------------------------------------------
     def beam_search(self, input_ids: torch.Tensor, config: GenerationConfig) -> torch.Tensor:
-        """束搜索"""
-        vocab_size = self.model.vocab_size
+        """Standard beam-search decoding."""
 
-        # 初始化beam
-        beam_size = config.num_beams
-
-        # 扩展输入以支持多个beam
+        beam_size = max(1, config.num_beams)
         expanded_input_ids = input_ids.repeat(beam_size, 1)
         beam_scores = torch.zeros(beam_size, device=self.device)
 
-        with torch.no_grad():
+        with torch.inference_mode():
             for step in range(config.max_length):
-                # 前向传播
-                outputs = self.model(expanded_input_ids)
+                with self._autocast_context():
+                    outputs = self.model(expanded_input_ids)
                 next_token_logits = outputs[:, -1, :]
-
-                # 计算得分
                 next_token_scores = F.log_softmax(next_token_logits, dim=-1)
 
                 if step == 0:
-                    # 第一步只使用第一个beam
                     next_token_scores = next_token_scores[0:1, :]
                     beam_scores = beam_scores[0:1]
                     expanded_input_ids = expanded_input_ids[0:1, :]
 
-                # 计算总得分
                 scores = beam_scores.unsqueeze(1) + next_token_scores
-
-                # 展平得分
                 scores = scores.reshape(-1)
-
-                # 获取top-k得分和索引
                 top_scores, top_indices = torch.topk(scores, beam_size)
 
-                # 计算beam索引和token索引
-                beam_indices = top_indices // vocab_size
-                token_indices = top_indices % vocab_size
+                beam_indices = top_indices // next_token_logits.size(-1)
+                token_indices = top_indices % next_token_logits.size(-1)
 
-                # 更新beam
-                new_beam_scores = top_scores
-                new_beam_input_ids = []
+                expanded_input_ids = torch.cat(
+                    [expanded_input_ids[beam_indices], token_indices.unsqueeze(-1)], dim=-1
+                )
+                beam_scores = top_scores
 
-                for beam_idx, token_idx in zip(beam_indices, token_indices, strict=False):
-                    new_sequence = torch.cat([expanded_input_ids[beam_idx], token_idx.unsqueeze(0)])
-                    new_beam_input_ids.append(new_sequence.unsqueeze(0))
+        best_index = int(torch.argmax(beam_scores).item())
+        return expanded_input_ids[best_index : best_index + 1]
 
-                expanded_input_ids = torch.cat(new_beam_input_ids, dim=0)
-                beam_scores = new_beam_scores
+    # ------------------------------------------------------------------
+    def generate_chat_response(
+        self,
+        prompt: str,
+        *,
+        history: Iterable[dict[str, str]] | None = None,
+        config: GenerationConfig | None = None,
+    ) -> str:
+        """Build a MiniMind-style chat prompt and return the decoded response."""
 
-                # 检查是否所有beam都生成了结束符
-                if config.early_stopping:
-                    finished_beams = (expanded_input_ids[:, -1] == self.tokenizer.eos_id).all()
-                    if finished_beams:
-                        break
+        config = config or GenerationConfig()
+        history = list(history or [])
 
-        # 返回得分最高的beam
-        best_beam_idx = torch.argmax(beam_scores)
-        return expanded_input_ids[best_beam_idx].unsqueeze(0)
+        if config.history_turns > 0 and history:
+            history = history[-config.history_turns :]
 
-    def generate(self, input_text: str, config: GenerationConfig) -> str:
-        """生成文本的主接口"""
-        # 编码输入文本
-        input_ids = torch.tensor(
-            [self.tokenizer.encode(input_text, add_special_tokens=True)], device=self.device
+        if config.use_chat_template and hasattr(self.tokenizer, "apply_chat_template"):
+            messages = history + [{"role": "user", "content": prompt}]
+            prompt_text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            prompt_text = prompt
+
+        encoded = self.tokenizer(
+            prompt_text,
+            return_tensors="pt",
+            padding=False,
+            truncation=True,
         )
+        input_ids = encoded["input_ids"].to(self.device)
+        attention_mask = encoded.get("attention_mask")
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(self.device)
 
-        # 根据配置选择生成策略
-        if config.num_beams > 1:
-            output_ids = self.beam_search(input_ids, config)
-        elif config.do_sample:
-            output_ids = self.sample_generate(input_ids, config)
-        else:
-            output_ids = self.greedy_search(input_ids, config.max_length)
+        generated = self.sample_generate(input_ids, config, attention_mask=attention_mask)
+        start_idx = input_ids.size(1)
+        response_tokens = generated[:, start_idx:]
+        return self.tokenizer.decode(response_tokens[0].tolist(), skip_special_tokens=True)
 
-        # 解码输出
-        output_text = self.tokenizer.decode(output_ids[0].cpu().tolist())
+    # ------------------------------------------------------------------
+    def _autocast_context(self):
+        if self._device_type == "cuda" and self.autocast_dtype is not None:
+            return torch.cuda.amp.autocast(dtype=self.autocast_dtype)
+        return nullcontext()
 
-        return output_text
-
-    def chat(self, message: str, history: list[str] = None, config: GenerationConfig = None) -> str:
-        """对话接口"""
-        if config is None:
-            config = GenerationConfig()
-
-        # 构建对话上下文
-        if history:
-            context = "\\n".join(history + [f"用户: {message}", "助手: "])
-        else:
-            context = f"用户: {message}\\n助手: "
-
-        # 生成回复
-        response = self.generate(context, config)
-
-        # 提取助手的回复部分
-        if "助手: " in response:
-            assistant_response = response.split("助手: ")[-1].strip()
-        else:
-            assistant_response = response.strip()
-
-        return assistant_response
-
-
-class ChatBot:
-    """聊天机器人类"""
-
-    def __init__(self, model_path: str, tokenizer_path: str, device="cpu"):
-        # 加载模型和分词器
-        self.device = device
-        self.load_model(model_path)
-        self.load_tokenizer(tokenizer_path)
-
-        # 创建生成器
-        self.generator = TextGenerator(self.model, self.tokenizer, device)
-
-        # 对话历史
-        self.conversation_history = []
-
-    def load_model(self, model_path: str):
-        """加载模型"""
-        _ = torch.load(model_path, map_location=self.device)
-
-        # 这里需要根据实际的模型保存格式调整
-        # self.model = create_model(vocab_size=...)
-        # self.model.load_state_dict(checkpoint['model_state_dict'])
-        pass
-
-    def load_tokenizer(self, tokenizer_path: str):
-        """加载分词器"""
-        # self.tokenizer = BPETokenizer()
-        # self.tokenizer.load(tokenizer_path)
-        pass
-
-    def chat(self, message: str, use_history: bool = True) -> str:
-        """对话"""
-        config = GenerationConfig(
-            max_length=200, temperature=0.7, top_k=50, top_p=0.9, do_sample=True
-        )
-
-        history = self.conversation_history if use_history else None
-        response = self.generator.chat(message, history, config)
-
-        # 更新对话历史
-        if use_history:
-            self.conversation_history.append(f"用户: {message}")
-            self.conversation_history.append(f"助手: {response}")
-
-            # 限制历史长度
-            if len(self.conversation_history) > 10:
-                self.conversation_history = self.conversation_history[-10:]
-
-        return response
-
-    def reset_history(self):
-        """重置对话历史"""
-        self.conversation_history = []
-
-
-if __name__ == "__main__":
-    # 测试生成配置
-    config = GenerationConfig(max_length=50, temperature=0.8, top_k=40, top_p=0.9, do_sample=True)
-
-    print(f"生成配置: {config}")
-    print("推理模块测试完成")

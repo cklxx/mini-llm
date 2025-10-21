@@ -84,10 +84,39 @@ class TrainingLoopRunner:
         best_val_loss = float("inf")
         no_improve_steps = 0
 
+        log_interval = max(1, getattr(self.config, "step_log_interval", 10))
+        perf_window_target = max(
+            1, getattr(self.config, "performance_window_updates", log_interval)
+        )
+        diagnostics_enabled = getattr(
+            self.config, "enable_performance_diagnostics", True
+        )
+        target_tokens_per_update = (
+            self.config.batch_size
+            * getattr(self.config, "max_seq_len", 512)
+            * accumulation_steps
+        )
+        if self.mode == "dpo":
+            target_tokens_per_update *= 2
+
+        accumulator_device = next(model.parameters()).device
+        last_epoch_loss_float = 0.0
+
         for epoch in range(1000):
-            epoch_loss = 0.0
+            epoch_loss_sum = torch.zeros((), dtype=torch.float64, device=accumulator_device)
             epoch_steps = 0
             optimizer.zero_grad()
+
+            update_loss_accum = torch.zeros_like(epoch_loss_sum)
+            window_data_wait = 0.0
+            window_compute = 0.0
+            window_gpu_compute = 0.0
+            window_sync_overhead = 0.0
+            window_update_tokens = 0
+            window_updates = 0
+
+            update_tokens_accum = 0
+            last_iteration_end = time.perf_counter()
 
             for batch_idx, batch in enumerate(train_loader):
                 if control.interrupted:
@@ -96,9 +125,20 @@ class TrainingLoopRunner:
                 if step >= self.config.max_steps:
                     break
 
+                iteration_start = time.perf_counter()
+                if diagnostics_enabled:
+                    wait_time = max(0.0, iteration_start - last_iteration_end)
+                    window_data_wait += wait_time
+
                 seq_length = self._resolve_sequence_length(batch)
                 if seq_length < 2:
                     continue
+
+                compute_start_event = compute_end_event = None
+                if diagnostics_enabled and self.device == "cuda":
+                    compute_start_event = torch.cuda.Event(enable_timing=True)
+                    compute_end_event = torch.cuda.Event(enable_timing=True)
+                    compute_start_event.record()
 
                 try:
                     loss = self._forward_backward(
@@ -117,46 +157,166 @@ class TrainingLoopRunner:
                         memory_hooks.on_oom()
                     raise
 
+                iteration_end = time.perf_counter()
+                compute_wall = iteration_end - iteration_start
+                gpu_elapsed = compute_wall
+                if (
+                    diagnostics_enabled
+                    and self.device == "cuda"
+                    and compute_start_event is not None
+                ):
+                    compute_end_event.record()
+                    compute_end_event.synchronize()
+                    gpu_elapsed = compute_start_event.elapsed_time(compute_end_event) / 1000.0
+
+                if diagnostics_enabled:
+                    window_compute += compute_wall
+                    window_gpu_compute += gpu_elapsed
+                    window_sync_overhead += max(0.0, compute_wall - gpu_elapsed)
+
+                last_iteration_end = iteration_end
+
+                update_loss_accum += loss.detach().to(dtype=torch.float64)
+                update_tokens_accum += self._estimate_tokens(batch)
+
                 if (batch_idx + 1) % accumulation_steps == 0 or (batch_idx + 1) == len(
                     train_loader
                 ):
+                    update_loss_value = update_loss_accum.clone()
+                    epoch_loss_sum += update_loss_value
+                    update_loss_accum.zero_()
+
+                    window_update_tokens += update_tokens_accum
+                    update_tokens_accum = 0
+
+                    epoch_steps += 1
+
                     step, grad_norm = self._optimizer_step(
                         model, optimizer, scheduler, scaler, step
                     )
 
-                    actual_loss = loss.item() * accumulation_steps
-                    epoch_loss += actual_loss
-                    epoch_steps += 1
+                    window_updates += 1
+
+                    should_log = (
+                        step % log_interval == 0
+                        or step == start_step + 1
+                        or step >= self.config.max_steps
+                    )
+
+                    loss_float = self._as_float(update_loss_value) if should_log else None
+                    grad_norm_float = self._as_float(grad_norm) if should_log else None
 
                     current_batch_size = self._resolve_batch_size(batch)
                     monitor.log_step(
                         step=step,
                         epoch=epoch,
-                        loss=actual_loss,
+                        loss=loss_float,
                         learning_rate=optimizer.param_groups[0]["lr"],
                         batch_size=current_batch_size * accumulation_steps,
-                        grad_norm=grad_norm,
+                        grad_norm=grad_norm_float,
                     )
 
                     if memory_hooks is not None:
                         memory_hooks.on_step_end(step)
 
-                    avg_loss = epoch_loss / max(epoch_steps, 1)
-                    elapsed = time.time() - start_time
-                    current_lr = optimizer.param_groups[0]["lr"]
-                    lr_phase = "Warmup" if step < self.config.warmup_steps else "Decay"
-                    lr_progress = (
-                        f"{step}/{self.config.warmup_steps}"
-                        if step < self.config.warmup_steps
-                        else f"{step}/{self.config.max_steps}"
-                    )
-                    print(
-                        f"Step {step:5d} | Loss: {actual_loss:.4f} | Avg: {avg_loss:.4f} | "
-                        f"LR: {current_lr:.2e} ({lr_phase} {lr_progress}) | Time: {elapsed/60:.1f}min"
-                    )
+                    if should_log:
+                        epoch_loss_float = self._as_float(epoch_loss_sum)
+                        avg_loss = epoch_loss_float / max(epoch_steps, 1)
+                        elapsed = time.time() - start_time
+                        current_lr = optimizer.param_groups[0]["lr"]
+                        lr_phase = (
+                            "Warmup" if step < self.config.warmup_steps else "Decay"
+                        )
+                        lr_progress = (
+                            f"{step}/{self.config.warmup_steps}"
+                            if step < self.config.warmup_steps
+                            else f"{step}/{self.config.max_steps}"
+                        )
+
+                        total_window_time = (
+                            window_compute + window_data_wait if diagnostics_enabled else 0.0
+                        )
+                        avg_tokens_per_update = (
+                            window_update_tokens / max(window_updates, 1)
+                        )
+                        data_wait_ratio = (
+                            window_data_wait / total_window_time
+                            if diagnostics_enabled and total_window_time > 0
+                            else 0.0
+                        )
+
+                        print(
+                            "Step {step:5d} | Loss: {loss:.4f} | Avg: {avg:.4f} | "
+                            "LR: {lr:.2e} ({phase} {progress}) | Time: {minutes:.1f}min | "
+                            "Tokens/update: {tokens:.0f}"
+                            .format(
+                                step=step,
+                                loss=loss_float if loss_float is not None else float("nan"),
+                                avg=avg_loss,
+                                lr=current_lr,
+                                phase=lr_phase,
+                                progress=lr_progress,
+                                minutes=elapsed / 60,
+                                tokens=avg_tokens_per_update,
+                            )
+                        )
+
+                        if diagnostics_enabled:
+                            if total_window_time > 0 and data_wait_ratio > 0.4:
+                                print(
+                                    "🐢 数据加载等待占比 {:.0%}，" "DataLoader/预处理可能是瓶颈".format(
+                                        data_wait_ratio
+                                    )
+                                )
+
+                            if (
+                                target_tokens_per_update > 0
+                                and avg_tokens_per_update < target_tokens_per_update * 0.6
+                            ):
+                                print(
+                                    "🪫 每步有效 token ({:.0f}) 低于目标 ({:.0f}) 的 60%，"
+                                    "micro-batch 可能过小或序列过短".format(
+                                        avg_tokens_per_update, target_tokens_per_update
+                                    )
+                                )
+
+                            if window_gpu_compute > 0:
+                                sync_ratio = window_sync_overhead / max(
+                                    window_gpu_compute, 1e-6
+                                )
+                                if sync_ratio > 0.3:
+                                    print(
+                                        "⏱️ 主机同步开销占 GPU 计算时间的 {:.0%}，"
+                                        "请检查频繁的 .item()/.cpu() 或 torch.cuda.synchronize()".format(
+                                            sync_ratio
+                                        )
+                                    )
+
+                        if window_updates >= perf_window_target:
+                            window_data_wait = 0.0
+                            window_compute = 0.0
+                            window_gpu_compute = 0.0
+                            window_sync_overhead = 0.0
+                            window_update_tokens = 0
+                            window_updates = 0
+
+                    else:
+                        # 累积窗口统计，但暂不输出诊断
+                        if window_updates >= perf_window_target:
+                            window_data_wait = 0.0
+                            window_compute = 0.0
+                            window_gpu_compute = 0.0
+                            window_sync_overhead = 0.0
+                            window_update_tokens = 0
+                            window_updates = 0
 
                     if step % 100 == 0:
-                        self.checkpoints.save(model, optimizer, step, actual_loss, tokenizer)
+                        checkpoint_loss = (
+                            loss_float if loss_float is not None else self._as_float(update_loss_value)
+                        )
+                        self.checkpoints.save(
+                            model, optimizer, step, checkpoint_loss, tokenizer
+                        )
 
                     if self.mode != "dpo" and step % self.config.eval_steps == 0:
                         eval_metrics = self._evaluate(
@@ -189,13 +349,15 @@ class TrainingLoopRunner:
             if step >= self.config.max_steps or control.interrupted:
                 break
 
+            last_epoch_loss_float = self._as_float(epoch_loss_sum)
+
         if control.interrupted:
             print("\n💾 正在保存中断checkpoint...")
             self.checkpoints.save(
                 model,
                 optimizer,
                 step,
-                epoch_loss / max(epoch_steps, 1) if epoch_steps else 0.0,
+                last_epoch_loss_float / max(epoch_steps, 1) if epoch_steps else 0.0,
                 tokenizer,
             )
             print("💡 可使用 --auto-resume 从此处恢复训练")
@@ -427,6 +589,17 @@ class TrainingLoopRunner:
         token_counts = mask.sum(dim=-1).clamp(min=1.0)
         return masked.sum(dim=-1) / token_counts
 
+    @staticmethod
+    def _as_float(value):
+        if isinstance(value, torch.Tensor):
+            if value.numel() == 0:
+                return 0.0
+            tensor = value.detach()
+            if tensor.device.type != "cpu":
+                tensor = tensor.cpu()
+            return float(tensor.item())
+        return float(value)
+
     def _resolve_sequence_length(self, batch):
         if isinstance(batch, dict):
             if "input_ids" in batch:
@@ -459,7 +632,33 @@ class TrainingLoopRunner:
             raise ValueError("批次元素不是张量，无法解析批次大小")
         return batch.size(0)
 
-    def _optimizer_step(self, model, optimizer, scheduler, scaler, step: int) -> tuple[int, float]:
+    def _estimate_tokens(self, batch) -> int:
+        if isinstance(batch, dict):
+            if "input_ids" in batch:
+                tensor = batch["input_ids"]
+                return int(tensor.size(0) * tensor.size(1))
+            if "chosen_input_ids" in batch and "rejected_input_ids" in batch:
+                chosen = batch["chosen_input_ids"]
+                rejected = batch["rejected_input_ids"]
+                tokens = chosen.size(0) * chosen.size(1)
+                tokens += rejected.size(0) * rejected.size(1)
+                return int(tokens)
+            if "input_ids_pair" in batch:
+                tensor = batch["input_ids_pair"]
+                if isinstance(tensor, torch.Tensor) and tensor.dim() >= 3:
+                    return int(tensor.size(0) * tensor.size(1) * tensor.size(2))
+        if isinstance(batch, (list, tuple)):
+            tokens = 0
+            for item in batch:
+                if isinstance(item, torch.Tensor) and item.dim() >= 2:
+                    tokens += item.size(0) * item.size(1)
+            if tokens > 0:
+                return int(tokens)
+        if isinstance(batch, torch.Tensor) and batch.dim() >= 2:
+            return int(batch.size(0) * batch.size(1))
+        return 0
+
+    def _optimizer_step(self, model, optimizer, scheduler, scaler, step: int):
         if scaler is not None:
             scaler.unscale_(optimizer)
             grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -472,12 +671,7 @@ class TrainingLoopRunner:
         scheduler.step()
         optimizer.zero_grad()
 
-        if isinstance(grad_norm, torch.Tensor):
-            grad_norm_value = float(grad_norm.detach().cpu().item())
-        else:
-            grad_norm_value = float(grad_norm)
-
-        return step + 1, grad_norm_value
+        return step + 1, grad_norm
 
     def _maybe_update_best(
         self,

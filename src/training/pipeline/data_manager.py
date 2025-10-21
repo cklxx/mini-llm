@@ -11,7 +11,9 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from torch.utils.data import DataLoader
+import torch
+import torch.distributed as dist
+from torch.utils.data import DataLoader, DistributedSampler
 
 from data.high_performance_loader import (
     DataLoadingConfig,
@@ -51,6 +53,8 @@ class DataResolver:
         mapping = {
             "pretrain": "pretrain_manifest.json",
             "sft": "sft_manifest.json",
+            "dpo": "dpo_manifest.json",
+            "rlhf": "rlhf_manifest.json",
         }
         return mapping.get(self.mode)
 
@@ -85,19 +89,43 @@ class DataResolver:
             return None
 
         datasets = data.get("datasets", []) if isinstance(data, dict) else []
-        paths: list[str] = []
+        resolved_paths: list[str] = []
+        missing_entries: list[str] = []
+
         for entry in datasets:
-            if isinstance(entry, dict):
-                path = entry.get("path")
-                if isinstance(path, str):
-                    paths.append(path)
-        if not paths:
-            print(f"⚠️  manifest {manifest_path} 中未找到有效的数据路径")
+            if not isinstance(entry, dict):
+                continue
+            path = entry.get("path")
+            if not isinstance(path, str):
+                continue
+
+            resolved = self._maybe_resolve_direct_path(path)
+            if not resolved:
+                # ``resolve_data_path`` treats the input as a filename. When manifest
+                # entries already include directory components (e.g. ``data/final``),
+                # fall back to checking whether the raw manifest path exists relative
+                # to the project root before giving up.
+                resolved = self.resolve_data_path(os.path.basename(path))
+            if resolved and os.path.exists(resolved):
+                resolved_paths.append(resolved)
+            else:
+                missing_entries.append(path)
+
+        if missing_entries:
+            missing_list = ", ".join(missing_entries)
+            print(
+                "⚠️  manifest {path} 中的部分数据文件缺失，"
+                "将回退到默认候选: {missing}".format(
+                    path=manifest_path, missing=missing_list
+                )
+            )
+
+        if not resolved_paths:
             self._manifest_cache[self.mode] = None
             return None
 
-        self._manifest_cache[self.mode] = paths
-        return paths
+        self._manifest_cache[self.mode] = resolved_paths
+        return resolved_paths
 
     def resolve_data_path(self, filename: str) -> str | None:
         search_dirs = []
@@ -198,7 +226,7 @@ class DataResolver:
     def load_records(self, path: str) -> list[Any]:
         if (
             getattr(self.config, "use_high_performance_data_loading", False)
-            and self.mode in {"sft", "pretrain"}
+            and self.mode in {"sft", "pretrain", "dpo", "rlhf"}
         ):
             try:
                 return self._load_records_fast(path)
@@ -242,7 +270,7 @@ class DataResolver:
             loader = StreamingJsonLoader(path, config.chunk_size)
             data_chunks = list(loader.get_chunks())
             processor = ParallelDataProcessor(config.max_parallel_workers)
-            if self.mode == "sft":
+            if self.mode in {"sft", "rlhf"}:
                 processed = processor.process_conversations(
                     data_chunks, config.max_length
                 )
@@ -255,6 +283,10 @@ class DataResolver:
                     for text in processed
                     if isinstance(text, str) and text
                 ]
+            elif self.mode == "dpo":
+                processed = processor.process_preference_pairs(
+                    data_chunks, config.max_length
+                )
             else:  # pragma: no cover - 不支持的模式
                 raise ValueError(f"Unsupported fast loading mode: {self.mode}")
 
@@ -304,6 +336,8 @@ class DatasetPreparer:
         self.tokenizer = tokenizer
         self.resolver = resolver
         self.rng = random.Random(seed)
+        self._is_distributed = dist.is_available() and dist.is_initialized()
+        self._prefetch_factor = getattr(self.config, "prefetch_factor", 2)
 
     def build(self) -> tuple[DataLoader, DataLoader | None, list[dict[str, Any]]]:
         data_paths = self.resolver.get_data_paths()
@@ -446,29 +480,56 @@ class DatasetPreparer:
 
     def _build_train_loader(self, dataset):
         drop_last = len(dataset) >= self.config.batch_size
-        return DataLoader(
-            dataset,
-            batch_size=self.config.batch_size,
-            shuffle=True,
-            num_workers=self.config.num_workers,
-            pin_memory=self.config.pin_memory,
-            persistent_workers=self.config.persistent_workers,
-            prefetch_factor=getattr(self.config, "prefetch_factor", 2),
-            drop_last=drop_last,
-        )
+        sampler = None
+        shuffle = True
+        if self._is_distributed:
+            sampler = DistributedSampler(
+                dataset,
+                shuffle=True,
+                drop_last=drop_last,
+            )
+            shuffle = False
+
+        loader_kwargs: dict[str, Any] = {
+            "batch_size": self.config.batch_size,
+            "shuffle": shuffle,
+            "num_workers": self.config.num_workers,
+            "pin_memory": self.config.pin_memory,
+            "persistent_workers": self.config.persistent_workers,
+            "drop_last": drop_last,
+            "sampler": sampler,
+        }
+        if self.config.num_workers > 0:
+            loader_kwargs["prefetch_factor"] = self._prefetch_factor
+
+        return DataLoader(dataset, **loader_kwargs)
 
     def _build_val_loader(self, dataset):
         if not dataset:
             return None
-        return DataLoader(
-            dataset,
-            batch_size=min(self.config.batch_size, 8),
-            shuffle=False,
-            num_workers=max(1, self.config.num_workers // 2),
-            pin_memory=self.config.pin_memory,
-            persistent_workers=False,
-            drop_last=False,
-        )
+        sampler = None
+        shuffle = False
+        if self._is_distributed:
+            sampler = DistributedSampler(
+                dataset,
+                shuffle=False,
+                drop_last=False,
+            )
+
+        num_workers = max(1, self.config.num_workers // 2) if self.config.num_workers > 0 else 0
+        loader_kwargs: dict[str, Any] = {
+            "batch_size": min(self.config.batch_size, 8),
+            "shuffle": shuffle,
+            "num_workers": num_workers,
+            "pin_memory": self.config.pin_memory,
+            "persistent_workers": False,
+            "drop_last": False,
+            "sampler": sampler,
+        }
+        if num_workers > 0:
+            loader_kwargs["prefetch_factor"] = max(2, self._prefetch_factor // 2)
+
+        return DataLoader(dataset, **loader_kwargs)
 
     def _create_pretrain_dataset(self, data: Iterable[Any]):
         texts = []

@@ -11,6 +11,7 @@ pipeline can report accuracy-based metrics alongside perplexity in one place.
 import math
 import os
 import warnings
+from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Iterable, Sequence
 
@@ -389,6 +390,7 @@ class BenchmarkEvaluator:
         device: torch.device | str,
         tokenizer,
         settings: BenchmarkSettings,
+        autocast_dtype: torch.dtype | None = None,
     ) -> None:
         self.device = torch.device(device)
         self.tokenizer = tokenizer
@@ -398,6 +400,8 @@ class BenchmarkEvaluator:
         self._cached_multiple_choice: dict[str, list[EncodedMultipleChoice]] = {}
         self._disabled_reasons: dict[str, str] = {}
         self._last_step: int | None = None
+        self._device_type = self.device.type
+        self._autocast_dtype = autocast_dtype if self._device_type == "cuda" else None
 
         if self.settings.cache_dir:
             os.makedirs(self.settings.cache_dir, exist_ok=True)
@@ -463,6 +467,11 @@ class BenchmarkEvaluator:
             return self._run_multiple_choice(task, model)
         return self._run_language_modeling(task, model)
 
+    def _autocast_context(self):
+        if self._device_type == "cuda" and self._autocast_dtype is not None:
+            return torch.cuda.amp.autocast(dtype=self._autocast_dtype)
+        return nullcontext()
+
     # ------------------------------------------------------------------
     def _run_language_modeling(
         self,
@@ -485,12 +494,13 @@ class BenchmarkEvaluator:
         total_nll = 0.0
         total_tokens = 0
 
-        with torch.no_grad():
+        with torch.inference_mode():
             for batch in dataloader:
-                batch = batch.to(self.device)
+                batch = batch.to(self.device, non_blocking=True)
                 input_ids = batch[:, :-1]
                 targets = batch[:, 1:]
-                logits = model(input_ids)
+                with self._autocast_context():
+                    logits = model(input_ids)
                 loss = F.cross_entropy(
                     logits.reshape(-1, logits.size(-1)),
                     targets.reshape(-1),
@@ -622,7 +632,7 @@ class BenchmarkEvaluator:
         total_log_prob = 0.0
         total_tokens = 0
 
-        with torch.no_grad():
+        with torch.inference_mode():
             for encoded in samples:
                 scores: list[float] = []
                 option_lengths: list[int] = []
@@ -638,7 +648,8 @@ class BenchmarkEvaluator:
                         continue
                     input_ids = full_ids[:-1].unsqueeze(0)
                     targets = full_ids[1:].unsqueeze(0)
-                    logits = model(input_ids)
+                    with self._autocast_context():
+                        logits = model(input_ids)
                     log_probs = F.log_softmax(logits, dim=-1)
                     start_index = max(len(encoded.prompt_ids) - 1, 0)
                     option_targets = targets[:, start_index:]
