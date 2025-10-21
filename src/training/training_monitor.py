@@ -15,7 +15,6 @@ import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 import psutil
-import seaborn as sns
 import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
@@ -234,13 +233,20 @@ class RealTimeVisualizer:
         self.metrics_history = deque(maxlen=max_points)
 
         # 设置绘图样式
-        plt.style.use("seaborn-v0_8")
-        sns.set_palette("husl")
+        self._configure_style()
 
         # 创建图形
         self.fig = None
         self.axes = None
         self.animation = None
+
+    def _configure_style(self) -> None:
+        """根据运行环境配置绘图样式."""
+
+        try:
+            plt.style.use("seaborn-v0_8")
+        except OSError:
+            plt.style.use("default")
 
     def start_real_time_plot(self):
         """启动实时绘图"""

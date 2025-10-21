@@ -476,13 +476,36 @@ class DatasetPreparer:
             text = self._extract_text(item)
             if text and len(text.strip()) > 10:
                 texts.append(text)
+        initial_items = self._compute_initial_pretokenize_items(len(texts))
         return LanguageModelingDataset(
             texts=texts,
             tokenizer=self.tokenizer,
             max_length=self.config.max_seq_len,
             pretokenize=getattr(self.config, "pretokenize_lm", True),
             pretokenize_workers=getattr(self.config, "pretokenize_workers", None),
+            initial_pretokenize_items=initial_items,
+            background_pretokenize=getattr(
+                self.config, "background_pretokenize_lm", True
+            ),
         )
+
+    def _compute_initial_pretokenize_items(self, total: int) -> int | None:
+        steps = getattr(self.config, "initial_pretokenize_steps", None)
+        if steps is None:
+            return None
+        try:
+            steps_int = int(steps)
+        except (TypeError, ValueError):
+            return None
+
+        if steps_int <= 0:
+            return None
+
+        batch_size = max(1, getattr(self.config, "batch_size", 1))
+        grad_acc = max(1, getattr(self.config, "gradient_accumulation_steps", 1))
+        per_step = batch_size * grad_acc
+        target = steps_int * per_step
+        return min(total, target)
 
     def _create_sft_dataset(self, data: Iterable[Any], augmentation=None):
         conversations = []
