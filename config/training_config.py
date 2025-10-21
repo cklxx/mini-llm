@@ -297,27 +297,6 @@ class BaseConfig:
         self.memory_cleanup_interval = int(os.environ.get("MINIGPT_MEMORY_CLEANUP_INTERVAL", 200))
         self.memory_log_interval = int(os.environ.get("MINIGPT_MEMORY_LOG_INTERVAL", 200))
 
-        # 数据预处理选项
-        self.pretokenize_lm = os.environ.get("MINIGPT_PRETOKENIZE_LM", "1") == "1"
-        default_workers = min(16, self.cpu_available_cores)
-        if default_workers < 1:
-            default_workers = 1
-        self.pretokenize_workers = int(
-            os.environ.get("MINIGPT_PRETOKENIZE_WORKERS", default_workers)
-        )
-        if self.pretokenize_workers < 1:
-            self.pretokenize_workers = 1
-        elif self.pretokenize_workers > self.cpu_available_cores:
-            self.pretokenize_workers = max(1, self.cpu_available_cores)
-        initial_steps_env = os.environ.get("MINIGPT_INITIAL_PRETOKENIZE_STEPS", "50")
-        try:
-            self.initial_pretokenize_steps = max(0, int(initial_steps_env))
-        except (TypeError, ValueError):
-            self.initial_pretokenize_steps = 50
-        self.background_pretokenize_lm = (
-            os.environ.get("MINIGPT_BACKGROUND_PRETOKENIZE", "1") == "1"
-        )
-
         # 训练后回归评估配置
         self.regression_eval_enabled = os.environ.get("MINIGPT_REGRESSION_EVAL", "1") == "1"
         self.regression_eval_prompts = os.path.join(self.data_dir, "eval", "regression_prompts.jsonl")

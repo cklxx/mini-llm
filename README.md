@@ -108,12 +108,12 @@ mini-llm/
    > `from src.model.config import get_tiny_config`：拉取教学用最小配置，内部开启 GQA、RoPE 以演示现代结构选择的影响。【F:src/model/config.py†L159-L175】
    > `from src.model.transformer import MiniGPT`：导入 Transformer 主体，支持在不同配置间复用同一实现。【F:src/model/transformer.py†L314-L440】
    > `from src.tokenizer.bpe_tokenizer import BPETokenizer`：使用项目自带 BPE 分词器，便于快速训练新词表。【F:src/tokenizer/bpe_tokenizer.py†L1-L196】
-   > `from src.training.datasets import LanguageModelingDataset`：选择基础语言建模数据集封装，自动补齐 PAD 并输出张量。【F:src/training/datasets/language_modeling.py†L9-L60】
+   > `from src.training.datasets import LanguageModelingDataset`：选择基础语言建模数据集封装，自动补齐 PAD 并输出张量。【F:src/training/datasets/language_modeling.py†L11-L51】
    > `from src.training.trainer import PreTrainer`：载入轻量训练循环，包含优化器、调度器与损失封装，方便课堂演示。【F:src/training/trainer.py†L13-L200】
-   > `texts = [...]`：准备极小的原始语料，演示数据格式要求。真实训练需替换为大规模文本。【F:src/training/datasets/language_modeling.py†L12-L42】
+   > `texts = [...]`：准备极小的原始语料，演示数据格式要求。真实训练需替换为大规模文本。【F:src/training/datasets/language_modeling.py†L21-L40】
    > `tokenizer = BPETokenizer(vocab_size=256)`：实例化小词表，便于快速拟合；示例中 256 词表减少内存压力。【F:src/tokenizer/bpe_tokenizer.py†L25-L140】
    > `tokenizer.train(texts)`：直接在示例文本上拟合分词模型，展示离线训练流程的接口形式。【F:src/tokenizer/bpe_tokenizer.py†L76-L140】
-   > `dataset = LanguageModelingDataset(...)`：将纯文本包装成固定长度 token 序列，并提供 PAD/截断策略。【F:src/training/datasets/language_modeling.py†L12-L60】
+   > `dataset = LanguageModelingDataset(...)`：将纯文本包装成固定长度 token 序列，并提供 PAD/截断策略。【F:src/training/datasets/language_modeling.py†L21-L66】
    > `dataloader = DataLoader(...)`：组建批次并在迭代时触发 `__getitem__`，可配合更多参数实现打乱或多进程加载。【F:src/training/trainer.py†L44-L118】
    > `config = get_tiny_config()`：获取模型超参（层数、头数、上下文长度等），确保 `MiniGPT` 正确初始化权重矩阵。【F:src/model/config.py†L159-L175】
    > `model = MiniGPT(config)`：构建模型实例；内部根据配置拼装注意力、前馈与嵌入层。【F:src/model/transformer.py†L314-L440】
