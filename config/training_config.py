@@ -271,11 +271,11 @@ class BaseConfig:
         )
         if self.pretokenize_workers < 1:
             self.pretokenize_workers = 1
-        initial_steps_env = os.environ.get("MINIGPT_INITIAL_PRETOKENIZE_STEPS", "16")
+        initial_steps_env = os.environ.get("MINIGPT_INITIAL_PRETOKENIZE_STEPS", "200")
         try:
             self.initial_pretokenize_steps = max(0, int(initial_steps_env))
         except (TypeError, ValueError):
-            self.initial_pretokenize_steps = 16
+            self.initial_pretokenize_steps = 200
         self.background_pretokenize_lm = (
             os.environ.get("MINIGPT_BACKGROUND_PRETOKENIZE", "1") == "1"
         )

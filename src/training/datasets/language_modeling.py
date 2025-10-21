@@ -95,13 +95,23 @@ class LanguageModelingDataset(Dataset):
         self._background_thread: threading.Thread | None = None
         self._background_error: BaseException | None = None
         self._background_in_flight: bool = False
+        self._progress_lock = threading.Lock()
+        self._ready_high_water: int = -1
+        self._last_progress_speed: float | None = None
+        try:
+            margin_env = os.environ.get("MINILLM_PRETOKENIZE_WAIT_MARGIN")
+            self._ready_wait_margin = (
+                max(0, int(margin_env)) if margin_env is not None else 2048
+            )
+        except (TypeError, ValueError):  # pragma: no cover - env parsing guard
+            self._ready_wait_margin = 2048
         try:
             wait_env = os.environ.get("MINILLM_PRETOKENIZE_WAIT_TIMEOUT")
             self._ready_wait_timeout = (
-                max(0.0, float(wait_env)) if wait_env is not None else 5.0
+                max(0.0, float(wait_env)) if wait_env is not None else 0.5
             )
         except (TypeError, ValueError):  # pragma: no cover - env parsing guard
-            self._ready_wait_timeout = 5.0
+            self._ready_wait_timeout = 0.5
         self._total_texts: int = 0
 
         if pretokenize:
@@ -116,6 +126,7 @@ class LanguageModelingDataset(Dataset):
                 self._ready_cache_path = self._ready_cache_filename(cache_path)
                 self._tokens = cached_tokens
                 self._ready_mask = cached_ready
+                self._mark_all_ready()
                 self.texts: list[str] | None = None
             else:
                 self.texts = text_list
@@ -144,7 +155,7 @@ class LanguageModelingDataset(Dataset):
             ready = self._ensure_ready_buffer()
             if ready is not None and ready[idx]:
                 return torch.from_numpy(tokens[idx])
-            if self._wait_for_ready(idx, ready):
+            if self._should_wait_for_index(idx) and self._wait_for_ready(idx, ready):
                 return torch.from_numpy(tokens[idx])
 
         if self.texts is None:
@@ -162,6 +173,7 @@ class LanguageModelingDataset(Dataset):
                 ready[idx] = 1
                 self._flush_ready_if_needed()
             self._flush_tokens_if_needed()
+        self._update_ready_high_water(idx)
         return tensor
 
     def _resolve_worker_count(self, total: int) -> int:
@@ -317,7 +329,9 @@ class LanguageModelingDataset(Dataset):
                 tokens[idx] = self._encode_numpy(text)
                 if ready is not None:
                     ready[idx] = 1
+                self._update_ready_high_water(idx)
                 processed = idx + 1
+                self._update_progress_metrics(processed, start_time)
                 if ((processed) % 5000 == 0) or processed == total_texts:
                     self._log_progress(processed, total_texts, start_time)
         else:
@@ -352,7 +366,9 @@ class LanguageModelingDataset(Dataset):
                     tokens[idx] = encoded
                     if ready is not None:
                         ready[idx] = 1
+                    self._update_ready_high_water(idx)
                     processed += 1
+                    self._update_progress_metrics(processed, start_time)
                     if (processed % 5000 == 0) or processed == total_texts:
                         self._log_progress(processed, total_texts, start_time)
 
@@ -367,6 +383,7 @@ class LanguageModelingDataset(Dataset):
         print(
             f"  🔄 预编码 {processed:,}/{total:,} 样本 (速度 {speed:.1f}/s, 预计剩余 {eta/60:.1f}分钟)"
         )
+        self._update_progress_metrics(processed, start_time)
 
     def _ensure_token_buffer(self) -> np.ndarray | np.memmap:
         if self._tokens is not None:
@@ -655,6 +672,7 @@ class LanguageModelingDataset(Dataset):
             )
         else:
             self._ready_mask = np.ones(self._total_texts, dtype=np.uint8)
+        self._mark_all_ready()
         self._background_in_flight = False
 
     def _check_background_status(self) -> None:
@@ -681,4 +699,47 @@ class LanguageModelingDataset(Dataset):
                 self._tokens = None
             if self._ready_cache_path or self._ready_tmp_path:
                 self._ready_mask = self._ensure_ready_buffer()
+
+    def _update_ready_high_water(self, idx: int) -> None:
+        with self._progress_lock:
+            if idx > self._ready_high_water:
+                self._ready_high_water = idx
+
+    def _update_progress_metrics(self, processed: int, start_time: float) -> None:
+        if processed <= 0:
+            return
+        elapsed = time.time() - start_time
+        if elapsed <= 0:
+            return
+        speed = processed / elapsed
+        with self._progress_lock:
+            self._last_progress_speed = speed
+
+    def _mark_all_ready(self) -> None:
+        if self._total_texts <= 0:
+            return
+        with self._progress_lock:
+            self._ready_high_water = self._total_texts - 1
+            self._last_progress_speed = None
+
+    def _should_wait_for_index(self, idx: int) -> bool:
+        if self._ready_wait_timeout <= 0:
+            return False
+        if not self._background_active():
+            return False
+        with self._progress_lock:
+            high_water = self._ready_high_water
+            speed = self._last_progress_speed
+            margin = self._ready_wait_margin
+        if high_water < 0:
+            return True
+        if idx <= high_water:
+            return True
+        distance = idx - high_water
+        if margin and distance > margin:
+            return False
+        if speed is None or speed <= 0:
+            return False
+        expected = distance / speed
+        return expected <= self._ready_wait_timeout
 
