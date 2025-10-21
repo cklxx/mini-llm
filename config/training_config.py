@@ -271,6 +271,14 @@ class BaseConfig:
         )
         if self.pretokenize_workers < 1:
             self.pretokenize_workers = 1
+        initial_steps_env = os.environ.get("MINIGPT_INITIAL_PRETOKENIZE_STEPS", "16")
+        try:
+            self.initial_pretokenize_steps = max(0, int(initial_steps_env))
+        except (TypeError, ValueError):
+            self.initial_pretokenize_steps = 16
+        self.background_pretokenize_lm = (
+            os.environ.get("MINIGPT_BACKGROUND_PRETOKENIZE", "1") == "1"
+        )
 
         # 训练后回归评估配置
         self.regression_eval_enabled = os.environ.get("MINIGPT_REGRESSION_EVAL", "1") == "1"

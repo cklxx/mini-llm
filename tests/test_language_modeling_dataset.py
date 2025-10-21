@@ -60,6 +60,8 @@ def test_parallel_pretokenize_matches_serial() -> None:
         max_length=32,
         pretokenize=True,
         pretokenize_workers=4,
+        initial_pretokenize_items=len(texts),
+        background_pretokenize=False,
     )
 
     serial_dataset = LanguageModelingDataset(
@@ -68,6 +70,8 @@ def test_parallel_pretokenize_matches_serial() -> None:
         max_length=32,
         pretokenize=True,
         pretokenize_workers=1,
+        initial_pretokenize_items=len(texts),
+        background_pretokenize=False,
     )
 
     assert len(parallel_dataset) == len(serial_dataset)
@@ -96,6 +100,8 @@ def test_pretokenize_uses_cache(tmp_path, monkeypatch) -> None:
         max_length=16,
         pretokenize=True,
         pretokenize_workers=2,
+        initial_pretokenize_items=len(texts),
+        background_pretokenize=False,
     )
 
     cached_tokens = dataset_first._tokens.copy()  # type: ignore[union-attr]
@@ -105,7 +111,7 @@ def test_pretokenize_uses_cache(tmp_path, monkeypatch) -> None:
 
     monkeypatch.setattr(
         LanguageModelingDataset,
-        "_pretokenize_texts",
+        "_pretokenize_incremental",
         _fail,
     )
 
@@ -115,6 +121,42 @@ def test_pretokenize_uses_cache(tmp_path, monkeypatch) -> None:
         max_length=16,
         pretokenize=True,
         pretokenize_workers=2,
+        initial_pretokenize_items=len(texts),
+        background_pretokenize=False,
     )
 
     np.testing.assert_array_equal(dataset_second._tokens, cached_tokens)  # type: ignore[union-attr]
+
+
+def test_incremental_pretokenize_encodes_on_demand(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("MINILLM_CACHE_DIR", str(tmp_path))
+
+    texts = [
+        "预编码第一条",
+        "预编码第二条",
+        "需要动态编码的第三条",
+        "需要动态编码的第四条",
+    ]
+
+    tokenizer = _build_tokenizer()
+
+    dataset = LanguageModelingDataset(
+        texts=texts,
+        tokenizer=tokenizer,
+        max_length=32,
+        pretokenize=True,
+        pretokenize_workers=2,
+        initial_pretokenize_items=2,
+        background_pretokenize=False,
+    )
+
+    assert dataset._ready_mask is not None  # type: ignore[attr-defined]
+    ready_mask = dataset._ready_mask  # type: ignore[attr-defined]
+    assert ready_mask[:2].sum() == 2
+    assert ready_mask[2:].sum() == 0
+
+    third = dataset[2]
+    tokens = dataset._ensure_token_buffer()  # type: ignore[attr-defined]
+    ready_mask = dataset._ensure_ready_buffer()  # type: ignore[attr-defined]
+    assert ready_mask[2] == 1  # type: ignore[index]
+    np.testing.assert_array_equal(tokens[2], third.numpy())  # type: ignore[index]
