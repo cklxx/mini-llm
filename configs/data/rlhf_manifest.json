@@ -1,0 +1,13 @@
+{
+  "type": "rlhf",
+  "datasets": [
+    {
+      "name": "alex_identity",
+      "path": "data/alex_identity.jsonl"
+    },
+    {
+      "name": "ultra_think",
+      "path": "data/ultra_think.jsonl"
+    }
+  ]
+}

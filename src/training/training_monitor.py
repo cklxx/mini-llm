@@ -441,20 +441,38 @@ class TrainingMonitor:
             self.plot_thread = threading.Thread(target=plot_worker, daemon=True)
             self.plot_thread.start()
 
+    @staticmethod
+    def _to_float(value: float | torch.Tensor) -> float:
+        if isinstance(value, torch.Tensor):
+            if value.numel() == 0:
+                return float("nan")
+            tensor = value.detach()
+            if tensor.device.type != "cpu":
+                tensor = tensor.cpu()
+            return float(tensor.item())
+        return float(value)
+
     def log_step(
         self,
         step: int,
         epoch: int,
-        loss: float,
+        loss: float | torch.Tensor | None,
         learning_rate: float,
         batch_size: int = 1,
-        grad_norm: float | None = None,
+        grad_norm: float | torch.Tensor | None = None,
     ) -> TrainingMetrics | None:
         """记录训练步骤"""
+        current_time = time.time()
+
+        if loss is None:
+            # 快速路径：仅刷新计时器，避免不必要的同步
+            self.step_start_time = current_time
+            return None
+
         # 轻量级模式下，只在指定间隔记录详细指标
         should_log_full = step % self.log_interval == 0
 
-        current_time = time.time()
+        loss_value = self._to_float(loss)
 
         # 计算性能指标
         step_duration = current_time - self.step_start_time
@@ -469,11 +487,11 @@ class TrainingMonitor:
             gpu_memory_used = cpu_usage = ram_used = 0.0
 
         # 获取模型健康指标
-        grad_norm_value = (
-            float(grad_norm)
-            if grad_norm is not None
-            else self.health_monitor.compute_gradient_norm()
-        )
+        grad_norm_value: float
+        if grad_norm is not None:
+            grad_norm_value = self._to_float(grad_norm)
+        else:
+            grad_norm_value = self.health_monitor.compute_gradient_norm()
         param_norm = self.health_monitor.compute_parameter_norm()
 
         # 权重更新比例（最耗时，轻量级模式下跳过）
@@ -494,7 +512,7 @@ class TrainingMonitor:
         metrics = TrainingMetrics(
             step=step,
             epoch=epoch,
-            loss=loss,
+            loss=loss_value,
             learning_rate=learning_rate,
             grad_norm=grad_norm_value,
             param_norm=param_norm,
@@ -514,7 +532,9 @@ class TrainingMonitor:
         else:
             # 轻量级：只记录关键指标到 TensorBoard
             if self.tensorboard_writer:
-                self.tensorboard_writer.add_scalar("Training/Loss", loss, step)
+                self.tensorboard_writer.add_scalar(
+                    "Training/Loss", loss_value, step
+                )
                 self.tensorboard_writer.add_scalar("Training/LearningRate", learning_rate, step)
 
         # 重置计时器

@@ -9,6 +9,8 @@ from typing import Any
 
 import torch
 
+from inference.generator import GenerationConfig, TextGenerator
+
 
 @dataclass
 class RegressionPrompt:
@@ -28,10 +30,19 @@ class RegressionSuite:
         self.max_new_tokens: int = int(getattr(config, "regression_eval_max_new_tokens", 96))
         self.temperature: float = float(getattr(config, "regression_eval_temperature", 0.8))
         self.top_p: float = float(getattr(config, "regression_eval_top_p", 0.95))
+        self.top_k: int = int(getattr(config, "inference_top_k", 0))
+        self.repetition_penalty: float = float(
+            getattr(config, "inference_repetition_penalty", 1.05)
+        )
+        self.history_turns: int = int(getattr(config, "inference_history_turns", 0))
+        self.use_chat_template: bool = bool(
+            getattr(config, "inference_use_chat_template", True)
+        )
         self.output_dir = os.path.join(output_dir, "regression")
         self._device = torch.device(device)
         self._cached_prompts: list[RegressionPrompt] | None = None
         self._last_step_run: int = -1
+        self._autocast_dtype = getattr(config, "inference_autocast_dtype", None)
         os.makedirs(self.output_dir, exist_ok=True)
 
     # ------------------------------------------------------------------
@@ -88,33 +99,53 @@ class RegressionSuite:
         model_was_training = model.training
         model.eval()
 
+        generator = TextGenerator(
+            model,
+            tokenizer,
+            device=str(self._device),
+            autocast_dtype=self._autocast_dtype,
+        )
+        generation_config = GenerationConfig(
+            max_length=self.max_new_tokens,
+            temperature=self.temperature,
+            top_k=self.top_k,
+            top_p=self.top_p,
+            repetition_penalty=self.repetition_penalty,
+            do_sample=False,
+            history_turns=self.history_turns,
+            use_chat_template=self.use_chat_template,
+        )
+
         results: list[dict[str, Any]] = []
         pass_count = 0
-        with torch.no_grad():
-            for item in prompts:
-                input_ids = tokenizer.encode(item.prompt, add_special_tokens=True)
-                input_tensor = torch.tensor([input_ids], device=self._device)
-                generated = input_tensor
-                for _ in range(item.max_new_tokens):
-                    outputs = model(generated)
-                    next_token_logits = outputs[:, -1, :]
-                    next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
-                    if next_token.item() == tokenizer.eos_id:
-                        break
-                    generated = torch.cat([generated, next_token], dim=1)
-                decoded = tokenizer.decode(generated[0].tolist())
-                passed = all(substring in decoded for substring in item.expect_substrings)
-                if passed:
-                    pass_count += 1
-                results.append(
-                    {
-                        "id": item.prompt_id,
-                        "prompt": item.prompt,
-                        "expect_substrings": item.expect_substrings,
-                        "response": decoded,
-                        "passed": passed,
-                    }
-                )
+
+        for item in prompts:
+            response = generator.generate_chat_response(
+                item.prompt,
+                history=None,
+                config=GenerationConfig(
+                    max_length=item.max_new_tokens,
+                    temperature=generation_config.temperature,
+                    top_k=generation_config.top_k,
+                    top_p=generation_config.top_p,
+                    repetition_penalty=generation_config.repetition_penalty,
+                    do_sample=False,
+                    history_turns=generation_config.history_turns,
+                    use_chat_template=generation_config.use_chat_template,
+                ),
+            )
+            passed = all(substring in response for substring in item.expect_substrings)
+            if passed:
+                pass_count += 1
+            results.append(
+                {
+                    "id": item.prompt_id,
+                    "prompt": item.prompt,
+                    "expect_substrings": item.expect_substrings,
+                    "response": response,
+                    "passed": passed,
+                }
+            )
 
         pass_rate = pass_count / len(results) if results else 0.0
         timestamp_path = os.path.join(self.output_dir, f"regression_step_{step:06d}.json")

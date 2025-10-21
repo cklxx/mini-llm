@@ -256,6 +256,7 @@ class MiniGPTTrainer:
                     device=self.device,
                     tokenizer=tokenizer,
                     settings=settings,
+                    autocast_dtype=getattr(self.config, "inference_autocast_dtype", None),
                 )
 
         if self.device == "cuda":

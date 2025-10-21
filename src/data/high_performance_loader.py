@@ -249,8 +249,9 @@ class ParallelDataProcessor:
     def __init__(self, max_workers: int = 8):
         self.max_workers = max_workers
 
-    def process_conversations(self, data_chunks: list[list[dict]],
-                            max_length: int) -> list[dict[str, Any]]:
+    def process_conversations(
+        self, data_chunks: list[list[dict]], max_length: int
+    ) -> list[dict[str, Any]]:
         """并行处理对话数据"""
         if len(data_chunks) == 1:
             # 单个chunk，直接处理
@@ -269,8 +270,9 @@ class ParallelDataProcessor:
 
             return results
 
-    def _process_conversation_chunk(self, chunk: list[dict],
-                                  max_length: int) -> list[dict[str, Any]]:
+    def _process_conversation_chunk(
+        self, chunk: list[dict], max_length: int
+    ) -> list[dict[str, Any]]:
         """处理单个对话数据chunk"""
         processed = []
 
@@ -299,8 +301,9 @@ class ParallelDataProcessor:
 
         return processed
 
-    def process_pretrain_texts(self, data_chunks: list[list[dict]],
-                             max_length: int) -> list[str]:
+    def process_pretrain_texts(
+        self, data_chunks: list[list[dict]], max_length: int
+    ) -> list[str]:
         """并行处理预训练文本数据"""
         if len(data_chunks) == 1:
             return self._process_pretrain_chunk(data_chunks[0], max_length)
@@ -317,8 +320,9 @@ class ParallelDataProcessor:
 
             return results
 
-    def _process_pretrain_chunk(self, chunk: list[dict],
-                              max_length: int) -> list[str]:
+    def _process_pretrain_chunk(
+        self, chunk: list[dict], max_length: int
+    ) -> list[str]:
         """处理单个预训练文本chunk"""
         texts = []
 
@@ -329,6 +333,62 @@ class ParallelDataProcessor:
                     texts.append(text)
 
         return texts
+
+    def process_preference_pairs(
+        self, data_chunks: list[list[dict]], max_length: int
+    ) -> list[dict[str, Any]]:
+        """并行处理偏好数据，对齐 DPO/RLHF 需要的 chosen/rejected 结构。"""
+
+        if len(data_chunks) == 1:
+            return self._process_preference_chunk(data_chunks[0])
+
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = [
+                executor.submit(self._process_preference_chunk, chunk)
+                for chunk in data_chunks
+            ]
+
+            results: list[dict[str, Any]] = []
+            for future in tqdm(futures, desc="Processing preference chunks"):
+                results.extend(future.result())
+
+            return results
+
+    def _process_preference_chunk(
+        self, chunk: list[dict]
+    ) -> list[dict[str, Any]]:
+        """筛选出包含有效 chosen/rejected 字段的偏好样本。"""
+
+        processed: list[dict[str, Any]] = []
+        for item in chunk:
+            if not isinstance(item, dict):
+                continue
+
+            chosen = item.get('chosen')
+            rejected = item.get('rejected')
+            if not chosen or not rejected:
+                continue
+
+            entry = {
+                'chosen': chosen,
+                'rejected': rejected,
+            }
+
+            for key in (
+                'prompt',
+                'system',
+                'context',
+                'meta',
+                'chosen_score',
+                'rejected_score',
+                'source',
+            ):
+                if key in item and item[key] is not None:
+                    entry[key] = item[key]
+
+            processed.append(entry)
+
+        return processed
 
 
 class HighPerformanceDataset(IterableDataset):

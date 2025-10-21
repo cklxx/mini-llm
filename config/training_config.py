@@ -7,6 +7,20 @@ import os
 import torch
 
 
+def _parse_bool_env(key: str, default: bool) -> bool:
+    """Parse boolean environment variables safely."""
+
+    value = os.environ.get(key)
+    if value is None:
+        return default
+    value = value.strip().lower()
+    if value in {"1", "true", "yes", "y", "on"}:
+        return True
+    if value in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
 def _parse_cpu_reserve(default: int = 2) -> int:
     """Parse the number of CPU cores to reserve for the system.
 
@@ -230,6 +244,11 @@ class BaseConfig:
                 "max_samples": 6000,
                 "val_split": 0.05
             },
+            "dpo.jsonl": {
+                "sample_ratio": _parse_sample_ratio("MINIGPT_DPO_RATIO", 1.0),
+                "max_samples": _parse_max_samples("MINIGPT_DPO_MAX", None),
+                "val_split": 0.0
+            },
             "wiki_zh_full.simdedup.jsonl": {
                 "sample_ratio": _parse_sample_ratio("MINIGPT_PRETRAIN_WIKI_RATIO", 1.0),
                 "max_samples": _parse_max_samples("MINIGPT_PRETRAIN_WIKI_MAX", None),
@@ -260,6 +279,22 @@ class BaseConfig:
             "turn_truncate_prob": float(os.environ.get("MINIGPT_TURN_TRUNCATE_PROB", 0.1)),
             "max_turn_truncate": int(os.environ.get("MINIGPT_MAX_TURN_TRUNCATE", 1))
         }
+
+        # 性能与日志控制
+        self.enable_performance_diagnostics = (
+            os.environ.get("MINIGPT_PERF_DIAGNOSTICS", "1") == "1"
+        )
+        self.step_log_interval = max(
+            1, int(os.environ.get("MINIGPT_STEP_LOG_INTERVAL", 10))
+        )
+        self.performance_window_updates = max(
+            1,
+            int(
+                os.environ.get(
+                    "MINIGPT_PERF_WINDOW_UPDATES", self.step_log_interval
+                )
+            ),
+        )
 
         # 数据加载性能优化
         self.use_high_performance_data_loading = (
@@ -297,13 +332,49 @@ class BaseConfig:
         self.memory_cleanup_interval = int(os.environ.get("MINIGPT_MEMORY_CLEANUP_INTERVAL", 200))
         self.memory_log_interval = int(os.environ.get("MINIGPT_MEMORY_LOG_INTERVAL", 200))
 
+        # 推理与评测通用配置（参考 MiniMind 推理脚本）
+        inference_dtype_env = (os.environ.get("MINIGPT_INFERENCE_DTYPE") or "auto").strip().lower()
+        if inference_dtype_env in {"bf16", "bfloat16"} and torch.cuda.is_available():
+            self.inference_autocast_dtype = torch.bfloat16
+        elif inference_dtype_env in {"fp16", "float16", "half"} and torch.cuda.is_available():
+            self.inference_autocast_dtype = torch.float16
+        else:
+            self.inference_autocast_dtype = None
+
+        self.inference_temperature = float(os.environ.get("MINIGPT_INFERENCE_TEMPERATURE", 0.85))
+        self.inference_top_p = float(os.environ.get("MINIGPT_INFERENCE_TOP_P", 0.85))
+        self.inference_top_k = int(os.environ.get("MINIGPT_INFERENCE_TOP_K", 0))
+        self.inference_repetition_penalty = float(
+            os.environ.get("MINIGPT_INFERENCE_REPETITION_PENALTY", 1.05)
+        )
+        default_new_tokens = int(os.environ.get("MINIGPT_INFERENCE_MAX_NEW_TOKENS", 0))
+        if default_new_tokens <= 0:
+            default_new_tokens = getattr(self, "max_seq_len", 512)
+        self.inference_max_new_tokens = max(8, default_new_tokens)
+        self.inference_history_turns = max(
+            0, int(os.environ.get("MINIGPT_INFERENCE_HISTORY_TURNS", 0))
+        )
+        self.inference_use_chat_template = _parse_bool_env(
+            "MINIGPT_INFERENCE_USE_CHAT_TEMPLATE", True
+        )
+        self.inference_enable_rope_scaling = _parse_bool_env(
+            "MINIGPT_INFERENCE_ENABLE_ROPE_SCALING", False
+        )
+
         # 训练后回归评估配置
         self.regression_eval_enabled = os.environ.get("MINIGPT_REGRESSION_EVAL", "1") == "1"
         self.regression_eval_prompts = os.path.join(self.data_dir, "eval", "regression_prompts.jsonl")
         self.regression_eval_interval = int(os.environ.get("MINIGPT_REGRESSION_INTERVAL", 500))
-        self.regression_eval_max_new_tokens = int(os.environ.get("MINIGPT_REGRESSION_MAX_NEW", 96))
-        self.regression_eval_temperature = float(os.environ.get("MINIGPT_REGRESSION_TEMPERATURE", 0.7))
-        self.regression_eval_top_p = float(os.environ.get("MINIGPT_REGRESSION_TOP_P", 0.95))
+        default_regression_new = int(os.environ.get("MINIGPT_REGRESSION_MAX_NEW", 0))
+        if default_regression_new <= 0:
+            default_regression_new = getattr(self, "inference_max_new_tokens", 96)
+        self.regression_eval_max_new_tokens = max(4, default_regression_new)
+        self.regression_eval_temperature = float(
+            os.environ.get("MINIGPT_REGRESSION_TEMPERATURE", self.inference_temperature)
+        )
+        self.regression_eval_top_p = float(
+            os.environ.get("MINIGPT_REGRESSION_TOP_P", self.inference_top_p)
+        )
 
         # 行业评测基准配置（默认使用 WikiText-2、LAMBADA、HellaSwag、ARC 等行业通用任务）
         self.benchmark_eval_enabled = os.environ.get("MINIGPT_BENCHMARK_ENABLED", "1") == "1"
