@@ -8,7 +8,7 @@
 
 - **TrainingEnvironment**：设置随机种子、检测设备、创建输出目录并持久化配置快照与数据集统计，保证实验可复现。【F:src/training/pipeline/environment.py†L10-L64】
 - **TokenizerManager**：在需要时训练或加载分词器，支持缓存复用与输出目录对齐。【F:src/training/pipeline/tokenizer_manager.py†L1-L118】
-- **DatasetPreparer / DataResolver**：解析多重数据路径、按文件配置采样比例/最大样本数，并自动划分训练与验证集。【F:src/training/pipeline/data_manager.py†L24-L214】
+- **DatasetPreparer / DataResolver**：解析多重数据路径、按文件配置采样比例/最大样本数，并自动划分训练与验证集。【F:src/training/pipeline/data_manager.py†L24-L520】
 - **TrainingLoopRunner**：实现梯度累积、学习率调度、验证评估、早停及 smoke test 生成的训练主循环。【F:src/training/pipeline/training_loop.py†L18-L214】
 - **CheckpointManager**：统一管理检查点恢复、pretrain 权重回退与最终模型持久化。【F:src/training/pipeline/checkpointing.py†L11-L133】
 - **TrainingMonitor**：记录训练/验证损失、PPL、梯度范数与系统资源指标，并写入 TensorBoard 与总结报告。【F:src/training/training_monitor.py†L120-L332】
@@ -29,7 +29,7 @@
 
 ### 语言建模与偏好数据
 
-`LanguageModelingDataset` 则面向纯文本或偏好数据 `chosen` 字段，将输入向右平移一位作为标签。对于 DPO 模式当前仍返回语言建模视角的数据，后续可在 `DatasetPreparer._create_dpo_dataset` 中扩展为双通道样本。【F:src/training/datasets/language_modeling.py†L1-L78】【F:src/training/pipeline/data_manager.py†L170-L214】
+`LanguageModelingDataset` 则面向纯文本或偏好数据 `chosen` 字段，直接产出 `(input, target, loss_mask)`，其中 loss mask 会屏蔽 PAD，保持与 MiniMind 预训练脚本一致。对于 DPO 模式当前仍返回语言建模视角的数据，后续可在 `DatasetPreparer._create_dpo_dataset` 中扩展为双通道样本。【F:src/training/datasets/language_modeling.py†L11-L115】【F:src/training/pipeline/data_manager.py†L473-L520】
 
 ## 训练循环细节
 
@@ -47,7 +47,7 @@
 
 ## 扩展指引
 
-1. **新增数据源**：在配置 `dataset_sampling` 中添加新文件名及采样策略，即可让 `DatasetPreparer` 自动合并；如需自定义解析逻辑，可扩展 `_extract_text`。【F:src/training/pipeline/data_manager.py†L68-L214】
+1. **新增数据源**：在配置 `dataset_sampling` 中添加新文件名及采样策略，即可让 `DatasetPreparer` 自动合并；如需自定义解析逻辑，可扩展 `_extract_text`。【F:src/training/pipeline/data_manager.py†L68-L520】
 2. **自定义训练逻辑**：可以编写新的 `TrainingLoopRunner` 子类或在 `MiniGPTTrainer.train` 中注入自定义回调（例如奖励模型评估），保持主循环解耦。
 3. **完善 DPO/RLHF**：当前 DPO/RLHF 模式仍采用语言建模式损失，可在 `TrainingLoopRunner.run` 里根据 `mode` 分支实现对应的 pairwise 或强化学习更新，并扩展 `DatasetPreparer._create_dpo_dataset` 产出 `(chosen, rejected)` 样本。
 4. **提示回归与告警**：`RegressionSuite` 会按配置间隔执行固定提示回归测试并产出报告，结合 `TrainingMonitor.log_regression` 能够快速接入自定义告警（如 Slack/Webhook）或进一步的质量分析。【F:src/training/pipeline/regression_suite.py†L1-L112】
