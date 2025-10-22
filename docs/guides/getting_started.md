@@ -9,11 +9,11 @@
 
 > 想确认设备是否被正确识别，可在克隆仓库后执行：
 > ```bash
-> python -c "from src.training.pipeline.environment import TrainingEnvironment;\
-> from config.training_config import get_config;\
-> env=TrainingEnvironment(get_config('tiny'),'sft');print(env.device)"
+> python -c "from config.training_config import get_config;\
+> from src.training.pipeline.pipeline import TrainingPipeline;\
+> pipeline=TrainingPipeline(get_config('tiny'),'sft');print(pipeline.device)"
 > ```
-> 这段代码会调用 `_setup_device`，输出 `cuda`/`mps`/`cpu`，同时在工作目录生成配置快照，验证环境写权限。【F:src/training/pipeline/environment.py†L12-L63】
+> 这段代码会输出 `cuda`/`mps`/`cpu` 并生成配置快照，验证环境写权限。【F:src/training/pipeline/pipeline.py†L23-L79】
 
 ## 安装步骤
 ```bash
@@ -37,54 +37,27 @@ uv run python scripts/train.py --mode sft --config medium --auto-resume
 - `--resume` / `--auto-resume`：从指定或最新检查点恢复训练；
 - `--learning-rate`、`--batch-size`、`--warmup-steps`：命令行覆盖配置文件数值。【F:src/training/pipeline/cli.py†L12-L151】
 
-脚本内部会构建 `MiniGPTTrainer`，它将 `TrainingEnvironment`、`DatasetPreparer`、`TrainingLoopRunner` 等模块串联起来，并在输出目录中持久化配置快照与数据集统计，方便追踪实验。【F:src/training/pipeline/app.py†L25-L204】【F:src/training/pipeline/data_manager.py†L24-L199】
+脚本内部会构建 `TrainingPipeline`，它将 `DatasetPreparer`、`TrainingLoopRunner` 等模块串联起来，并在输出目录中持久化配置快照与数据集统计，方便追踪实验。【F:src/training/pipeline/pipeline.py†L23-L213】【F:src/training/pipeline/data_manager.py†L24-L199】
 
 运行结束后，检查 `checkpoints/<mode>_<config>/`：
 
-- `training_config_snapshot.json`：记录当次运行的所有超参，便于复现。【F:src/training/pipeline/environment.py†L32-L63】
-- `dataset_stats.json`：列出每个数据文件的原始/采样数量，以及验证集占比，帮助排查样本不足。【F:src/training/pipeline/environment.py†L56-L63】【F:src/training/pipeline/data_manager.py†L146-L209】
-- `regression/`：若启用了回归评估，会保存固定提示的通过率，可用于对齐回归检查。【F:src/training/pipeline/regression_suite.py†L22-L147】
+- `training_config_snapshot.json`：记录当次运行的所有超参，便于复现。【F:src/training/pipeline/pipeline.py†L41-L79】
+- `dataset_stats.json`：列出每个数据文件的原始/采样数量，以及验证集占比，帮助排查样本不足。【F:src/training/pipeline/pipeline.py†L81-L125】【F:src/training/pipeline/data_manager.py†L146-L209】
 
 ## 最小化教学示例
-若你想快速理解底层训练循环，可以使用下列少量代码复现一个语言模型 batch 的训练：
+若你想快速观察底层训练循环的每个阶段，推荐直接运行内置的全栈调试脚本：
 
-```python
-import torch
-from torch.utils.data import DataLoader
-
-from src.model.config import get_tiny_config
-from src.model.transformer import MiniGPT
-from src.tokenizer.bpe_tokenizer import BPETokenizer
-from src.training.datasets import LanguageModelingDataset
-from src.training.trainer import PreTrainer
-
-texts = [
-    "你好，Mini-LLM!",
-    "Transformer 架构演示",
-    "小模型也能训练",
-]
-
-tokenizer = BPETokenizer(vocab_size=256)
-tokenizer.train(texts)
-
-dataset = LanguageModelingDataset(texts, tokenizer, max_length=64)
-dataloader = DataLoader(dataset, batch_size=2)
-
-config = get_tiny_config()
-model = MiniGPT(config)
-trainer = PreTrainer(model, tokenizer, device="cpu")
-
-loss = trainer.train_epoch(dataloader)
-print(f"epoch loss: {loss:.4f}")
+```bash
+uv run python scripts/debug_fullstack.py --mode pretrain --model-size tiny --prompt "你好，MiniGPT！"
 ```
 
-示例中各行代码与核心模块的对应关系：
+脚本会自动：
 
-- `get_tiny_config()` 返回约 1M 参数的默认配置，自动验证注意力头与隐藏维度的整除关系，适合 CPU 快速实验。【F:src/model/config.py†L159-L176】
-- `MiniGPT(config)` 会根据配置选择是否启用 RoPE、GQA 以及 MoE，并构建完整的 Transformer Decoder。【F:src/model/transformer.py†L314-L443】
-- `BPETokenizer` 在 `train(texts)` 时完成中文友好预处理与 BPE 合并，默认注册 `<PAD>/<UNK>/<BOS>/<EOS>` 四个特殊符号，对应的 ID 会在数据集和模型中复用。【F:src/tokenizer/bpe_tokenizer.py†L77-L199】
-- `LanguageModelingDataset` 会在截断/填充后返回 `(input, target, loss_mask)`，完全复用 MiniMind 的预训练样本结构，loss mask 自动忽略 PAD 区域。【F:src/training/datasets/language_modeling.py†L11-L115】
-- `PreTrainer` 初始化时绑定 `AdamW` 与余弦退火调度器，`train_epoch` 会在每个 batch 上执行前向、反向与梯度裁剪，演示最小化训练闭环。【F:src/training/trainer.py†L13-L204】
+- 载入 `TrainingPipeline` 并保存配置快照，确保任何调试都有完整上下文可追溯。【F:scripts/debug_fullstack.py†L1-L214】【F:src/training/pipeline/pipeline.py†L23-L213】
+- 打印首个 batch 的原始文本、token ID、loss mask 等关键张量形状，为数据检查和异常定位提供依据。【F:scripts/debug_fullstack.py†L86-L140】【F:src/training/datasets/language_modeling.py†L11-L115】
+- 复用正式训练循环的损失与梯度逻辑执行一次优化步骤，并输出梯度范数；随后以给定 `--prompt` 做推理，形成闭环。【F:scripts/debug_fullstack.py†L146-L189】【F:src/training/pipeline/training_loop.py†L18-L620】
+
+若需在 Notebook 中手写代码，也可仿照脚本中对 `TrainingPipeline` 的使用方式，手动获取 `DatasetPreparer`、`TrainingLoopRunner` 等组件执行自定义实验。
 
 ## 推理示例
 训练结束后可以直接复用模型进行文本生成：
@@ -109,9 +82,9 @@ print(tokenizer.decode(output_ids[0].tolist()))
 ## 常见问题排查
 
 - **数据未被加载**：确认数据文件位于 `config.data_dir` 或 `MINIGPT_DATA_DIR` 所指向的目录，`DataResolver` 会按模式查找并打印缺失警告。【F:src/training/pipeline/data_manager.py†L28-L124】
-- **显存不足**：在命令行加入 `--batch-size` 或调小配置中的 `gradient_accumulation_steps`；同时确保 `MINIGPT_MEMORY_THRESHOLD` 设置合理以触发自动清理。【F:config/training_config.py†L124-L205】【F:src/training/pipeline/memory_hooks.py†L1-L78】
-- **训练被中断**：若终端提示“收到中断信号”，训练器会保存最新 checkpoint，可用 `--auto-resume` 无缝继续。【F:src/training/pipeline/app.py†L118-L186】
-- **输出退化**：启用回归评估或检查 `TrainingMonitor` 的梯度异常提示，必要时降低学习率或延长 warmup。【F:src/training/training_monitor.py†L120-L222】【F:src/training/pipeline/regression_suite.py†L22-L147】
+- **显存不足**：在命令行加入 `--batch-size` 或调小配置中的 `gradient_accumulation_steps`；必要时缩短 `max_steps` 以快速验证流程。【F:config/training_config.py†L124-L205】
+- **训练被中断**：若终端提示“收到中断信号”，训练器会保存最新 checkpoint，可用 `--auto-resume` 无缝继续。【F:src/training/pipeline/pipeline.py†L214-L230】
+- **输出波动**：检查 `TrainingMonitor` 的梯度异常提示并适当降低学习率或延长 warmup。【F:src/training/training_monitor.py†L120-L470】
 
 ## 下一步
 - 阅读 [model.md](model.md) 理解 `MiniGPTConfig` 可配置项

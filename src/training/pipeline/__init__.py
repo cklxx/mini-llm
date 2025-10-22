@@ -1,6 +1,6 @@
 """Training pipeline helpers exposed for consumers."""
 
-from .app import MiniGPTTrainer
 from .cli import run_cli
+from .pipeline import TrainingPipeline
 
-__all__ = ["MiniGPTTrainer", "run_cli"]
+__all__ = ["TrainingPipeline", "run_cli"]

@@ -1,16 +1,16 @@
 # 第 04 章 · 训练与优化策略
 
-mini-llm 在训练阶段提供了一套可直接复用的 Trainer、内存优化与监控工具。本章帮助你理解这些模块如何协同工作，并给出调整建议。
+mini-llm 在训练阶段通过 `training.pipeline` 提供了统一的训练管道、内存优化与监控工具。本章帮助你理解这些模块如何协同工作，并给出调整建议。
 
 ## 4.1 训练器骨架
-- `PreTrainer` 位于 `src/training/trainer.py`，封装了语言模型预训练的核心循环：取 batch、前向、计算损失、反向、优化器 step、调度器 step。
-- `LanguageModelingDataset`/`ConversationDataset` 作为数据入口，分别适配纯文本和 SFT 对话格式，返回 PyTorch 张量或字典供 DataLoader 直接使用，源码位于 `src/training/datasets/`。
-- 每个 epoch 会记录 `total_loss` 并输出进度条，可快速评估训练是否收敛。
+- `TrainingPipeline` 位于 `src/training/pipeline/pipeline.py`，负责保存配置快照、解析数据、构建模型并驱动 `TrainingLoopRunner` 执行梯度更新，是单一入口的训练 orchestrator。【F:src/training/pipeline/pipeline.py†L23-L213】
+- `TrainingLoopRunner` 处理批次调度、梯度累积、DPO 特殊逻辑以及评估调用，内部与 `CheckpointManager` 协作完成中断恢复与最终模型落盘。【F:src/training/pipeline/training_loop.py†L18-L620】
+- `LanguageModelingDataset`/`ConversationDataset`/`DPODataset` 作为数据入口，分别适配纯文本、SFT 对话与偏好样本，返回 PyTorch 张量或字典供 DataLoader 直接使用，源码位于 `src/training/datasets/`。
 
 ## 4.2 优化器与调度器
-- 默认优化器为 `torch.optim.AdamW`，在 `PreTrainer.__init__` 中初始化，权重衰减设为 0.01。
-- 学习率调度器使用 `CosineAnnealingLR`，通过 `self.scheduler.step()` 在每个 iteration 更新。
-- 若需要替换，可在初始化时注入自定义优化器/调度器，或根据配置继承 `PreTrainer` 后覆写对应逻辑。
+- 默认优化器为 `torch.optim.AdamW`，通过 `TrainingPipeline._create_optimizer` 按配置创建，可在配置或子类中覆写学习率、权重衰减等参数。【F:src/training/pipeline/pipeline.py†L200-L213】
+- 学习率调度器使用余弦退火 + warmup，`_build_scheduler` 会根据 `max_steps` 与 `warmup_steps` 生成 LambdaLR；在恢复训练时会回放进度。【F:src/training/pipeline/pipeline.py†L190-L209】
+- 若需自定义优化逻辑，可扩展 `TrainingPipeline`，或在调用 `train()` 时传入 `target_epochs`、`model_override` 等参数组合自己的循环。【F:src/training/pipeline/pipeline.py†L160-L213】
 
 ## 4.3 内存与混合精度管理
 - `MemoryConfig` 描述 AMP、梯度累积、动态批大小等选项，默认启用 `enable_amp=True` 与 `max_grad_norm=1.0`。

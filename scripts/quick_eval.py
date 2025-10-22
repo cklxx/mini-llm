@@ -113,7 +113,6 @@ class QuickEvaluator:
         candidates = [
             model_dir / "tokenizer",
             model_dir / "tokenizer.json",
-            model_dir / "tokenizer.pkl",
         ]
         for candidate in candidates:
             if candidate.is_dir():

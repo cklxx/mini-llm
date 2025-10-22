@@ -21,8 +21,8 @@
 1. **初始化**：`RLHFPipeline.__init__` 会配置日志、自动选择设备、创建输出目录并保存完整配置快照，为后续阶段提供统一的运行上下文。【F:src/rl/rlhf_pipeline.py†L75-L136】
 2. **加载资源**：`run_full_pipeline` 会依次加载分词器、基础模型，然后串行执行三个训练阶段；也可以按需调用 `run_sft`、`run_reward_training`、`run_ppo_training` 组合自定义流程。【F:src/rl/rlhf_pipeline.py†L315-L341】
 3. **监督微调（SFT）**：
-   - 使用 `create_trainer('sft', ...)` 组装 `SFTTrainer`，并用 `ConversationDataset` + `DataLoader` 读取对话样本。【F:src/rl/rlhf_pipeline.py†L168-L200】
-   - `train()` 会根据配置轮次保存最佳模型到 `save_dir/sft/best_model.pt`，供奖励和 PPO 阶段复用。【F:src/rl/rlhf_pipeline.py†L193-L203】
+   - 通过 `_build_sft_training_config` 构造标准 `TrainingPipeline` 配置，再调用 `TrainingPipeline.train(target_epochs=...)` 完成阶段化训练，内部会记录配置快照与数据统计。【F:src/rl/rlhf_pipeline.py†L142-L214】【F:src/training/pipeline/pipeline.py†L23-L213】
+   - 训练完成后输出 `checkpoints/sft_<model_size>/final.pt`，同时将模型引用回写到 `RLHFPipeline.sft_model` 以便后续阶段加载。【F:src/rl/rlhf_pipeline.py†L182-L214】
 4. **奖励模型训练**：
    - `create_reward_model` 在 SFT backbone 上挂载奖励头，并可根据 `freeze_reward_backbone` 决定是否更新主干参数。【F:src/rl/rlhf_pipeline.py†L217-L227】
    - 偏好数据通过 `create_preference_dataloader` 转换为成对样本，内部会调用排序损失与正则项以提升训练稳定性。【F:src/rl/rlhf_pipeline.py†L228-L253】【F:src/rl/reward_model/reward_trainer.py†L33-L200】
@@ -62,7 +62,7 @@
 
 ## 常见扩展方向
 
-- **替换模型规模**：可在 `load_base_model` 中调用自定义的 `create_model` 或加载外部 checkpoint，只要返回的模型接口兼容 `create_trainer`、`create_reward_model` 即可。【F:src/rl/rlhf_pipeline.py†L145-L167】
+- **替换模型规模**：可在 `load_base_model` 中调用自定义的 `create_model` 或加载外部 checkpoint，只要返回的模型接口兼容 `TrainingPipeline`、`create_reward_model` 即可。【F:src/rl/rlhf_pipeline.py†L145-L214】
 - **定制奖励目标**：`RewardTrainer` 默认组合排序损失与正则项，可在 `create_preference_loss` 中加入 KL 惩罚或其他偏好学习目标，再在 `reward_trainer` 中注入新的损失权重。【F:src/rl/reward_model/ranking_loss.py†L11-L196】【F:src/rl/reward_model/reward_trainer.py†L152-L284】
 - **扩展 PPO 策略**：`ppo` 子模块内的 `PPOTrainer` 使用策略梯度模板，可复制该结构实现 DPO、KTO 等算法，并在 `RLHFPipeline` 中新增入口选择不同优化器。【F:src/rl/ppo/ppo_trainer.py†L11-L274】
 - **监控与评估**：`evaluate_model` 预留了困惑度、BLEU/ROUGE 指标位置，可在训练完成后调用自定义评估脚本形成闭环；同时建议在 `save_dir` 下保存训练日志与样例，便于审查。【F:src/rl/rlhf_pipeline.py†L364-L418】

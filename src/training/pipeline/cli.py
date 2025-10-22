@@ -6,7 +6,7 @@ import argparse
 
 from config.training_config import get_config
 
-from .app import MiniGPTTrainer
+from .pipeline import TrainingPipeline
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -158,7 +158,7 @@ def run_cli(argv: list[str] | None = None) -> str:
             f"⚙️  使用自定义warmup步数: {config.warmup_steps} (前{config.warmup_steps/config.max_steps*100:.1f}%)"
         )
 
-    trainer = MiniGPTTrainer(config, mode=args.mode)
+    trainer = TrainingPipeline(config, mode=args.mode)
 
     if args.auto_resume:
         print("🔄 启用自动恢复模式")

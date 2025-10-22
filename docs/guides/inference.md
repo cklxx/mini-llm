@@ -27,7 +27,7 @@ Mini-LLM 的推理组件位于 `src/inference/generator.py`。`TextGenerator` �
 ### 批量与增量推理
 
 - `sample_generate` 支持输入 `[batch, seq_len]` 的张量，可一次性对多条 prompt 生成回复；在教学场景中可直接用 `torch.stack` 合并批量以演示批处理效果。【F:src/inference/generator.py†L125-L166】
-- 若希望在循环外逐 token 推理，可以参考 `RegressionSuite` 的实现，它在每步选择 argmax 并将新 token 拼接到输入中，演示了“增量 decode” 的写法。【F:src/training/pipeline/regression_suite.py†L88-L147】
+- 若希望在循环外逐 token 推理，可以参考 `TextGenerator.stream_generate` 等增量生成接口，在每步选择 argmax 并将新 token 拼接到输入中，演示了“增量 decode” 的写法。【F:src/inference/generator.py†L200-L262】
 - 结合训练阶段保存的 `GenerationConfig` 默认值，可通过 `MiniGPT.generate` 快速对比两种实现的输出差异，帮助学生理解封装层的价值。【F:src/model/transformer.py†L451-L500】
 
 ## 使用示例
@@ -63,6 +63,6 @@ print(tokenizer.decode(output_ids[0].tolist()))
 
 - `TextGenerator.chat` 简化了多轮对话上下文的构造，适合作为 HTTP/CLI demo 的快速入口；真实服务中可以替换为结构化的对话历史并配合 `TokenizerManager` 统一特殊 token。【F:src/inference/generator.py†L227-L318】【F:src/training/pipeline/tokenizer_manager.py†L14-L118】
 - 推理脚本若需要与训练阶段保持一致的监控指标，可复用 `TrainingMonitor.get_gradient_norm` 等工具在推理后检查权重变化是否异常。【F:src/training/training_monitor.py†L120-L170】
-- 为保证再现性，建议在推理前载入训练目录下的 `training_config_snapshot.json`，将其中的 `max_generate_length`、`temperature` 等字段同步到 `GenerationConfig`，避免训练/推理参数不一致导致输出偏差。【F:src/training/pipeline/environment.py†L32-L63】【F:src/model/config.py†L55-L115】
+- 为保证再现性，建议在推理前载入训练目录下的 `training_config_snapshot.json`，将其中的 `max_generate_length`、`temperature` 等字段同步到 `GenerationConfig`，避免训练/推理参数不一致导致输出偏差。【F:src/training/pipeline/pipeline.py†L41-L79】【F:src/model/config.py†L55-L115】
 
 `TextGenerator` 只依赖 PyTorch 与分词器接口，可轻松移植到其他项目或脚本中；在服务化场景中可结合批量前向和 KV Cache 进一步提升吞吐。

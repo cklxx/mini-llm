@@ -492,7 +492,6 @@ def run_identity_finetune_pipeline(config: IdentityFineTuneConfig) -> None:
     tokenizer = AutoTokenizer.from_pretrained(
         local_model_dir,
         use_fast=False,
-        trust_remote_code=True,
     )
     if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
         tokenizer.pad_token = tokenizer.eos_token

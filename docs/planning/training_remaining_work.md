@@ -1,11 +1,11 @@
 # 📋 训练体系剩余工作清单
 
-在完成训练流水线模块化改造后，我们继续推进训练工程的可观测性与稳定性。本轮迭代已经补齐显存监控与提示回归基线，接下来仍有若干重点事项需要排期落实。
+在完成训练流水线模块化改造后，我们继续推进训练工程的可观测性与稳定性。当前 `TrainingPipeline` 已统一入口与配置快照能力，但仍有若干重点事项需要排期落实。
 
 ## ✅ 最新完成
 
-- **显存监控集成**：`MemoryHooks` 现已挂载到训练主循环，会在启动和每步优化后检查 GPU/CPU 内存并按阈值自动清理，避免长 run 的显存爬升。【F:src/training/pipeline/memory_hooks.py†L1-L87】【F:src/training/pipeline/training_loop.py†L24-L215】
-- **提示回归基线**：`RegressionSuite` 按配置间隔执行固定提示集，落盘结果并写入 TensorBoard 的通过率与样例，帮助追踪身份模板与基础问答是否回退。【F:src/training/pipeline/regression_suite.py†L1-L112】【F:src/training/training_monitor.py†L408-L470】
+- **统一训练入口**：`TrainingPipeline` 串联数据采样、模型初始化、调度器与监控，启动即生成配置快照与数据集统计，便于复现实验。【F:src/training/pipeline/pipeline.py†L23-L125】
+- **监控基线**：`TrainingMonitor` 默认输出损失、PPL、梯度范数与系统资源指标，可直接接入 TensorBoard 观察训练过程。【F:src/training/training_monitor.py†L120-L332】
 
 ## 1. 损失函数与训练模式完善
 
@@ -15,12 +15,12 @@
 ## 2. 评估与质量验证
 
 - **离线指标扩展**：验证阶段仍仅产出加权 loss 与 perplexity，需要补充 BLEU/ROUGE、拒答率、身份关键词命中率等指标，并持久化样例级别分数。【F:src/training/pipeline/training_loop.py†L151-L214】
-- **回归失败阈值与外部告警**：`RegressionSuite` 生成的通过率尚未绑定阈值或失败时的自动告警，应在训练控制流中加上阈值判断、训练中止选项以及 Webhook/IM 通知能力。【F:src/training/pipeline/regression_suite.py†L1-L112】
+- **回归失败阈值与外部告警**：提示回归尚未整合，需要在训练控制流中加上阈值判断、训练中止选项以及 Webhook/IM 通知能力。【F:src/training/training_monitor.py†L408-L525】
 
 ## 3. 训练工程化增强
 
-- **动态 batch / 梯度累积自适应**：当前显存监控仅执行清理，未在逼近阈值时动态调节 batch size 或梯度累积步数，可复用 `memory_optimizer.py` 的策略实现自适应调度。【F:src/training/memory_optimizer.py†L1-L247】【F:src/training/pipeline/training_loop.py†L56-L214】
-- **分布式/多 GPU 支持**：训练器仍以单卡为主，需要封装 DDP 初始化、梯度同步与分布式检查点策略，使训练环境可扩展至多 GPU。【F:src/training/pipeline/app.py†L25-L239】
+- **动态 batch / 梯度累积自适应**：目前未在逼近阈值时动态调节 batch size 或梯度累积步数，可复用 `memory_optimizer.py` 的策略实现自适应调度。【F:src/training/memory_optimizer.py†L1-L247】【F:src/training/pipeline/training_loop.py†L56-L214】
+- **分布式/多 GPU 支持**：训练器仍以单卡为主，需要封装 DDP 初始化、梯度同步与分布式检查点策略，使训练环境可扩展至多 GPU。【F:src/training/pipeline/pipeline.py†L153-L213】
 
 ## 4. 自动化与可观测性
 
