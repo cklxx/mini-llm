@@ -369,12 +369,18 @@ class MiniGPT(nn.Module):
                     nn.init.zeros_(module.bias)
 
     def create_causal_mask(self, seq_len: int) -> torch.Tensor:
-        """创建因果掩码（下三角矩阵）
+        """创建用于 ``scaled_dot_product_attention`` 的因果掩码。
 
-        防止模型在预测时看到未来的token
+        PyTorch 期望布尔掩码为 *True* 表示禁止访问，或浮点掩码为
+        ``-inf`` 表示禁止访问、``0`` 表示允许访问。因此我们显式构造一个
+        仅屏蔽未来位置的矩阵，确保训练时与自回归推理保持一致。
         """
-        mask = torch.tril(torch.ones(seq_len, seq_len))
-        return mask  # 1表示可见，0表示掩码
+
+        mask = torch.zeros((seq_len, seq_len), dtype=torch.bool)
+        mask = mask.masked_fill(
+            torch.triu(torch.ones((seq_len, seq_len), dtype=torch.bool), diagonal=1), True
+        )
+        return mask
 
     def forward(
         self,

@@ -476,8 +476,11 @@ def create_moe_model(
                         nn.init.zeros_(module.bias)
 
         def create_causal_mask(self, seq_len: int) -> torch.Tensor:
-            """创建因果掩码"""
-            mask = torch.tril(torch.ones(seq_len, seq_len))
+            """创建用于阻止关注未来token的因果掩码"""
+            mask = torch.zeros((seq_len, seq_len), dtype=torch.bool)
+            mask = mask.masked_fill(
+                torch.triu(torch.ones((seq_len, seq_len), dtype=torch.bool), diagonal=1), True
+            )
             return mask
 
         def forward(
