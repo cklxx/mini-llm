@@ -29,8 +29,8 @@ help:
 	@echo "    make clean-all      - 深度清理（包括缓存）"
 	@echo ""
 	@echo "  训练和推理:"
-	@echo "    make train-sft      - 训练SFT模型（small配置）"
-	@echo "    make train-pretrain - 预训练模型（medium配置）"
+	@echo "    make train-sft      - 训练SFT模型（small配置，支持自动恢复）"
+	@echo "    make train-pretrain - 预训练模型（small配置，支持自动恢复）"
 	@echo "    make chat           - 启动交互式聊天"
 	@echo ""
 	@echo "  TensorBoard监控:"
@@ -121,16 +121,16 @@ clean-all: clean
 
 # 训练和推理快捷命令
 train-sft:
-	@echo "🏋️ 训练SFT模型（small配置）..."
-	uv run python scripts/train.py --mode sft --config small --retrain-tokenizer
+	@echo "🏋️ 训练SFT模型（small配置，自动恢复）..."
+	uv run python scripts/train.py --mode sft --config small --retrain-tokenizer --auto-resume
 
 train-pretrain:
-	@echo "🏋️ 预训练模型（medium配置）..."
-	uv run python scripts/train.py --mode pretrain --config medium
+	@echo "🏋️ 预训练模型（small配置，自动恢复）..."
+	uv run python scripts/train.py --mode pretrain --config small --auto-resume
 
 train-dpo:
-	@echo "🏋️ DPO训练（需要先完成SFT）..."
-	uv run python scripts/train.py --mode dpo --config small --resume checkpoints/sft_small/final_model.pt
+	@echo "🏋️ DPO训练（需要先完成SFT，自动恢复）..."
+	uv run python scripts/train.py --mode dpo --config small --resume checkpoints/sft_small/final_model.pt --auto-resume
 
 chat:
 	@echo "💬 启动交互式聊天..."
@@ -162,18 +162,19 @@ tensorboard-clean:
 	uv run python scripts/tensorboard_manager.py clean --days 30
 
 # 模型评估
+
 eval-quick:
 	@echo "🚀 快速评估（自我认知测试）..."
-	@if [ -f checkpoints/sft_medium/final_model.pt ]; then \
-		uv run python scripts/quick_eval.py --model-path checkpoints/sft_medium/final_model.pt --quick; \
+	@if [ -f checkpoints/sft_small/final_model.pt ]; then \
+		uv run python scripts/quick_eval.py --model-path checkpoints/sft_small/final_model.pt --quick; \
 	else \
 		echo "❌ 未找到模型文件，请先训练模型"; \
 	fi
 
 eval-full:
 	@echo "📊 完整评估（所有测试）..."
-	@if [ -f checkpoints/sft_medium/final_model.pt ]; then \
-		uv run python scripts/quick_eval.py --model-path checkpoints/sft_medium/final_model.pt; \
+	@if [ -f checkpoints/sft_small/final_model.pt ]; then \
+		uv run python scripts/quick_eval.py --model-path checkpoints/sft_small/final_model.pt; \
 	else \
 		echo "❌ 未找到模型文件，请先训练模型"; \
 	fi
