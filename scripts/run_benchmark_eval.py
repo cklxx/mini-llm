@@ -94,6 +94,33 @@ def _load_tokenizer(tokenizer_path: Path) -> BPETokenizer:
     return tokenizer
 
 
+def _resolve_tokenizer_path(checkpoint_path: Path, override: str | None) -> Path:
+    candidates = []
+    if override:
+        candidates.append(Path(override).expanduser())
+    checkpoint_dir = checkpoint_path.parent
+    candidates.extend(
+        [
+            checkpoint_dir / "tokenizer",
+            checkpoint_dir / "tokenizer.json",
+            checkpoint_dir / "tokenizer.pkl",
+        ]
+    )
+
+    for candidate in candidates:
+        if candidate.is_dir():
+            json_path = candidate / "tokenizer.json"
+            if json_path.exists():
+                return json_path
+        elif candidate.exists():
+            return candidate
+
+    raise FileNotFoundError(
+        "未找到分词器文件。请通过 --tokenizer 指定 tokenizer.json/tokenizer.pkl，"
+        "或确保其与 checkpoint 位于同一目录。"
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run the built-in benchmark suite on a saved Mini-LLM checkpoint.",
@@ -105,7 +132,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--tokenizer",
-        help="Path to tokenizer.pkl. Defaults to the file next to the checkpoint.",
+        help=(
+            "Path to tokenizer resources (tokenizer.json/tokenizer.pkl or directory). "
+            "Defaults to the tokenizer next to the checkpoint."
+        ),
     )
     parser.add_argument(
         "--device",
@@ -164,21 +194,13 @@ def main() -> None:
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"未找到 checkpoint 文件: {checkpoint_path}")
 
-    tokenizer_path = (
-        Path(args.tokenizer).expanduser().resolve()
-        if args.tokenizer
-        else checkpoint_path.with_name("tokenizer.pkl")
-    )
-    if not tokenizer_path.exists():
-        raise FileNotFoundError(
-            "未找到分词器文件。请通过 --tokenizer 指定 tokenizer.pkl，或确保其与 checkpoint 位于同一目录。"
-        )
+    tokenizer_path = _resolve_tokenizer_path(checkpoint_path, args.tokenizer)
 
     device = _resolve_device(args.device)
     print(f"🖥️  使用设备: {device}")
 
     tokenizer = _load_tokenizer(tokenizer_path)
-    print(f"🔤 已加载分词器 (vocab_size={tokenizer.vocab_size})")
+    print(f"🔤 已加载分词器 (路径={tokenizer_path}, vocab_size={tokenizer.vocab_size})")
 
     model = _load_model(checkpoint_path, device=device, vocab_size=tokenizer.vocab_size)
     total_params = sum(p.numel() for p in model.parameters())

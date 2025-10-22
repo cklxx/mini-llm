@@ -32,6 +32,7 @@ from .ppo.ppo_trainer import create_ppo_trainer
 from .ppo.value_model import create_value_model
 from .reward_model.preference_data import create_preference_dataloader
 from .reward_model.reward_trainer import create_reward_model, create_reward_trainer
+from tokenizer.bpe_tokenizer import BPETokenizer
 
 
 @dataclass
@@ -40,7 +41,7 @@ class RLHFConfig:
 
     # 模型配置
     model_name: str = "minigpt"
-    tokenizer_path: str = "tokenizer.pkl"
+    tokenizer_path: str = "tokenizer/tokenizer.json"
     device: str = "auto"
 
     # SFT配置
@@ -136,10 +137,9 @@ class RLHFPipeline:
 
     def load_tokenizer(self):
         """加载分词器"""
-        import pickle
-
-        with open(self.config.tokenizer_path, "rb") as f:
-            self.tokenizer = pickle.load(f)
+        tokenizer = BPETokenizer()
+        tokenizer.load(self.config.tokenizer_path)
+        self.tokenizer = tokenizer
         self.logger.info("分词器加载完成")
 
     def load_base_model(self, model_path: str):
@@ -445,7 +445,7 @@ def get_default_config() -> RLHFConfig:
     return RLHFConfig(
         # 基础配置
         model_name="minigpt",
-        tokenizer_path="checkpoints/tokenizer.pkl",
+        tokenizer_path="checkpoints/tokenizer/tokenizer.json",
         device="auto",
         # 数据路径
         sft_data_path="data/dataset/minimind_dataset/sft_mini_512.jsonl",

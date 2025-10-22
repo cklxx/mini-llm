@@ -78,11 +78,11 @@ class QuickEvaluator:
             config = None
 
         # 加载分词器
-        tokenizer_path = Path(self.model_path).parent / "tokenizer.pkl"
-        if tokenizer_path.exists():
+        tokenizer_location = self._resolve_tokenizer_path(Path(self.model_path).parent)
+        if tokenizer_location is not None:
             tokenizer = BPETokenizer(vocab_size=vocab_size)
-            tokenizer.load(str(tokenizer_path))
-            print(f"✅ 分词器已加载: {tokenizer_path}")
+            tokenizer.load(str(tokenizer_location))
+            print(f"✅ 分词器已加载: {tokenizer_location}")
         else:
             print("⚠️  未找到分词器文件，使用默认分词器")
             tokenizer = BPETokenizer(vocab_size=vocab_size)
@@ -107,6 +107,22 @@ class QuickEvaluator:
         print(f"✅ 模型已加载: {total_params/1e6:.2f}M 参数")
 
         return model, tokenizer
+
+    @staticmethod
+    def _resolve_tokenizer_path(model_dir: Path) -> Path | None:
+        candidates = [
+            model_dir / "tokenizer",
+            model_dir / "tokenizer.json",
+            model_dir / "tokenizer.pkl",
+        ]
+        for candidate in candidates:
+            if candidate.is_dir():
+                json_path = candidate / "tokenizer.json"
+                if json_path.exists():
+                    return candidate
+            elif candidate.exists():
+                return candidate
+        return None
 
     def generate(self, prompt, max_new_tokens=None, use_ultra_think=False):
         """

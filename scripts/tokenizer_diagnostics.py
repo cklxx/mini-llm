@@ -15,6 +15,7 @@ import pprint
 import random
 import sys
 from collections.abc import Iterable, Iterator
+from pathlib import Path
 
 # 添加项目根目录和src目录到路径
 PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -84,9 +85,25 @@ def collect_texts(path: str, sample_size: int, seed: int) -> list[str]:
     return reservoir
 
 
+def _resolve_tokenizer_location(path: str) -> str:
+    candidate = Path(path).expanduser()
+    if candidate.is_dir():
+        json_path = candidate / "tokenizer.json"
+        if not json_path.exists():
+            raise FileNotFoundError(f"目录中缺少 tokenizer.json: {candidate}")
+        return str(candidate)
+    if candidate.exists():
+        return str(candidate)
+    raise FileNotFoundError(f"未找到分词器文件: {path}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="MiniGPT 分词器诊断工具")
-    parser.add_argument("--tokenizer", required=True, help="tokenizer.pkl 路径")
+    parser.add_argument(
+        "--tokenizer",
+        required=True,
+        help="tokenizer 路径（支持 tokenizer.json、tokenizer.pkl 或包含 tokenizer.json 的目录）",
+    )
     parser.add_argument("--data", help="用于统计UNK率的数据文件 (jsonl 或 txt)")
     parser.add_argument("--sample-size", type=int, default=1000, help="随机抽样样本数")
     parser.add_argument("--seed", type=int, default=42, help="随机种子")
@@ -94,11 +111,12 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    tokenizer_path = _resolve_tokenizer_location(args.tokenizer)
     tokenizer = BPETokenizer()
-    tokenizer.load(args.tokenizer)
+    tokenizer.load(tokenizer_path)
 
     print("=== Tokenizer 信息 ===")
-    print(f"文件: {args.tokenizer}")
+    print(f"文件: {tokenizer_path}")
     print(f"词汇表大小: {tokenizer.vocab_size}")
     print(f"配置: {tokenizer.get_config()}")
     print(f"Checksum: {tokenizer.checksum() or 'N/A'}")

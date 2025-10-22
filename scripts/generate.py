@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
 
 import torch
 
@@ -63,13 +64,7 @@ class MiniGPTInference:
         checkpoint = torch.load(model_path, map_location=self.device, weights_only=False)
 
         # 确定分词器路径
-        if tokenizer_path is None:
-            # 尝试从模型目录找分词器
-            model_dir = os.path.dirname(model_path)
-            tokenizer_path = os.path.join(model_dir, "tokenizer.pkl")
-
-            if not os.path.exists(tokenizer_path):
-                raise FileNotFoundError(f"未找到分词器文件: {tokenizer_path}")
+        tokenizer_path = self._resolve_tokenizer_path(model_path, tokenizer_path)
 
         # 加载分词器
         vocab_size = checkpoint.get("tokenizer_vocab_size", 10000)
@@ -102,7 +97,7 @@ class MiniGPTInference:
                     for name, (exp, act) in special_mismatches.items()
                 )
                 raise ValueError(
-                    "分词器特殊token映射与checkpoint不一致，请检查 tokenizer.pkl 是否匹配训练输出。"
+                    "分词器特殊token映射与checkpoint不一致，请检查分词器文件是否匹配训练输出。"
                     f"差异: {mismatch_info}"
                 )
 
@@ -111,7 +106,7 @@ class MiniGPTInference:
             actual_checksum = tokenizer.checksum()
             if actual_checksum and actual_checksum != expected_checksum:
                 raise ValueError(
-                    "分词器校验失败：checksum不匹配。请确保使用训练时导出的tokenizer.pkl。"
+                    "分词器校验失败：checksum不匹配。请确保使用训练时导出的分词器文件。"
                 )
         print("✅ 分词器配置校验通过")
 
@@ -135,6 +130,32 @@ class MiniGPTInference:
 
         print("✅ 模型加载成功")
         return model, tokenizer
+
+    @staticmethod
+    def _resolve_tokenizer_path(model_path: str, override: str | None) -> str:
+        candidates = []
+        if override:
+            candidates.append(Path(override))
+        model_dir = Path(model_path).parent
+        candidates.extend(
+            [
+                model_dir / "tokenizer",
+                model_dir / "tokenizer.json",
+                model_dir / "tokenizer.pkl",
+            ]
+        )
+
+        for candidate in candidates:
+            if candidate.is_dir():
+                json_path = candidate / "tokenizer.json"
+                if json_path.exists():
+                    return str(candidate)
+            elif candidate.exists():
+                return str(candidate)
+
+        raise FileNotFoundError(
+            "未找到分词器文件，请通过 --tokenizer 指定 tokenizer.json/tokenizer.pkl 所在位置"
+        )
 
     def generate_text(self, prompt, **overrides):
         """生成文本"""

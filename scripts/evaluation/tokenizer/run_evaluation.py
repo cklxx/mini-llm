@@ -46,20 +46,32 @@ class OneClickEvaluator:
 
     def find_tokenizers(self):
         """自动发现可用的分词器"""
-        tokenizers = []
+        tokenizers: set[Path] = set()
 
-        if self.tokenizer_dir.exists():
-            for file in self.tokenizer_dir.glob("*.pkl"):
-                tokenizers.append(file)
+        search_roots = [
+            self.tokenizer_dir,
+            self.project_root / "tokenizers",
+            self.project_root / "checkpoints",
+        ]
 
-        # 如果训练目录没有分词器，检查checkpoints目录
-        if not tokenizers:
-            checkpoints_dir = self.project_root / "checkpoints"
-            if checkpoints_dir.exists():
-                for file in checkpoints_dir.glob("*tokenizer*.pkl"):
-                    tokenizers.append(file)
+        for root in search_roots:
+            if not root.exists():
+                continue
+            tokenizers.update(self._collect_tokenizers(root))
 
         return sorted(tokenizers)
+
+    @staticmethod
+    def _collect_tokenizers(root: Path) -> set[Path]:
+        results: set[Path] = set()
+        for path in root.rglob("*"):
+            if path.is_dir():
+                json_path = path / "tokenizer.json"
+                if json_path.exists():
+                    results.add(json_path)
+            elif path.suffix in {".pkl", ".json"} and "tokenizer" in path.name:
+                results.add(path)
+        return results
 
     def run_complete_evaluation(self, custom_tokenizers=None, iterations=50):
         """运行完整评估流程"""
