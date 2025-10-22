@@ -116,7 +116,7 @@ class TokenizerManager:
         cache_key = config.get_cache_key()
         filename = f"{cache_key}_{data_hash}"
 
-        model_path = self.cache_dir / "models" / f"{filename}.pkl"
+        model_path = self.cache_dir / "models" / filename
         metadata_path = self.cache_dir / "metadata" / f"{filename}.json"
 
         return model_path, metadata_path
@@ -149,6 +149,9 @@ class TokenizerManager:
     ) -> bool:
         """检查缓存是否有效"""
         if not model_path.exists() or not metadata_path.exists():
+            return False
+
+        if not (model_path / "tokenizer.json").exists():
             return False
 
         metadata = self._load_metadata(metadata_path)
@@ -247,7 +250,7 @@ class TokenizerManager:
             metadata = self._load_metadata(metadata_file)
             if metadata:
                 # 检查对应的模型文件是否存在
-                model_file = self.cache_dir / "models" / f"{metadata_file.stem}.pkl"
+                model_file = self.cache_dir / "models" / metadata_file.stem
                 if model_file.exists():
                     cached_tokenizers.append(
                         {
@@ -255,7 +258,9 @@ class TokenizerManager:
                             "config": metadata["config"],
                             "data_path": metadata["data_path"],
                             "created_at": metadata.get("created_at", 0),
-                            "model_size": model_file.stat().st_size,
+                            "model_size": sum(
+                                f.stat().st_size for f in model_file.glob("**/*") if f.is_file()
+                            ),
                         }
                     )
 
@@ -284,9 +289,17 @@ class TokenizerManager:
             name = item["name"]
 
             # 删除模型文件
-            model_file = self.cache_dir / "models" / f"{name}.pkl"
+            model_file = self.cache_dir / "models" / name
             if model_file.exists():
-                model_file.unlink()
+                paths = sorted(
+                    model_file.glob("**/*"), key=lambda p: len(p.parts), reverse=True
+                )
+                for path in paths:
+                    if path.is_file():
+                        path.unlink()
+                    elif path.is_dir():
+                        path.rmdir()
+                model_file.rmdir()
                 deleted_count += 1
 
             # 删除元数据文件

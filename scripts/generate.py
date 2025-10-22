@@ -143,7 +143,6 @@ class MiniGPTInference:
             [
                 model_dir / "tokenizer",
                 model_dir / "tokenizer.json",
-                model_dir / "tokenizer.pkl",
             ]
         )
 
@@ -156,7 +155,7 @@ class MiniGPTInference:
                 return str(candidate)
 
         raise FileNotFoundError(
-            "未找到分词器文件，请通过 --tokenizer 指定 tokenizer.json/tokenizer.pkl 所在位置"
+            "未找到分词器文件，请通过 --tokenizer 指定 tokenizer.json 所在位置"
         )
 
     def generate_text(self, prompt, **overrides):

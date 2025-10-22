@@ -23,61 +23,21 @@ class TokenizerManager:
 
     @property
     def _use_hf_tokenizer(self) -> bool:
-        return getattr(self.config, "tokenizer_type", "bpe") == "huggingface"
+        return getattr(self.config, "tokenizer_type", "huggingface") == "huggingface"
 
     @property
-    def tokenizer_path(self) -> str:
-        if self._use_hf_tokenizer:
-            return os.path.join(self.output_dir, "tokenizer", "tokenizer.json")
-        return os.path.join(self.output_dir, "tokenizer.pkl")
-
-    @property
-    def tokenizer_dir(self) -> str:
-        if self._use_hf_tokenizer:
-            return os.path.join(self.output_dir, "tokenizer")
-        return self.output_dir
+    def tokenizer_dir(self) -> Path:
+        return Path(self.output_dir) / "tokenizer"
 
     def setup(self, retrain: bool = False) -> BPETokenizer:
         print("🔤 设置分词器...")
 
-        if self._use_hf_tokenizer:
-            return self._setup_hf_tokenizer(retrain=retrain)
+        if not self._use_hf_tokenizer:
+            raise RuntimeError("当前仅支持 HuggingFace 分词器，请更新配置。")
 
-        pretrain_tokenizer_path = None
-        if self.mode in ["sft", "dpo", "rlhf"]:
-            pretrain_dir = os.path.join(
-                self.config.checkpoint_dir, f"pretrain_{self.config.model_size}"
-            )
-            pretrain_tokenizer_path = os.path.join(pretrain_dir, "tokenizer.pkl")
-            if os.path.exists(pretrain_tokenizer_path):
-                print(f"✅ 从 pretrain checkpoint 加载分词器: {pretrain_tokenizer_path}")
-                tokenizer = BPETokenizer(vocab_size=self.config.vocab_size)
-                tokenizer.load(pretrain_tokenizer_path)
-                self._copy_tokenizer(pretrain_tokenizer_path)
-                print(f"📋 分词器已复制到: {self.tokenizer_path}")
-                print(f"词汇表大小: {tokenizer.vocab_size}")
-                return tokenizer
-            print(f"⚠️  未找到 pretrain 分词器: {pretrain_tokenizer_path}")
-            print("   将训练新的分词器（建议先运行 pretrain 模式）")
-
-        if os.path.exists(self.tokenizer_path) and not retrain:
-            print(f"加载现有分词器: {self.tokenizer_path}")
-            tokenizer = BPETokenizer(vocab_size=self.config.vocab_size)
-            tokenizer.load(self.tokenizer_path)
-        else:
-            print("训练新的分词器...")
-            texts = self._collect_texts_for_tokenizer()
-            tokenizer = BPETokenizer(vocab_size=self.config.vocab_size)
-            tokenizer.train(texts)
-            tokenizer.save(self.tokenizer_path)
-            print(f"分词器已保存: {self.tokenizer_path}")
-
-        print(f"词汇表大小: {tokenizer.vocab_size}")
-        return tokenizer
+        return self._setup_hf_tokenizer(retrain=retrain)
 
     def _setup_hf_tokenizer(self, retrain: bool = False) -> BPETokenizer:
-        tokenizer = BPETokenizer()
-
         candidate_sources: list[Path] = []
         if self.mode in ["sft", "dpo", "rlhf"]:
             pretrain_dir = Path(self.config.checkpoint_dir) / f"pretrain_{self.config.model_size}"
@@ -87,22 +47,31 @@ class TokenizerManager:
         if config_json:
             candidate_sources.append(Path(config_json).parent)
 
-        output_dir = Path(self.tokenizer_dir)
+        output_dir = self.tokenizer_dir
         if output_dir.exists() and not retrain:
             candidate_sources.insert(0, output_dir)
 
         source_dir: Path | None = None
-        for candidate in candidate_sources:
-            if candidate and candidate.exists():
-                json_path = candidate / "tokenizer.json"
-                if json_path.exists():
-                    source_dir = candidate
-                    break
+        if not retrain:
+            for candidate in candidate_sources:
+                if candidate and candidate.exists():
+                    json_path = candidate / "tokenizer.json"
+                    if json_path.exists():
+                        source_dir = candidate
+                        break
+
+        tokenizer = BPETokenizer(vocab_size=self.config.vocab_size)
 
         if source_dir is None:
-            raise FileNotFoundError(
-                "未找到 HuggingFace 分词器文件。请确保 tokenizer.json 已复制到项目中。"
-            )
+            print("⚠️  未找到现有 HuggingFace 分词器，将从数据训练新的词表。")
+            texts = self._collect_texts_for_tokenizer()
+            if not texts:
+                raise RuntimeError("没有可用于训练分词器的文本数据。")
+            tokenizer.train(texts)
+            tokenizer.save(str(output_dir))
+            print(f"分词器已保存: {output_dir}")
+            print(f"词汇表大小: {tokenizer.vocab_size}")
+            return tokenizer
 
         tokenizer.load(str(source_dir))
 
@@ -150,19 +119,6 @@ class TokenizerManager:
         if "chosen" in data and "rejected" in data:
             return data["chosen"]
         return None
-
-    def _copy_tokenizer(self, pretrain_tokenizer_path: str) -> None:
-        import shutil
-
-        if self._use_hf_tokenizer:
-            source_dir = Path(pretrain_tokenizer_path)
-            if source_dir.is_file():
-                source_dir = source_dir.parent
-            self._copy_hf_tokenizer(source_dir, Path(self.tokenizer_dir))
-            return
-
-        os.makedirs(self.output_dir, exist_ok=True)
-        shutil.copy2(pretrain_tokenizer_path, self.tokenizer_path)
 
     def _copy_hf_tokenizer(self, source_dir: Path, dest_dir: Path) -> None:
         import shutil

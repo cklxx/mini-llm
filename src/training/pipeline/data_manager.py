@@ -187,24 +187,54 @@ class DataResolver:
         if manifest_paths:
             return [(path,) for path in manifest_paths]
         if self.mode == "pretrain":
-            return [
-                ("wiki_zh_full.simdedup.jsonl", "wiki_zh_full.cleaned.jsonl", "wiki_pretrain_part1.json"),
-                ("chinacorpus_full.simdedup.jsonl", "chinacorpus_full.cleaned.jsonl"),
-                ("pretrain_hq.cleaned.jsonl", "pretrain_hq.jsonl"),
-            ]
+            candidates: list[tuple[str, ...]] = []
+            explicit = getattr(self.config, "pretrain_data_path", None)
+            if explicit:
+                candidates.append((explicit,))
+            candidates.extend(
+                [
+                    (
+                        "wiki_zh_full.simdedup.jsonl",
+                        "wiki_zh_full.cleaned.jsonl",
+                        "wiki_pretrain_part1.json",
+                    ),
+                    ("chinacorpus_full.simdedup.jsonl", "chinacorpus_full.cleaned.jsonl"),
+                    ("pretrain_hq.cleaned.jsonl", "pretrain_hq.jsonl"),
+                ]
+            )
+            return candidates
         if self.mode == "sft":
-            return [
-                ("sft_mini_512.cleaned.jsonl", "sft_mini_512.jsonl"),
-                ("alex_identity.jsonl", "minigpt_identity.jsonl"),
-                ("ultra_think.jsonl",),
-            ]
+            candidates = []
+            explicit = getattr(self.config, "sft_data_path", None)
+            if explicit:
+                candidates.append((explicit,))
+            candidates.extend(
+                [
+                    ("sft_mini_512.cleaned.jsonl", "sft_mini_512.jsonl"),
+                    ("alex_identity.jsonl", "minigpt_identity.jsonl"),
+                    ("ultra_think.jsonl",),
+                ]
+            )
+            return candidates
         if self.mode == "dpo":
-            return [("dpo.jsonl",)]
+            candidates = []
+            explicit = getattr(self.config, "dpo_data_path", None)
+            if explicit:
+                candidates.append((explicit,))
+            candidates.append(("dpo.jsonl",))
+            return candidates
         if self.mode == "rlhf":
-            return [
-                ("alex_identity.jsonl", "minigpt_identity.jsonl"),
-                ("ultra_think.jsonl",),
-            ]
+            candidates = []
+            explicit = getattr(self.config, "rlhf_data_path", None)
+            if explicit:
+                candidates.append((explicit,))
+            candidates.extend(
+                [
+                    ("alex_identity.jsonl", "minigpt_identity.jsonl"),
+                    ("ultra_think.jsonl",),
+                ]
+            )
+            return candidates
         raise ValueError(f"不支持的训练模式: {self.mode}")
 
     def get_data_paths(self) -> list[str]:

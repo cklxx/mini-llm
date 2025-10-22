@@ -36,14 +36,14 @@
 
 ### Mini-LLM 训练流水线
 
-Mini-LLM 的 `training.pipeline` 架构将训练划分为环境配置、数据准备、训练循环、检查点与监控等模块：
+Mini-LLM 的 `training.pipeline` 架构将训练划分为数据准备、训练循环、检查点与监控等模块：
 
-- `TrainingEnvironment` 管理随机种子、设备检测、输出目录与配置快照。【F:docs/guides/training.md†L8-L40】
-- `TokenizerManager` 负责分词器训练/缓存；`DatasetPreparer` 则按文件采样比例、最大样本数与验证拆分生成数据集。【F:docs/guides/training.md†L40-L74】
-- `TrainingLoopRunner` 实现梯度累积、线性 warmup + 余弦退火调度、验证评估与早停；同时结合 `MemoryHooks` 进行显存监控。【F:docs/guides/training.md†L74-L120】
-- `TrainingMonitor` 汇总损失、PPL、梯度范数、资源占用并输出 TensorBoard 与 JSON 摘要，支持提示回归评估。【F:docs/guides/training.md†L120-L154】
+- `TrainingPipeline` 负责创建输出目录、保存配置快照并驱动各组件运行。【F:docs/guides/training.md†L1-L74】
+- `TokenizerManager` 负责分词器训练/缓存；`DatasetPreparer` 则按文件采样比例、最大样本数与验证拆分生成数据集。【F:docs/guides/training.md†L74-L100】
+- `TrainingLoopRunner` 实现梯度累积、线性 warmup + 余弦退火调度、验证评估与早停。【F:docs/guides/training.md†L100-L140】
+- `TrainingMonitor` 汇总损失、PPL、梯度范数、资源占用并输出 TensorBoard 与 JSON 摘要。【F:docs/guides/training.md†L140-L154】
 
-整体流程通过 `scripts/train.py` 与 CLI 参数切换预训练、SFT、DPO、RLHF 等模式，强调可复现性和监控覆盖。近期 medium 训练预设同步引入瘦长超参（384×20 层）与更激进的 `lr=5e-4`、`warmup_steps=10000`，向 MiniMind 默认调度对齐以提升小模型收敛速度。【F:docs/guides/training.md†L1-L74】【F:config/training_config.py†L197-L243】【F:src/model/config.py†L227-L252】
+整体流程通过 `scripts/train.py` 与 CLI 参数切换预训练、SFT、DPO、RLHF 等模式，强调可复现性和监控覆盖。近期 medium 训练预设同步引入瘦长超参（384×20 层）与更激进的 `lr=5e-4`、`warmup_steps=10000`，向 MiniMind 默认调度对齐以提升小模型收敛速度。【F:docs/guides/training.md†L1-L140】【F:config/training_config.py†L197-L243】【F:src/model/config.py†L227-L252】
 
 ### MiniMind 训练脚本
 
@@ -58,7 +58,7 @@ MiniMind 的预训练脚本采用更直接的单文件实现：
 ### 对比总结
 
 - **工程抽象**：Mini-LLM 以面向对象管线封装，适合课程演示与多阶段实验；MiniMind 倾向可读性强的脚本，便于初学者直接修改。
-- **调度与监控**：Mini-LLM 集成早停、回归测试、内存警戒线等监控机制；MiniMind 聚焦于核心训练环节，监控以日志与可选 wandb 为主。
+- **调度与监控**：Mini-LLM 集成早停、TensorBoard 指标与梯度异常检测；MiniMind 聚焦于核心训练环节，监控以日志与可选 wandb 为主。
 - **自动化程度**：Mini-LLM 的配置文件提供数据采样、内存优化等默认策略，MiniMind 更多依赖命令行/脚本参数手动指定。
 
 ## 结论

@@ -25,6 +25,6 @@
 ## 5.5 RLHF 全流程
 - `RLHFPipeline` 将 SFT → 奖励模型 → PPO 串联，`RLHFConfig` 统一管理各阶段路径和超参。
 - `run_sft()`、`run_reward_training()`、`run_ppo_training()` 分别封装了训练逻辑，最终由 `run_full_pipeline()` 按顺序执行并保存中间 checkpoint。
-- 若只需某一阶段，可单独调用对应方法，或直接使用 `create_trainer`/`create_reward_trainer`/`create_ppo_trainer` 获得底层组件。
+- 若只需某一阶段，可单独调用对应方法，或直接复用 `TrainingPipeline`、`create_reward_trainer`、`create_ppo_trainer` 等底层组件组合自定义流程。
 
 > 实践提示：RLHF 计算成本较高，建议先用 `TextGenerator.sample_generate` 检查 SFT 模型质量，再进入奖励模型与 PPO 阶段，避免资源浪费。

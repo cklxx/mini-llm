@@ -4,7 +4,7 @@ Mini-LLM 是一个面向教学与原型验证的小型语言模型训练框架�
 
 ## ✨ 项目亮点
 - **模块化 Transformer 实现**：`MiniGPTConfig` 与 `MiniGPT` 提供可配置的隐藏层数、注意力头数、RoPE、GQA、SwiGLU、MoE 等现代组件，便于按需裁剪模型规模与特性。
-- **训练流水线抽象**：`training.pipeline` 中的 `TrainingEnvironment`、`DatasetPreparer`、`TrainingLoopRunner`、`CheckpointManager` 和 `TrainingMonitor` 串联起设备初始化、数据采样、调度器/优化器、验证与早停等流程，可直接通过 `scripts/train.py` 复现完整训练回路。【F:src/training/pipeline/app.py†L25-L162】【F:src/training/pipeline/training_loop.py†L18-L214】
+- **训练流水线抽象**：`training.pipeline.TrainingPipeline` 串联 `DatasetPreparer`、`TrainingLoopRunner`、`CheckpointManager` 与 `TrainingMonitor`，负责单一入口的配置快照、数据采样与训练调度，可直接通过 `scripts/train.py` 复现完整训练回路。【F:src/training/pipeline/pipeline.py†L23-L230】【F:src/training/pipeline/training_loop.py†L18-L214】
 - **数据与分词支持**：`training.datasets` 提供语言建模与对话 SFT 数据集实现，支持角色标记、掩码策略与轮次截断增强；`TokenizerManager` 管理分词器训练与缓存复用，降低重复开销。【F:src/training/datasets/conversation.py†L10-L145】【F:src/training/pipeline/tokenizer_manager.py†L1-L118】
 - **监控与实验追踪**：增强版 `TrainingMonitor` 记录训练/验证损失、PPL、系统资源与梯度健康指标，并在训练结束自动生成 TensorBoard 与可视化摘要。【F:src/training/training_monitor.py†L120-L332】
 - **推理与评估**：`TextGenerator` 提供贪心、Top-k、Top-p、Beam Search 等生成策略；`benchmarks/performance_benchmark.py` 可用于快速评估不同配置的性能。
@@ -63,10 +63,10 @@ mini-llm/
 > `--mode {pretrain,sft,dpo,rlhf}`：控制训练阶段，内部 `apply_mode_defaults` 会针对不同目标调整最大步数、warmup 以及学习率。例如预训练保持 1e-4 学习率与 5% warmup，SFT 则降低学习率保护语言能力，RLHF 则进一步缩小步长以稳定 PPO。【F:src/training/pipeline/cli.py†L41-L82】
 >
 > `--config <size>`：映射到 `config/training_config.py` 中的配置类，涵盖模型维度、批量大小、优化器参数与生成策略。不同配置依据显存大小动态调整梯度累积与 DataLoader 参数，保证在教学环境中也能复现完整流程。【F:config/training_config.py†L202-L340】
->
-> `--retrain-tokenizer`：强制执行 `TokenizerManager.setup` 内的重新训练逻辑，以便在数据集发生变化时更新词表，避免旧词表导致的未登录词问题。【F:src/training/pipeline/app.py†L39-L67】
->
-> `--resume/--auto-resume`：与 `CheckpointManager` 协作，实现手动或自动加载最近检查点。恢复时会同步优化器与调度器状态，确保学习率曲线连续。【F:src/training/pipeline/app.py†L93-L150】
+
+> `--retrain-tokenizer`：强制 `TrainingPipeline.setup_tokenizer` 重新训练词表，以便在数据集发生变化时保持覆盖率。【F:src/training/pipeline/pipeline.py†L86-L125】
+
+> `--resume/--auto-resume`：交由 `TrainingPipeline` 与 `CheckpointManager` 协作恢复，保证模型/优化器状态与学习率调度连续。【F:src/training/pipeline/pipeline.py†L153-L213】
 >
 > `--learning-rate/--max-steps/--batch-size/--warmup-steps`：用于覆盖配置中的默认超参，CLI 会在应用模式默认后再处理这些覆盖，保证命令行显式值优先生效。【F:src/training/pipeline/cli.py†L98-L121】
 
@@ -76,52 +76,15 @@ mini-llm/
 
 - **环境变量热补丁**：`BaseConfig` 会在初始化时读取 `MINIGPT_TRAIN_SEED`、`MINIGPT_VAL_SPLIT`、`MINIGPT_MEMORY_THRESHOLD` 等环境变量，无需改动源码即可调整随机种子、验证集比例与内存阈值。【F:config/training_config.py†L118-L209】
 - **数据配额控制**：在 JSONL 同名匹配的前提下，可通过 `dataset_sampling` 为特定文件指定采样比例与验证集占比，便于在组合多源数据时保持类别平衡；若希望统一缩放全部语料，可设置 `MINIGPT_GLOBAL_SAMPLE_RATIO`（默认 `0.5`）快速降低预处理样本量。【F:config/training_config.py†L124-L182】【F:src/training/pipeline/data_manager.py†L92-L212】
-- **回归测试频率**：设置 `MINIGPT_REGRESSION_INTERVAL=0` 将使得 Regression Suite 每轮评估都执行，适合演示如何捕获指令退化；设置较大的间隔可降低训练开销。【F:config/training_config.py†L181-L206】【F:src/training/pipeline/regression_suite.py†L22-L87】
 
-3. **训练最小示例**（保留教学用途，便于理解基础训练循环）
-   ```python
-   from torch.utils.data import DataLoader
-
-   from src.model.config import get_tiny_config
-   from src.model.transformer import MiniGPT
-   from src.tokenizer.bpe_tokenizer import BPETokenizer
-   from src.training.datasets import LanguageModelingDataset
-   from src.training.trainer import PreTrainer
-
-   texts = ["你好，Mini-LLM!", "Transformer 架构演示", "小模型也能训练"]
-
-   tokenizer = BPETokenizer(vocab_size=256)
-   tokenizer.train(texts)
-
-   dataset = LanguageModelingDataset(texts, tokenizer, max_length=64)
-   dataloader = DataLoader(dataset, batch_size=2)
-
-   config = get_tiny_config()
-   model = MiniGPT(config)
-
-   trainer = PreTrainer(model, tokenizer, device="cpu")
-   loss = trainer.train_epoch(dataloader)
-   print(f"epoch loss: {loss:.4f}")
+3. **全栈调试脚本**（保留教学用途，便于理解数据→模型→推理闭环）
+   ```bash
+   uv run python scripts/debug_fullstack.py --mode pretrain --prompt "你好，MiniGPT！"
    ```
 
-   > `from torch.utils.data import DataLoader`：引入 PyTorch 数据管道组件，用于批量化迭代样本。【F:src/training/trainer.py†L9-L58】
-   > `from src.model.config import get_tiny_config`：拉取教学用最小配置，内部开启 GQA、RoPE 以演示现代结构选择的影响。【F:src/model/config.py†L159-L175】
-   > `from src.model.transformer import MiniGPT`：导入 Transformer 主体，支持在不同配置间复用同一实现。【F:src/model/transformer.py†L314-L440】
-   > `from src.tokenizer.bpe_tokenizer import BPETokenizer`：使用项目自带 BPE 分词器，便于快速训练新词表。【F:src/tokenizer/bpe_tokenizer.py†L1-L196】
-   > `from src.training.datasets import LanguageModelingDataset`：选择基础语言建模数据集封装，自动补齐 PAD 并返回 `(X, Y, loss_mask)` 三元组，直接对齐 MiniMind 预训练损失。【F:src/training/datasets/language_modeling.py†L11-L123】
-   > `from src.training.trainer import PreTrainer`：载入轻量训练循环，包含优化器、调度器与损失封装，方便课堂演示。【F:src/training/trainer.py†L13-L200】
-   > `texts = [...]`：准备极小的原始语料，演示数据格式要求；数据集内部会自动处理 `dict`/`str` 并统一为文本输入。【F:src/training/datasets/language_modeling.py†L22-L63】
-   > `tokenizer = BPETokenizer(vocab_size=256)`：实例化小词表，便于快速拟合；示例中 256 词表减少内存压力。【F:src/tokenizer/bpe_tokenizer.py†L25-L140】
-   > `tokenizer.train(texts)`：直接在示例文本上拟合分词模型，展示离线训练流程的接口形式。【F:src/tokenizer/bpe_tokenizer.py†L76-L140】
-   > `dataset = LanguageModelingDataset(...)`：将纯文本包装成固定长度 token 序列，执行截断/填充后产出 `(input, target, loss_mask)`。【F:src/training/datasets/language_modeling.py†L39-L115】
-   > `dataloader = DataLoader(...)`：组建批次并在迭代时触发 `__getitem__`，可配合更多参数实现打乱或多进程加载。【F:src/training/trainer.py†L56-L154】
-   > `config = get_tiny_config()`：获取模型超参（层数、头数、上下文长度等），确保 `MiniGPT` 正确初始化权重矩阵。【F:src/model/config.py†L159-L175】
-   > `model = MiniGPT(config)`：构建模型实例；内部根据配置拼装注意力、前馈与嵌入层。【F:src/model/transformer.py†L314-L440】
-   > `trainer = PreTrainer(model, tokenizer, device="cpu")`：封装优化器、调度器与损失，默认使用 AdamW + 余弦退火并将模型迁移到 CPU。【F:src/training/trainer.py†L16-L52】
-   > `loss = trainer.train_epoch(dataloader)`：执行单轮训练，返回平均损失，内部自动生成右移标签并裁剪梯度。【F:src/training/trainer.py†L56-L154】
-   > `print(f"epoch loss: {loss:.4f}")`：输出观测指标，帮助确认训练是否正常下降。【F:src/training/trainer.py†L127-L129】
-
-   > ✅ **为什么逐行解释？** 初学者可将此示例作为调试脚本，快速理解模型、分词器、数据集与训练循环之间的协作关系，从而在迁移到完整管道时少走弯路。
+   > `scripts/debug_fullstack.py` 会自动构造 `TrainingPipeline`、采样首个 batch，并打印原始文本、token ID、嵌入与 logits 的形状和数值片段，随后执行一次优化步骤并给出推理结果，帮助快速定位数据与模型在各阶段的状态。【F:scripts/debug_fullstack.py†L1-L214】【F:src/training/pipeline/pipeline.py†L23-L213】
+   > 通过 `--mode {pretrain,sft,dpo}` 可切换不同阶段的批次结构，脚本会自动兼容 Language Modeling、SFT 以及 DPO 数据格式并复用主训练循环的损失实现。【F:scripts/debug_fullstack.py†L77-L175】【F:src/training/pipeline/training_loop.py†L18-L620】
+   > 命令行参数 `--model-size` 与 `--prompt` 可以分别控制调试用模型配置与推理提示语，便于课堂演示或排查特定样本的异常输出。【F:scripts/debug_fullstack.py†L192-L214】
 
 ## ✅ 功能测试（Feature Tests）
 
@@ -133,16 +96,6 @@ uv run pytest
 ```
 
 测试脚本覆盖了 RoPE、GQA、深窄架构等核心模型特性以及训练/推理端到端流程，全部通过即表示主要功能均可跑通。【F:scripts/tests/test_architecture.py†L1-L320】【F:scripts/tests/test_training_inference.py†L1-L450】
-
-### 🧪 烟雾测试：最小化运行完整训练与推理
-
-若希望在本地快速确认整个流水线（预训练→SFT→DPO→RLHF→推理）能够跑通，可执行内置的烟雾测试脚本：
-
-```bash
-uv run python scripts/run_smoke_pipeline.py
-```
-
-脚本会自动准备一套极小的合成数据集，禁用 manifest 配置后依次运行四个训练阶段，并在最后使用 RLHF checkpoint 做一次单轮文本生成，以验证训练与推理链路协同正常。【F:scripts/run_smoke_pipeline.py†L1-L231】
 
 4. **文本生成**
    ```python
@@ -181,8 +134,8 @@ uv run python scripts/run_smoke_pipeline.py
 ## 🔁 训练阶段流程与设计动机
 
 ### 1. 预训练（Pretrain）
-- **流程**：`MiniGPTTrainer` 会按照 `BaseConfig` 设定的数据目录加载海量无监督语料，训练目标为下一个 token 预测。【F:src/training/pipeline/app.py†L25-L162】【F:config/training_config.py†L105-L145】
-- **关键设置**：CLI 默认学习率 1e-4 与 5% warmup，配合余弦退火调度，保持稳定学习曲线；混合精度与梯度检查点自动启用以降低显存占用。【F:src/training/pipeline/cli.py†L41-L64】【F:src/training/pipeline/app.py†L106-L150】
+- **流程**：`TrainingPipeline` 会按照 `BaseConfig` 设定的数据目录加载海量无监督语料，训练目标为下一个 token 预测。【F:src/training/pipeline/pipeline.py†L23-L209】【F:config/training_config.py†L105-L145】
+- **关键设置**：CLI 默认学习率 1e-4 与 5% warmup，配合余弦退火调度，保持稳定学习曲线；混合精度与梯度检查点自动启用以降低显存占用。【F:src/training/pipeline/cli.py†L41-L64】【F:src/training/pipeline/pipeline.py†L170-L213】
 - **动机**：建立基础语言建模能力，为后续下游任务提供通用表征。如果跳过该阶段，SFT/RLHF 将缺乏知识语料支撑，收敛质量明显下降。
 
 ### 2. 监督微调（SFT）
@@ -195,29 +148,26 @@ uv run python scripts/run_smoke_pipeline.py
 - **关键设置**：奖励模型通常复制 SFT 权重并仅训练顶部头部；较小学习率与梯度裁剪避免过拟合，同时定期保存配置供后续 PPO 使用。【F:src/rl/rlhf_pipeline.py†L37-L200】
 - **动机**：让强化学习阶段拥有可微的偏好信号。如果跳过奖励模型，将无法通过 PPO 量化响应好坏。
 
-### 4. 强化学习（RL / PPO）
 - **流程**：`RLHFPipeline` 内的 `create_ppo_trainer` 结合策略模型、价值模型与奖励模型执行 PPO，循环采样-评估-更新。【F:src/rl/ppo/ppo_trainer.py†L1-L220】【F:src/rl/rlhf_pipeline.py†L59-L200】
 - **关键设置**：策略学习率设置为 1e-5、价值网络 3e-4，并通过 mini-batch 分解与 KL 奖励稳定训练；同时保持短 warmup，防止策略剧烈偏移。【F:src/rl/rlhf_pipeline.py†L59-L200】
 - **动机**：在 SFT 基础上进一步优化响应质量，使模型在对话中更贴近人类偏好；PPO 的剪切目标可防止策略崩溃，是教学中易于解释的 RLHF 算法。
 
 ## 🔍 实验追踪与复现
 
-- **配置快照**：`TrainingEnvironment` 会在启动时将 `BaseConfig` 展平成 JSON 并保存到 `training_config_snapshot.json`，即使后续修改默认值也能回溯当时的完整配置。【F:src/training/pipeline/environment.py†L12-L63】
-- **数据统计**：每次构建数据集时都会记录原始样本量、采样后数量及验证集占比，并写入 `dataset_stats.json`；若某个数据源被采样为 0 条会在日志中立即提醒。【F:src/training/pipeline/app.py†L52-L64】【F:src/training/pipeline/data_manager.py†L92-L209】
-- **训练监控**：默认启用的 `TrainingMonitor` 会跟踪损失、学习率、梯度范数与异常检测，必要时还可记录激活统计和回归测试结果，便于课堂演示常见训练波动。【F:src/training/training_monitor.py†L120-L222】
-- **回归评估**：配置 `regression_eval_enabled=True` 后，训练循环会定期运行固定提示检查指令性能并将通过率写入 `regression/`，帮助快速识别对齐退化问题。【F:config/training_config.py†L181-L206】【F:src/training/pipeline/regression_suite.py†L22-L147】
+- **配置快照**：`TrainingPipeline` 会在启动时将 `BaseConfig` 展平成 JSON 并保存到 `training_config_snapshot.json`，即使后续修改默认值也能回溯当时的完整配置。【F:src/training/pipeline/pipeline.py†L41-L79】
+- **数据统计**：每次构建数据集时都会记录原始样本量、采样后数量及验证集占比，并写入 `dataset_stats.json`；若某个数据源被采样为 0 条会在日志中提醒。【F:src/training/pipeline/pipeline.py†L81-L125】【F:src/training/pipeline/data_manager.py†L92-L209】
+- **训练监控**：默认启用的 `TrainingMonitor` 会跟踪损失、学习率、梯度范数与异常检测，便于课堂演示常见训练波动。【F:src/training/training_monitor.py†L120-L222】
 
 ## 🛡️ 稳定性与资源管理策略
 
-- **学习率调度**：`MiniGPTTrainer` 统一使用 warmup + 余弦退火；恢复训练时会回放调度器状态并提示当前阶段，避免学习率突变导致震荡。【F:src/training/pipeline/app.py†L65-L160】
+- **学习率调度**：`TrainingPipeline` 统一使用 warmup + 余弦退火；恢复训练时会回放调度器状态并提示当前阶段，避免学习率突变导致震荡。【F:src/training/pipeline/pipeline.py†L200-L213】
 - **梯度累积与裁剪**：`TrainingLoopRunner` 按配置执行梯度累积并在每次优化步记录梯度范数、平均损失，为检测梯度爆炸提供第一手指标。【F:src/training/pipeline/training_loop.py†L34-L123】
-- **内存守护**：`MemoryHooks` 基于阈值触发缓存清理或在 OOM 时立即释放显存，且会输出 allocator 配置，帮助在低显存环境中稳定运行。【F:config/training_config.py†L173-L205】【F:src/training/pipeline/memory_hooks.py†L1-L78】
-- **中断恢复**：信号处理器捕获 Ctrl+C 后会优雅保存 checkpoint，并提示使用 `--auto-resume` 继续训练，降低课堂/实验中断带来的风险。【F:src/training/pipeline/app.py†L118-L186】
+- **中断恢复**：信号处理器捕获 Ctrl+C 后会优雅保存 checkpoint，并提示使用 `--auto-resume` 继续训练，降低课堂/实验中断带来的风险。【F:src/training/pipeline/pipeline.py†L214-L230】
 
 ## ⚠️ 注意事项
 - **数据质量**：预训练需要覆盖多领域语料，SFT/奖励阶段则应保证指令多样性与偏好标注一致，否则奖励模型会学习到噪声偏好。【F:config/training_config.py†L105-L173】【F:src/rl/rlhf_pipeline.py†L47-L200】
 - **资源限制**：根据 GPU 显存自动调整批量与梯度累积；在资源较弱的机器上可通过 CLI 降低 `--max-steps` 或切换 `tiny`/`small` 配置。【F:config/training_config.py†L181-L340】【F:src/training/pipeline/cli.py†L41-L121】
-- **安全中断**：训练过程中按 `Ctrl+C` 触发信号处理器，`MiniGPTTrainer` 会先保存检查点再退出，避免长时间训练成果丢失。【F:src/training/pipeline/app.py†L118-L150】
-- **监控与调试**：默认启用 `TrainingMonitor` 与回归测试，建议定期查看 TensorBoard 与回归结果，快速定位损失震荡或输出退化问题。【F:src/training/pipeline/app.py†L69-L162】
+- **安全中断**：训练过程中按 `Ctrl+C` 触发信号处理器，`TrainingPipeline` 会先保存检查点再退出，避免长时间训练成果丢失。【F:src/training/pipeline/pipeline.py†L214-L230】
+- **监控与调试**：默认启用 `TrainingMonitor`，建议定期查看 TensorBoard 指标，快速定位损失震荡或输出退化问题。【F:src/training/training_monitor.py†L120-L470】
 
 > 💬 **为什么强调这些注意事项？** 真实研发中最常见的问题来自数据噪声、算力不足与中断恢复。提前在 README 中明确，可帮助读者在有限时间里优先规避高风险操作。

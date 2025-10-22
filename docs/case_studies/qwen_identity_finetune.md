@@ -65,7 +65,7 @@ import random
 
 model_path = "./Qwen/Qwen3-1.7B"  # 后续会在第 3 节介绍如何下载
 
-tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=False, trust_remote_code=True)
+tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=False)
 model = AutoModelForCausalLM.from_pretrained(model_path, device_map="auto", torch_dtype=torch.bfloat16)
 model.eval()
 
@@ -173,7 +173,7 @@ import torch
 
 model_dir = snapshot_download("Qwen/Qwen3-1.7B", cache_dir="./", revision="master")
 
-tokenizer = AutoTokenizer.from_pretrained(model_dir, use_fast=False, trust_remote_code=True)
+tokenizer = AutoTokenizer.from_pretrained(model_dir, use_fast=False)
 model = AutoModelForCausalLM.from_pretrained(model_dir, device_map="auto", torch_dtype=torch.bfloat16)
 model.enable_input_require_grads()
 ```
@@ -314,17 +314,5 @@ swanlab.finish()
 文档中的所有步骤已经整理为仓库内的可复用代码：
 
 - `examples/qwen_identity_finetune/`：包含完整的 Python 管道实现，可直接在其他项目中导入使用。
-- `scripts/run_qwen_identity_finetune.py`：一键拉起数据准备 → 人格样本生成 → 数据混合 → 训练 → 评估的脚本。
 
-默认情况下，只需执行以下命令即可在本地启动全流程（会自动在 `./qwen_identity_workspace` 目录下产生日志与数据）：
-
-```bash
-python scripts/run_qwen_identity_finetune.py \
-  --persona-name "Dr. Grace" \
-  --persona-statement "你是一位善于共情、用语温和的医学专家，擅长通过先思考再回答的方式提供循序渐进的指导。" \
-  --identity-mix-ratio 0.25
-```
-
-脚本会自动对原始训练集中抽样一定比例的问题进行身份推理、混入并启动训练。若需要调整训练/验证划分比例，可使用 `--train-split-ratio` 指定。
-
-若需要额外注入全新的人格问答样本，可搭配 `--warmup-question`（可多次传入）、`--max-identity-samples` 等参数，为自动抽样之外的问题生成身份回复后追加到训练集。
+要在本地启动全流程，可在自定义 Python 程序中导入 `examples.qwen_identity_finetune.pipeline.IdentityFineTuneConfig`，构造好工作目录、人格设定等参数后调用 `run_identity_pipeline(config)`。该函数会自动对原始训练集中抽样一定比例的问题进行身份推理、混合并启动监督微调；如需调整训练/验证划分或增加人格问答样本，可通过配置对象上的 `train_split_ratio`、`persona.warmup_questions`、`persona.max_identity_samples` 等字段控制。

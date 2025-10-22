@@ -65,7 +65,7 @@ config = DatasetConfig(data_path="data/sft_mini.jsonl", max_length=512)
 | `max_samples` | 对采样数量增加上限，常用于控制长尾数据集的权重 | 采样后会在日志中打印“原始→采样”对照，便于观察阈值是否生效。【F:src/training/pipeline/data_manager.py†L150-L200】 |
 | `val_split` | 针对单一数据文件覆盖默认验证比例 | 若采样后不足 `validation_min_samples` 会自动关闭验证集，避免极小验证集导致指标不稳定。【F:config/training_config.py†L124-L206】【F:src/training/pipeline/data_manager.py†L170-L189】 |
 
-所有采样统计会被写入输出目录的 `dataset_stats.json`，方便复现实验或排查数据配额变动。【F:src/training/pipeline/environment.py†L12-L63】
+所有采样统计会被写入输出目录的 `dataset_stats.json`，方便复现实验或排查数据配额变动。【F:src/training/pipeline/pipeline.py†L41-L125】
 
 ### 对话增强与掩码策略
 
@@ -89,4 +89,4 @@ tokenizer = manager.get_or_train_tokenizer(
 )
 ```
 
-分词器的 `bos_id/eos_id/pad_id` 会在训练配置中读取并传入模型，务必保持一致，以免训练时的标签掩码与推理生成出现偏差。【F:src/model/config.py†L20-L144】【F:src/training/pipeline/app.py†L137-L204】
+分词器的 `bos_id/eos_id/pad_id` 会在训练配置中读取并传入模型，务必保持一致，以免训练时的标签掩码与推理生成出现偏差。【F:src/model/config.py†L20-L144】【F:src/training/pipeline/pipeline.py†L170-L213】

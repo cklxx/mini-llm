@@ -25,9 +25,9 @@ if __name__ == "__main__":
     sys.path.append(project_root)
     sys.path.append(os.path.join(project_root, "src"))
 
-# 导入各个组件
-from ..training.datasets import ConversationDataset
-from ..training.trainer import create_trainer
+from config.training_config import get_config as get_training_config
+from training.pipeline.pipeline import TrainingPipeline
+
 from .ppo.ppo_trainer import create_ppo_trainer
 from .ppo.value_model import create_value_model
 from .reward_model.preference_data import create_preference_dataloader
@@ -40,7 +40,7 @@ class RLHFConfig:
     """RLHF配置"""
 
     # 模型配置
-    model_name: str = "minigpt"
+    model_name: str = "tiny"
     tokenizer_path: str = "tokenizer/tokenizer.json"
     device: str = "auto"
 
@@ -135,6 +135,28 @@ class RLHFPipeline:
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(self.config.__dict__, f, indent=2, ensure_ascii=False)
 
+    def _build_sft_training_config(self):
+        try:
+            stage_config = get_training_config(self.config.model_name)
+        except ValueError:
+            self.logger.warning(
+                "未识别的模型规模 %s，已回退到 tiny 配置", self.config.model_name
+            )
+            stage_config = get_training_config("tiny")
+
+        stage_config.sft_data_path = self.config.sft_data_path
+        stage_config.batch_size = self.config.sft_batch_size
+        stage_config.learning_rate = self.config.sft_lr
+        stage_config.max_steps = max(stage_config.max_steps, self.config.sft_epochs)
+        stage_config.checkpoint_dir = os.path.join(self.config.save_dir, "checkpoints")
+        stage_config.tensorboard_dir = os.path.join(self.config.save_dir, "tensorboard")
+        stage_config.enable_tensorboard = False
+        stage_config.validation_split = 0.0
+        stage_config.validation_min_samples = 0
+        stage_config.tokenizer_json_path = self.config.tokenizer_path
+        stage_config.tokenizer_type = "huggingface"
+        return stage_config
+
     def load_tokenizer(self):
         """加载分词器"""
         tokenizer = BPETokenizer()
@@ -173,34 +195,32 @@ class RLHFPipeline:
             SFT模型保存路径
         """
         self.logger.info("开始SFT训练...")
+        sft_config = self._build_sft_training_config()
+        pipeline = TrainingPipeline(sft_config, mode="sft")
 
-        # 创建SFT trainer
-        sft_trainer = create_trainer(
-            training_type="sft", model=self.base_model, tokenizer=self.tokenizer, device=self.device
+        tokenizer = self.tokenizer
+        if tokenizer is None:
+            pipeline_tokenizer = pipeline.setup_tokenizer()
+            tokenizer = pipeline_tokenizer
+            self.tokenizer = tokenizer
+
+        model = self.base_model
+
+        checkpoint_path = pipeline.train(
+            tokenizer_override=tokenizer,
+            model_override=model,
+            target_epochs=self.config.sft_epochs,
         )
 
-        # 加载SFT数据
-        # 这里需要根据实际数据格式实现数据加载
-        sft_data = self._load_sft_data()
+        trained_model = pipeline.latest_model
+        if trained_model is not None:
+            self.base_model = trained_model
+            self.sft_model = trained_model
+        else:
+            self.sft_model = self.base_model
 
-        # 创建数据加载器
-        from torch.utils.data import DataLoader
-
-        dataset = ConversationDataset(sft_data, self.tokenizer, self.config.max_length)
-        dataloader = DataLoader(dataset, batch_size=self.config.sft_batch_size, shuffle=True)
-
-        # 训练
-        sft_save_dir = os.path.join(self.config.save_dir, "sft")
-        sft_trainer.train(
-            train_dataloader=dataloader, num_epochs=self.config.sft_epochs, save_dir=sft_save_dir
-        )
-
-        # 保存SFT模型
-        sft_model_path = os.path.join(sft_save_dir, "best_model.pt")
-        self.sft_model = sft_trainer.model
-
-        self.logger.info(f"SFT训练完成，模型保存至: {sft_model_path}")
-        return sft_model_path
+        self.logger.info(f"SFT训练完成，模型保存至: {checkpoint_path}")
+        return checkpoint_path
 
     def run_reward_training(self, sft_model_path: str) -> str:
         """
@@ -339,15 +359,6 @@ class RLHFPipeline:
 
         self.logger.info("完整RLHF流程完成！")
         return final_model_path
-
-    def _load_sft_data(self) -> list[dict]:
-        """加载SFT数据"""
-        sft_data = []
-        with open(self.config.sft_data_path, encoding="utf-8") as f:
-            for line in f:
-                data = json.loads(line.strip())
-                sft_data.append(data)
-        return sft_data
 
     def _load_ppo_prompts(self) -> list[str]:
         """加载PPO提示数据"""

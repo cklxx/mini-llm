@@ -33,8 +33,8 @@ Mini-LLM 的核心模型定义在 `src/model` 目录下，围绕 `MiniGPTConfig`
 ### 配置派生与参数估算
 
 - `create_model` 支持同时传入 `model_size` 与显式 `MiniGPTConfig`；当二者同时提供时，函数会优先使用传入的配置并在必要时同步词表大小，保持训练/推理一致性。【F:src/model/transformer.py†L507-L547】
-- `MiniGPT.get_num_params()` 可用于快速估算不同配置的参数规模，训练脚本会在构建模型后打印总参数量与可训练参数量，帮助评估显存开销。【F:src/model/transformer.py†L501-L536】【F:src/training/pipeline/app.py†L44-L88】
-- 结合 `TrainingEnvironment` 输出的配置快照，可以在 Notebook 中绘制“层数-参数量”曲线，用于教学展示模型缩放与资源消耗的关系。【F:src/training/pipeline/environment.py†L12-L63】
+- `MiniGPT.get_num_params()` 可用于快速估算不同配置的参数规模，训练脚本会在构建模型后打印总参数量与可训练参数量，帮助评估显存开销。【F:src/model/transformer.py†L501-L536】【F:src/training/pipeline/pipeline.py†L125-L170】
+- 结合 `TrainingPipeline` 输出的配置快照，可以在 Notebook 中绘制“层数-参数量”曲线，用于教学展示模型缩放与资源消耗的关系。【F:src/training/pipeline/pipeline.py†L41-L79】
 
 ### TransformerBlock 关键路径
 
@@ -52,7 +52,7 @@ Mini-LLM 的核心模型定义在 `src/model` 目录下，围绕 `MiniGPTConfig`
 
 ## 与训练器的衔接
 
-- 训练循环默认接收 `(batch_size, seq_len, vocab_size)` 的 logits，可直接用于交叉熵损失；需要 MoE 辅助损失时，训练器应将 `return_aux_loss=True` 并将返回的第二项按 `aux_loss_alpha` 加权后加到主损失中。【F:src/model/transformer.py†L437-L449】【F:src/training/pipeline/app.py†L137-L204】
+- 训练循环默认接收 `(batch_size, seq_len, vocab_size)` 的 logits，可直接用于交叉熵损失；需要 MoE 辅助损失时，训练器应将 `return_aux_loss=True` 并将返回的第二项按 `aux_loss_alpha` 加权后加到主损失中。【F:src/model/transformer.py†L437-L449】【F:src/training/pipeline/pipeline.py†L170-L213】
 - 配置中的 `bos_token_id`/`eos_token_id`/`pad_token_id` 会被 `ConversationDataset` 和训练脚本读取，保持与分词器一致才能保证标签掩码正确。【F:src/model/config.py†L38-L115】【F:src/training/datasets/conversation.py†L53-L110】
 - 当需要冻结部分层进行 LoRA/奖励模型微调时，可使用 `model.named_parameters()` 与配置中的层数信息配合筛选，例如冻结前 `n_layers-2` 层仅更新顶部注意力头；训练脚本会在 `create_model` 后输出层数信息以辅助筛选。【F:src/model/transformer.py†L197-L311】【F:src/model/transformer.py†L507-L547】
 

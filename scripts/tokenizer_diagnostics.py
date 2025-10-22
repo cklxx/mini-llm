@@ -103,7 +103,7 @@ def main() -> None:
     parser.add_argument(
         "--tokenizer",
         required=True,
-        help="tokenizer 路径（支持 tokenizer.json、tokenizer.pkl 或包含 tokenizer.json 的目录）",
+        help="tokenizer 路径（支持 tokenizer.json 或包含 tokenizer.json 的目录）",
     )
     parser.add_argument("--data", help="用于统计UNK率的数据文件 (jsonl 或 txt)")
     parser.add_argument("--sample-size", type=int, default=1000, help="随机抽样样本数")

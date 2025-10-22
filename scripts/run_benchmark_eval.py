@@ -103,7 +103,6 @@ def _resolve_tokenizer_path(checkpoint_path: Path, override: str | None) -> Path
         [
             checkpoint_dir / "tokenizer",
             checkpoint_dir / "tokenizer.json",
-            checkpoint_dir / "tokenizer.pkl",
         ]
     )
 
@@ -116,7 +115,7 @@ def _resolve_tokenizer_path(checkpoint_path: Path, override: str | None) -> Path
             return candidate
 
     raise FileNotFoundError(
-        "未找到分词器文件。请通过 --tokenizer 指定 tokenizer.json/tokenizer.pkl，"
+        "未找到分词器文件。请通过 --tokenizer 指定 tokenizer.json，"
         "或确保其与 checkpoint 位于同一目录。"
     )
 
@@ -133,7 +132,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--tokenizer",
         help=(
-            "Path to tokenizer resources (tokenizer.json/tokenizer.pkl or directory). "
+            "Path to tokenizer resources (tokenizer.json or directory). "
             "Defaults to the tokenizer next to the checkpoint."
         ),
     )

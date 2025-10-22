@@ -5,9 +5,9 @@
 ## 当前问题分析
 
 - **偏好学习路径缺失**：SFT 管线虽已稳定，但 DPO/RLHF 模式依旧使用交叉熵损失，缺少对 `(chosen, rejected)` 样本与奖励信号的处理，导致偏好训练退化。【F:src/training/pipeline/training_loop.py†L79-L214】【F:src/training/pipeline/data_manager.py†L196-L214】
-- **指标体系不完整**：现阶段仅有 loss、perplexity 与提示回归通过率，缺乏 BLEU/ROUGE、拒答率等侧重生成质量的指标，也未设置阈值来触发早停与告警。【F:src/training/pipeline/training_loop.py†L133-L214】【F:src/training/pipeline/regression_suite.py†L1-L112】
+- **指标体系不完整**：现阶段仅有 loss、perplexity 与基础梯度监控，缺乏 BLEU/ROUGE、拒答率等侧重生成质量的指标，也未设置阈值来触发早停与告警。【F:src/training/pipeline/training_loop.py†L133-L214】【F:src/training/training_monitor.py†L120-L470】
 - **自动评估闭环未建立**：训练结束后没有自动执行的离线评估、批量生成比对或报告归档，难以及时判断模型是否可发布或需回滚。【F:src/training/pipeline/checkpointing.py†L95-L133】
-- **多卡与自适应显存策略缺位**：虽然内存监控已上线，但缺乏自动调节 batch size/梯度累积与分布式训练支持，限制了更大模型或多 GPU 扩展。【F:src/training/memory_optimizer.py†L1-L247】【F:src/training/pipeline/app.py†L25-L239】
+- **多卡与自适应显存策略缺位**：当前仍缺乏自动调节 batch size/梯度累积与分布式训练支持，限制了更大模型或多 GPU 扩展。【F:src/training/memory_optimizer.py†L1-L247】【F:src/training/pipeline/pipeline.py†L153-L213】
 
 ## 优化方案
 
@@ -17,14 +17,14 @@
 3. **增加训练/验证拆分与打分集**：在数据加载阶段切分出固定比例验证集，或允许传入独立验证文件，配合监控器追踪验证损失、防止过拟合。【F:scripts/train.py†L228-L273】
 
 ### 2. 模型与优化
-1. **对齐调度与梯度累积**：读取 `config` 中的 `learning_rate`、`warmup_steps`、`gradient_accumulation_steps`，在训练循环中实现线性 warmup + Cosine decay，并按累积步数再执行一次 `optimizer.step()`，同时缩放 loss，确保大批量等效训练稳定。【F:config/training_config.py†L138-L166】【F:src/training/pipeline/app.py†L178-L362】
-2. **启用混合精度与梯度检查点**：利用 `config` 的 `mixed_precision` 和 `gradient_checkpointing` 标志，在训练主循环中加入 `torch.cuda.amp.autocast` 与 GradScaler，并在模型构建时开启 checkpoint，以减小显存占用并允许更大 batch；当前实现需统一接口。【F:config/training_config.py†L118-L134】【F:src/training/pipeline/app.py†L188-L335】
-3. **正则化与数据增强**：考虑在 SFT 阶段加入 label smoothing 或 dropout 调整，配合对话尾部随机截断、噪声注入等方式提升泛化能力，缓解模型对身份模板的依赖。【F:src/training/datasets/conversation.py†L10-L114】【F:src/training/pipeline/app.py†L188-L362】
+1. **对齐调度与梯度累积**：读取 `config` 中的 `learning_rate`、`warmup_steps`、`gradient_accumulation_steps`，在训练循环中实现线性 warmup + Cosine decay，并按累积步数再执行一次 `optimizer.step()`，同时缩放 loss，确保大批量等效训练稳定。【F:config/training_config.py†L138-L166】【F:src/training/pipeline/pipeline.py†L170-L213】
+2. **启用混合精度与梯度检查点**：利用 `config` 的 `mixed_precision` 和 `gradient_checkpointing` 标志，在训练主循环中加入 `torch.cuda.amp.autocast` 与 GradScaler，并在模型构建时开启 checkpoint，以减小显存占用并允许更大 batch；当前实现需统一接口。【F:config/training_config.py†L118-L134】【F:src/training/pipeline/pipeline.py†L170-L213】
+3. **正则化与数据增强**：考虑在 SFT 阶段加入 label smoothing 或 dropout 调整，配合对话尾部随机截断、噪声注入等方式提升泛化能力，缓解模型对身份模板的依赖。【F:src/training/datasets/conversation.py†L10-L114】【F:src/training/pipeline/pipeline.py†L170-L213】
 
 ### 3. 工程管控
 1. **指标体系贯通**：继续扩展 `TrainingMonitor`，在现有 loss/perplexity/回归基础上加入 BLEU、拒答率等指标，并在回调中集中写入 TensorBoard 与 run 摘要。【F:src/training/training_monitor.py†L408-L525】
 2. **失败阈值与自动回滚**：在 `TrainingLoopRunner` 中根据验证 loss、回归通过率设置阈值，触发早停或保存回滚点，同时调用监控器进行外部告警。【F:src/training/pipeline/training_loop.py†L133-L214】
-3. **配置快照完善**：强化 `TrainingEnvironment` 的配置快照，将提示回归、显存监控、评估脚本等参数一并持久化，保证实验可复现。【F:src/training/pipeline/environment.py†L10-L64】
+3. **配置快照完善**：强化 `TrainingPipeline` 的配置快照，将提示回归、显存监控、评估脚本等参数一并持久化，保证实验可复现。【F:src/training/pipeline/pipeline.py†L41-L79】
 
 ## 验证方案
 
@@ -33,7 +33,7 @@
    - 使用带身份问答、通用问答的多维提示集，通过批量生成比对参考答案，统计 BLEU/ROUGE 及答非所问率。确保身份类模板输出比例显著下降。
 
 2. **在线生成回归**
-   - 利用 `RegressionSuite` 在训练过程中定期执行固定提示集回归，记录通过率并对失败样例落盘，后续可叠加关键词匹配、拒答检测等规则强化验收。【F:src/training/pipeline/regression_suite.py†L1-L112】
+   - 扩展 `TrainingMonitor` 提供提示回归回调，在训练过程中定期执行固定提示集回归，记录通过率并对失败样例落盘，后续可叠加关键词匹配、拒答检测等规则强化验收。【F:src/training/training_monitor.py†L408-L525】
    - 扩展 `scripts/generate.py` 或新增评测脚本，对关键提示做基准对比，必要时将差异推送到审阅队列或触发外部告警。【F:scripts/generate.py†L1-L135】
 
 3. **监控与报警**

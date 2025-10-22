@@ -699,7 +699,6 @@ class BenchmarkEvaluator:
 
         load_kwargs: dict[str, Any] = {
             "download_mode": "reuse_dataset_if_exists",
-            "trust_remote_code": True,
         }
         if self.settings.cache_dir:
             load_kwargs["cache_dir"] = self.settings.cache_dir
@@ -751,7 +750,6 @@ class BenchmarkEvaluator:
 
         load_kwargs: dict[str, Any] = {
             "download_mode": "reuse_dataset_if_exists",
-            "trust_remote_code": True,
         }
         if self.settings.cache_dir:
             load_kwargs["cache_dir"] = self.settings.cache_dir
