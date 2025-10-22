@@ -10,6 +10,8 @@ from typing import Any
 
 import torch
 
+from tokenizer.config_utils import canonicalize_tokenizer_config
+
 
 class CheckpointManager:
     """Persist and restore checkpoints with cleanup helpers."""
@@ -180,7 +182,7 @@ class CheckpointManager:
                 payload.update(
                     {
                         "tokenizer_vocab_size": tokenizer.vocab_size,
-                        "tokenizer_config": tokenizer.get_config(),
+                        "tokenizer_config": canonicalize_tokenizer_config(tokenizer.get_config()),
                         "tokenizer_checksum": tokenizer.checksum(),
                         "tokenizer_special_tokens": tokenizer.special_tokens_map(),
                     }
@@ -196,7 +198,7 @@ class CheckpointManager:
         payload = {
             "model_state_dict": model.state_dict(),
             "tokenizer_vocab_size": tokenizer.vocab_size,
-            "tokenizer_config": tokenizer.get_config(),
+            "tokenizer_config": canonicalize_tokenizer_config(tokenizer.get_config()),
             "tokenizer_checksum": tokenizer.checksum(),
             "tokenizer_special_tokens": tokenizer.special_tokens_map(),
             "config": self.config,

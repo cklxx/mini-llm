@@ -18,6 +18,7 @@ sys.path.append(os.path.join(project_root, "src"))
 
 from model.transformer import create_model
 from tokenizer.bpe_tokenizer import BPETokenizer
+from tokenizer.config_utils import canonicalize_tokenizer_config
 
 
 class MiniGPTInference:
@@ -71,9 +72,10 @@ class MiniGPTInference:
         tokenizer = BPETokenizer(vocab_size=vocab_size)
         tokenizer.load(tokenizer_path)
 
-        expected_config = checkpoint.get("tokenizer_config")
+        raw_expected_config = checkpoint.get("tokenizer_config")
+        expected_config = canonicalize_tokenizer_config(raw_expected_config)
         if expected_config:
-            actual_config = tokenizer.get_config()
+            actual_config = canonicalize_tokenizer_config(tokenizer.get_config())
             mismatches = {
                 key: (expected_config[key], actual_config.get(key))
                 for key in expected_config
