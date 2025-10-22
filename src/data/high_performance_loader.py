@@ -2,6 +2,9 @@
 高性能数据加载系统
 支持流式加载、智能缓存、并行处理、内存优化
 """
+
+from __future__ import annotations
+
 import hashlib
 import json
 import os
@@ -11,11 +14,14 @@ from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import torch
 from torch.utils.data import DataLoader, IterableDataset
 from tqdm import tqdm
+
+from . import load_tokenizer
+from src.tokenizer.bpe_tokenizer import BPETokenizer
 
 
 @dataclass
@@ -35,6 +41,7 @@ class DataLoadingConfig:
     enable_cache: bool = True
     cache_dir: str = "data_cache"
     force_rebuild_cache: bool = False
+    tokenizer_path: Optional[str] = None
 
     # 流式加载配置
     streaming: bool = True
@@ -138,7 +145,8 @@ class IntelligentDataCache:
     def _get_cache_key(self, config: DataLoadingConfig) -> str:
         """生成缓存键"""
         file_hash = self._get_file_hash(config.data_path)
-        config_str = f"{config.max_length}_{config.chunk_size}"
+        tokenizer_sig = config.tokenizer_path or "default"
+        config_str = f"{config.max_length}_{config.chunk_size}_{tokenizer_sig}"
         return f"{file_hash}_{hashlib.md5(config_str.encode()).hexdigest()[:8]}"
 
     def get_cache_path(self, cache_key: str) -> Path:
@@ -207,6 +215,7 @@ class IntelligentDataCache:
                 'file_hash': self._get_file_hash(config.data_path),
                 'data_path': config.data_path,
                 'max_length': config.max_length,
+                'tokenizer_path': config.tokenizer_path,
                 'sample_count': len(data),
                 'created_at': time.time(),
                 'cache_size': cache_path.stat().st_size
@@ -246,8 +255,13 @@ class IntelligentDataCache:
 class ParallelDataProcessor:
     """并行数据处理器"""
 
-    def __init__(self, max_workers: int = 8):
+    def __init__(
+        self,
+        max_workers: int = 8,
+        tokenizer: Optional[BPETokenizer] = None,
+    ):
         self.max_workers = max_workers
+        self.tokenizer = tokenizer
 
     def process_conversations(
         self, data_chunks: list[list[dict]], max_length: int
@@ -290,14 +304,21 @@ class ParallelDataProcessor:
                             assistant_output = conv['content']
 
                     if user_input and assistant_output:
-                        total_length = len(user_input) + len(assistant_output)
+                        length_info = self._conversation_lengths(
+                            user_input, assistant_output
+                        )
+                        total_length = length_info['length']
                         if total_length <= max_length:
-                            processed.append({
+                            entry = {
                                 'input': user_input,
                                 'output': assistant_output,
                                 'length': total_length,
-                                'type': 'conversation'
-                            })
+                                'type': 'conversation',
+                                'char_length': length_info['char_length'],
+                            }
+                            if length_info['token_length'] is not None:
+                                entry['token_length'] = length_info['token_length']
+                            processed.append(entry)
 
         return processed
 
@@ -329,10 +350,51 @@ class ParallelDataProcessor:
         for item in chunk:
             if 'text' in item:
                 text = item['text']
-                if len(text) <= max_length:
+                if self._text_within_length(text, max_length):
                     texts.append(text)
 
         return texts
+
+    def _conversation_lengths(
+        self, user_input: str, assistant_output: str
+    ) -> dict[str, Optional[int]]:
+        char_length = len(user_input) + len(assistant_output)
+        if not self.tokenizer:
+            return {
+                'length': char_length,
+                'char_length': char_length,
+                'token_length': None,
+            }
+
+        try:
+            input_ids = self.tokenizer.encode(user_input, add_special_tokens=False)
+            output_ids = self.tokenizer.encode(assistant_output, add_special_tokens=False)
+        except Exception as exc:  # pragma: no cover - 安全回退
+            print(f"⚠️  分词器编码失败，使用字符长度: {exc}")
+            return {
+                'length': char_length,
+                'char_length': char_length,
+                'token_length': None,
+            }
+
+        token_length = len(input_ids) + len(output_ids) + 2
+        return {
+            'length': token_length,
+            'char_length': char_length,
+            'token_length': token_length,
+        }
+
+    def _text_within_length(self, text: str, max_length: int) -> bool:
+        if not self.tokenizer:
+            return len(text) <= max_length
+
+        try:
+            token_ids = self.tokenizer.encode(text, add_special_tokens=True)
+        except Exception as exc:  # pragma: no cover - 安全回退
+            print(f"⚠️  分词器编码失败，使用字符长度: {exc}")
+            return len(text) <= max_length
+
+        return len(token_ids) <= max_length
 
     def process_preference_pairs(
         self, data_chunks: list[list[dict]], max_length: int
@@ -394,14 +456,21 @@ class ParallelDataProcessor:
 class HighPerformanceDataset(IterableDataset):
     """高性能可迭代数据集"""
 
-    def __init__(self, config: DataLoadingConfig, tokenizer, data_type: str = "sft"):
+    def __init__(
+        self,
+        config: DataLoadingConfig,
+        tokenizer: Optional[BPETokenizer] = None,
+        data_type: str = "sft",
+    ):
         self.config = config
-        self.tokenizer = tokenizer
+        self.tokenizer = self._resolve_tokenizer(tokenizer)
         self.data_type = data_type
 
         # 初始化缓存和处理器
         self.cache = IntelligentDataCache(config.cache_dir) if config.enable_cache else None
-        self.processor = ParallelDataProcessor(config.max_parallel_workers)
+        self.processor = ParallelDataProcessor(
+            config.max_parallel_workers, tokenizer=self.tokenizer
+        )
 
         # 加载或处理数据
         self.data = self._load_or_process_data()
@@ -437,6 +506,21 @@ class HighPerformanceDataset(IterableDataset):
             self.cache.save_cache(self.config, processed_data)
 
         return processed_data
+
+    def _resolve_tokenizer(
+        self, tokenizer: Optional[BPETokenizer | str]
+    ) -> BPETokenizer:
+        if isinstance(tokenizer, BPETokenizer):
+            return tokenizer
+        if isinstance(tokenizer, str) or tokenizer is None:
+            path = tokenizer if isinstance(tokenizer, str) else self.config.tokenizer_path
+            try:
+                return load_tokenizer(path)
+            except Exception as exc:  # pragma: no cover - 初始化失败直接抛出
+                raise RuntimeError(
+                    f"无法加载分词器资源: {exc}"
+                ) from exc
+        raise TypeError("tokenizer 必须是 BPETokenizer 实例或分词器路径字符串")
 
     def __iter__(self):
         """迭代数据"""
@@ -511,8 +595,8 @@ class HighPerformanceDataset(IterableDataset):
 
 def create_high_performance_dataloader(
     config: DataLoadingConfig,
-    tokenizer,
-    data_type: str = "sft"
+    tokenizer: Optional[BPETokenizer | str] = None,
+    data_type: str = "sft",
 ) -> DataLoader:
     """创建高性能数据加载器"""
 
@@ -532,7 +616,11 @@ def create_high_performance_dataloader(
     return dataloader
 
 
-def benchmark_data_loading(config: DataLoadingConfig, tokenizer, iterations: int = 100):
+def benchmark_data_loading(
+    config: DataLoadingConfig,
+    tokenizer: Optional[BPETokenizer | str] = None,
+    iterations: int = 100,
+):
     """基准测试数据加载性能"""
     print("🔬 Benchmarking data loading performance...")
     print(f"   Config: batch_size={config.batch_size}, num_workers={config.num_workers}")

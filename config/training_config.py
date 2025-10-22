@@ -129,6 +129,15 @@ class BaseConfig:
         self.checkpoint_dir = os.path.join(self.project_root, "checkpoints")
         self.log_dir = os.path.join(self.project_root, "logs")
 
+        # Tokenizer configuration (MiniMind alignment)
+        self.tokenizer_type = "huggingface"
+        self.tokenizer_json_path = os.path.join(
+            self.project_root, "tokenizers", "minimind", "tokenizer.json"
+        )
+        self.tokenizer_config_path = os.path.join(
+            self.project_root, "tokenizers", "minimind", "tokenizer_config.json"
+        )
+
         # TensorBoard 配置
         # 检测是否在云GPU环境（OpenBayes）
         cloud_tb_dir = "/openbayes/home/tf_dir"
@@ -467,7 +476,7 @@ class TinyConfig(BaseConfig):
         self.model_size = "tiny"
 
         # 模型参数
-        self.vocab_size = 10000
+        self.vocab_size = 6400
         self.d_model = 128
         self.n_heads = 4
         self.n_layers = 8
@@ -507,7 +516,7 @@ class SmallConfig(BaseConfig):
         self.model_size = "small"
 
         # 模型参数 - 瘦长架构：更窄但更深，降低内存峰值
-        self.vocab_size = 10000
+        self.vocab_size = 6400
         self.d_model = 512
         self.n_heads = 8
         self.n_layers = 8
@@ -566,7 +575,7 @@ class Small30MConfig(BaseConfig):
         self.model_size = "small_30m"
 
         # 模型参数
-        self.vocab_size = 12000
+        self.vocab_size = 6400
         self.d_model = 384
         self.n_heads = 12
         self.n_layers = 13
@@ -619,7 +628,7 @@ class MediumConfig(BaseConfig):
         self.model_size = "medium"
 
         # 模型参数 (与 src/model/config.py 中的 medium 预设保持一致)
-        self.vocab_size = 20000
+        self.vocab_size = 6400
         self.d_model = 384       # 瘦长架构：降低宽度
         self.n_heads = 12
         self.n_layers = 20       # 提升深度以补足表达能力
@@ -679,7 +688,7 @@ class FoundationConfig(BaseConfig):
         self.model_size = "foundation"
 
         # 模型参数
-        self.vocab_size = 32000
+        self.vocab_size = 6400
         self.d_model = 768
         self.n_heads = 16
         self.n_layers = 24
@@ -738,7 +747,7 @@ class LargeConfig(BaseConfig):
         self.model_size = "large"
 
         # 模型参数 (更新为与src/model/config.py一致)
-        self.vocab_size = 32000
+        self.vocab_size = 6400
         self.d_model = 768
         self.n_heads = 24
         self.n_layers = 32
@@ -799,7 +808,7 @@ class MOEConfig(BaseConfig):
         self.model_size = "moe"
 
         # 模型参数
-        self.vocab_size = 10000
+        self.vocab_size = 6400
         self.d_model = 384
         self.n_heads = 12
         self.n_layers = 12

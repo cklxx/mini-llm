@@ -15,6 +15,7 @@ import torch
 import torch.distributed as dist
 from torch.utils.data import DataLoader, DistributedSampler
 
+from data import load_tokenizer
 from data.high_performance_loader import (
     DataLoadingConfig,
     IntelligentDataCache,
@@ -269,7 +270,18 @@ class DataResolver:
         if processed is None:
             loader = StreamingJsonLoader(path, config.chunk_size)
             data_chunks = list(loader.get_chunks())
-            processor = ParallelDataProcessor(config.max_parallel_workers)
+            tokenizer = None
+            tokenizer_path = getattr(self.config, "tokenizer_json_path", None)
+            if tokenizer_path:
+                try:
+                    tokenizer = load_tokenizer(tokenizer_path)
+                except Exception as exc:  # pragma: no cover - 回退到字符长度
+                    print(
+                        f"⚠️  无法加载分词器 {tokenizer_path}，高性能数据预处理将使用字符长度: {exc}"
+                    )
+            processor = ParallelDataProcessor(
+                config.max_parallel_workers, tokenizer=tokenizer
+            )
             if self.mode in {"sft", "rlhf"}:
                 processed = processor.process_conversations(
                     data_chunks, config.max_length
@@ -324,6 +336,7 @@ class DataResolver:
             max_parallel_workers=max(
                 1, getattr(self.config, "data_max_parallel_workers", 4)
             ),
+            tokenizer_path=getattr(self.config, "tokenizer_json_path", None),
         )
 
 

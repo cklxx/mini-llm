@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import pickle
 import random
 import re
@@ -14,6 +15,7 @@ import time
 import unicodedata
 from collections import defaultdict
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
 CJK_RANGES: list[tuple[str, str]] = [
@@ -116,6 +118,11 @@ class BPETokenizer:
         self._reserved_special_tokens = 4
         self._checksum: str = ""
 
+        # HuggingFace tokenizer bridge (MiniMind compatibility)
+        self._hf_tokenizer = None
+        self._hf_tokenizer_dir: Path | None = None
+        self._hf_checksum: str | None = None
+
         self._update_reserved_token_count()
         self._sync_internal_state()
 
@@ -157,6 +164,12 @@ class BPETokenizer:
     def _sync_internal_state(self) -> None:
         """重建内部映射信息。"""
 
+        if self._hf_tokenizer is not None:
+            # HuggingFace tokenizers manage their own vocab mappings.
+            self.vocab = dict(self._hf_tokenizer.get_vocab())
+            self._id_to_token = {v: k for k, v in self.vocab.items()}
+            return
+
         self._id_to_token: dict[int, str] = {v: k for k, v in self.vocab.items()}
         if self.enable_byte_fallback and self.vocab:
             self.byte_token_to_id = {}
@@ -172,6 +185,10 @@ class BPETokenizer:
             self.byte_token_to_id = {}
             self.id_to_byte = {}
             self.byte_eow_id = None
+
+    # ------------------------------------------------------------------
+    def _using_hf(self) -> bool:
+        return self._hf_tokenizer is not None
 
     def _validate_special_tokens(
         self, require_presence: bool = False, *, strict: bool = True
@@ -523,6 +540,11 @@ class BPETokenizer:
     def encode(self, text: str, add_special_tokens: bool = True) -> list[int]:
         """编码文本为token ID列表"""
 
+        if self._using_hf():
+            if not isinstance(text, str):
+                raise TypeError("HuggingFace tokenizer expects string input")
+            return self._hf_tokenizer.encode(text, add_special_tokens=add_special_tokens)
+
         words = self.pre_tokenize(text)
         token_ids: list[int] = []
 
@@ -556,6 +578,11 @@ class BPETokenizer:
 
     def decode(self, token_ids: list[int]) -> str:
         """解码token ID列表为文本"""
+
+        if self._using_hf():
+            if not token_ids:
+                return ""
+            return self._hf_tokenizer.decode(token_ids, skip_special_tokens=True)
 
         if not token_ids:
             return ""
@@ -616,6 +643,20 @@ class BPETokenizer:
     def save(self, path: str) -> None:
         """保存分词器"""
 
+        if self._using_hf():
+            dest = Path(path)
+            if dest.suffix:
+                raise ValueError(
+                    "HuggingFace tokenizer必须保存到目录中，请提供目录路径"
+                )
+            dest.mkdir(parents=True, exist_ok=True)
+            self._hf_tokenizer.save_pretrained(str(dest))
+            self._hf_tokenizer_dir = dest
+            self._hf_checksum = self._compute_hf_checksum(dest)
+            self._checksum = self._hf_checksum
+            print(f"分词器已保存到: {dest}")
+            return
+
         self._validate_special_tokens(require_presence=True)
         payload_without_checksum = {
             "vocab": self.vocab,
@@ -634,6 +675,12 @@ class BPETokenizer:
 
     def load(self, path: str) -> None:
         """加载分词器"""
+
+        path_obj = Path(path)
+        if path_obj.is_dir() or path_obj.suffix == ".json":
+            self._load_hf_tokenizer(path_obj)
+            print(f"分词器已加载: {path}")
+            return
 
         with open(path, "rb") as f:
             data = pickle.load(f)
@@ -685,12 +732,89 @@ class BPETokenizer:
 
         print(f"分词器已加载: {path}")
 
+    def _load_hf_tokenizer(self, location: Path) -> None:
+        """Load a HuggingFace tokenizer (MiniMind compatibility)."""
+
+        try:
+            from transformers import PreTrainedTokenizerFast
+        except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError(
+                "加载 HuggingFace 分词器需要安装 transformers 库。"
+            ) from exc
+
+        if location.is_dir():
+            directory = location
+            tokenizer_file = directory / "tokenizer.json"
+        else:
+            directory = location.parent
+            tokenizer_file = location
+
+        if not tokenizer_file.exists():
+            raise FileNotFoundError(f"未找到 tokenizer.json: {tokenizer_file}")
+
+        config_path = directory / "tokenizer_config.json"
+        try:
+            tokenizer = PreTrainedTokenizerFast.from_pretrained(str(directory))
+        except OSError:
+            # 后备：直接从 tokenizer.json 加载并手动应用配置
+            config_kwargs: dict[str, Any] = {}
+            if config_path.exists():
+                with open(config_path, "r", encoding="utf-8") as handle:
+                    config_kwargs = json.load(handle)
+            tokenizer = PreTrainedTokenizerFast(tokenizer_file=str(tokenizer_file), **config_kwargs)
+
+        self._hf_tokenizer = tokenizer
+        self._hf_tokenizer_dir = directory
+        self._hf_checksum = self._compute_hf_checksum(directory)
+        self._checksum = self._hf_checksum
+
+        # 同步特殊token
+        def _assign_token(attr: str, default_token: str, default_id: int) -> tuple[str, int]:
+            token = getattr(tokenizer, f"{attr}_token", None)
+            token_id = getattr(tokenizer, f"{attr}_token_id", None)
+            if token is None:
+                token = default_token
+            if token_id is None:
+                token_id = default_id
+            return token, token_id
+
+        self.pad_token, self.pad_id = _assign_token("pad", self.pad_token, self.pad_id)
+        self.unk_token, self.unk_id = _assign_token("unk", self.unk_token, self.unk_id)
+        self.bos_token, self.bos_id = _assign_token("bos", self.bos_token, self.bos_id)
+        self.eos_token, self.eos_id = _assign_token("eos", self.eos_token, self.eos_id)
+
+        self.vocab_size = tokenizer.vocab_size
+        self.enable_byte_fallback = False
+        self.byte_token_to_id = {}
+        self.id_to_byte = {}
+        self.byte_eow_id = None
+
+        self._sync_internal_state()
+
+    def _compute_hf_checksum(self, directory: Path) -> str:
+        hasher = hashlib.sha256()
+        files = [directory / "tokenizer.json", directory / "tokenizer_config.json"]
+        for file_path in files:
+            if file_path.exists():
+                hasher.update(file_path.name.encode("utf-8"))
+                with open(file_path, "rb") as handle:
+                    hasher.update(handle.read())
+        return hasher.hexdigest()
+
     def get_vocab_size(self) -> int:
         """获取词汇表大小"""
 
         return len(self.vocab)
 
     def get_config(self) -> dict[str, Any]:
+        if self._using_hf():
+            return {
+                "tokenizer_type": "huggingface",
+                "vocab_size": self.vocab_size,
+                "tokenizer_dir": str(self._hf_tokenizer_dir) if self._hf_tokenizer_dir else None,
+                "special_tokens": self.special_tokens_map(require_presence=True),
+            }
+
         return {
             "vocab_size": self.vocab_size,
             "lowercase": self.lowercase,
@@ -702,9 +826,28 @@ class BPETokenizer:
         }
 
     def checksum(self) -> str:
+        if self._using_hf():
+            return self._hf_checksum or ""
         return self._checksum
 
     def special_tokens_map(self, *, require_presence: bool = True) -> dict[str, dict[str, Any]]:
+        if self._using_hf():
+            mapping: dict[str, dict[str, Any]] = {}
+            for name, fallback_token, fallback_id in [
+                ("pad", self.pad_token, self.pad_id),
+                ("unk", self.unk_token, self.unk_id),
+                ("bos", self.bos_token, self.bos_id),
+                ("eos", self.eos_token, self.eos_id),
+            ]:
+                token = getattr(self._hf_tokenizer, f"{name}_token", None)
+                token_id = getattr(self._hf_tokenizer, f"{name}_token_id", None)
+                mapping[name] = {
+                    "token": token if token is not None else fallback_token,
+                    "id": token_id if token_id is not None else fallback_id,
+                    "present": token is not None and token_id is not None,
+                }
+            return mapping
+
         self._validate_special_tokens(require_presence=require_presence, strict=require_presence)
         mapping: dict[str, dict[str, Any]] = {}
         for name, token, fallback_id in [
@@ -752,6 +895,27 @@ class BPETokenizer:
     def compute_unk_statistics(
         self, texts: Iterable[str], sample_size: int = 1000
     ) -> dict[str, Any]:
+        if self._using_hf():
+            total_tokens = 0
+            unk_tokens = 0
+            sampled = 0
+            unk_id = self.unk_id
+            for text in texts:
+                if sample_size and sampled >= sample_size:
+                    break
+                sampled += 1
+                token_ids = self._hf_tokenizer.encode(text, add_special_tokens=False)
+                total_tokens += len(token_ids)
+                if unk_id is not None:
+                    unk_tokens += sum(1 for tid in token_ids if tid == unk_id)
+            unk_rate = (unk_tokens / total_tokens) if total_tokens else 0.0
+            return {
+                "sampled_texts": sampled,
+                "total_tokens": total_tokens,
+                "unk_tokens": unk_tokens,
+                "unk_rate": unk_rate,
+            }
+
         total_tokens = 0
         unk_tokens = 0
         sampled = 0
@@ -772,6 +936,10 @@ class BPETokenizer:
 
     def compute_unk_rate(self, texts: Iterable[str], sample_size: int = 1000) -> float:
         return self.compute_unk_statistics(texts, sample_size)["unk_rate"]
+
+
+    def __len__(self) -> int:
+        return self.vocab_size
 
 
 def train_tokenizer_from_data(data_path: str, vocab_size: int = 30000) -> BPETokenizer:

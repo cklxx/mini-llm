@@ -43,12 +43,12 @@ def get_mac_tiny_config() -> TrainingConfig:
     config.model.n_heads = 2           # 从8降到2
     config.model.n_layers = 2          # 从6降到2
     config.model.d_ff = 256            # 从2048降到256
-    config.model.vocab_size = 2000     # 从30000降到2000
+    config.model.vocab_size = 6400     # 从30000降到2000
     config.model.max_seq_len = 128     # 从1024降到128
     config.model.model_size = "tiny"   # 超小型
 
     # 分词器配置
-    config.tokenizer.vocab_size = 2000
+    config.tokenizer.vocab_size = 6400
     config.tokenizer.min_frequency = 1
 
     # 数据配置 - 使用200条数据集
@@ -89,12 +89,12 @@ def get_mac_small_config() -> TrainingConfig:
     config.model.n_heads = 4
     config.model.n_layers = 4
     config.model.d_ff = 512
-    config.model.vocab_size = 5000
+    config.model.vocab_size = 6400
     config.model.max_seq_len = 256
     config.model.model_size = "micro"
 
     # 分词器配置
-    config.tokenizer.vocab_size = 5000
+    config.tokenizer.vocab_size = 6400
 
     # 数据配置 - 使用200条数据集
     config.data.train_files = ["pretrain_200.jsonl"]  # 200条数据
@@ -137,12 +137,12 @@ def get_mac_medium_config() -> TrainingConfig:
     config.model.n_heads = 10          # 10个注意力头
     config.model.n_layers = 10         # 10层transformer（比small的6层多）
     config.model.d_ff = 2560           # 更大的前馈网络
-    config.model.vocab_size = 10000    # 更大的词汇表
+    config.model.vocab_size = 6400    # 更大的词汇表
     config.model.max_seq_len = 512     # 更长序列
     config.model.model_size = "medium" # 中型模型
 
     # 分词器配置
-    config.tokenizer.vocab_size = 10000
+    config.tokenizer.vocab_size = 6400
     config.tokenizer.min_frequency = 2
 
     # 数据配置 - 使用更多数据，但调整批次大小应对内存压力
