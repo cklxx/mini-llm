@@ -23,6 +23,7 @@ sys.path.append(PROJECT_ROOT)
 sys.path.append(os.path.join(PROJECT_ROOT, "src"))
 
 from tokenizer.bpe_tokenizer import BPETokenizer  # noqa: E402
+from tokenizer.config_utils import canonicalize_tokenizer_config  # noqa: E402
 
 try:
     import torch
@@ -130,9 +131,10 @@ def main() -> None:
             raise FileNotFoundError(f"checkpoint不存在: {args.checkpoint}")
         else:
             checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
-            expected_config = checkpoint.get("tokenizer_config")
+            raw_expected_config = checkpoint.get("tokenizer_config")
+            expected_config = canonicalize_tokenizer_config(raw_expected_config)
             if expected_config:
-                actual_config = tokenizer.get_config()
+                actual_config = canonicalize_tokenizer_config(tokenizer.get_config())
                 mismatches = {
                     key: (expected_config[key], actual_config.get(key))
                     for key in expected_config
