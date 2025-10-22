@@ -15,7 +15,7 @@ class GenerationConfig:
     """Generation configuration shared across decoding strategies."""
 
     max_length: int = 100
-    temperature: float = 1.0
+    temperature: float = 0.8
     top_k: int = 50
     top_p: float = 0.9
     repetition_penalty: float = 1.1

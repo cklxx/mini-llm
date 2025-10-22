@@ -31,7 +31,7 @@ class MiniGPTInference:
 
         defaults = {
             "max_new_tokens": 128,
-            "temperature": 0.7,
+            "temperature": 0.8,
             "top_k": 50,
             "top_p": 0.9,
             "repetition_penalty": 1.05,
