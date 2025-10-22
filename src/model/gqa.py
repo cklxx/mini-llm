@@ -182,8 +182,15 @@ class GroupedQueryAttention(nn.Module):
                     attn_mask = attention_mask.unsqueeze(1)
                 else:
                     attn_mask = attention_mask
-                # 转换为bool并裁剪
-                attn_mask = attn_mask[:, :, :seq_len, : key_states.shape[-2]].bool()
+
+                attn_mask = attn_mask[:, :, :seq_len, : key_states.shape[-2]]
+
+                if attn_mask.dtype == torch.bool:
+                    pass
+                elif torch.is_floating_point(attn_mask):
+                    attn_mask = torch.isneginf(attn_mask)
+                else:
+                    attn_mask = attn_mask == 0
 
             # 使用PyTorch的高效Flash Attention实现
             attn_output = F.scaled_dot_product_attention(
@@ -212,9 +219,21 @@ class GroupedQueryAttention(nn.Module):
                 # 裁剪到当前序列长度
                 causal_mask = causal_mask[:, :, :seq_len, : key_states.shape[-2]]
 
-                # 将 mask 转换为注意力权重的加法形式 (0 -> -inf, 1 -> 0)
-                causal_mask = (1.0 - causal_mask) * torch.finfo(attn_weights.dtype).min
-                attn_weights = attn_weights + causal_mask
+                if causal_mask.dtype == torch.bool:
+                    additive_mask = torch.zeros_like(
+                        causal_mask, dtype=attn_weights.dtype, device=attn_weights.device
+                    )
+                    additive_mask = additive_mask.masked_fill(
+                        causal_mask, torch.finfo(attn_weights.dtype).min
+                    )
+                else:
+                    causal_mask = causal_mask.to(attn_weights.dtype)
+                    if torch.all((causal_mask == 0) | (causal_mask == 1)):
+                        additive_mask = (1.0 - causal_mask) * torch.finfo(attn_weights.dtype).min
+                    else:
+                        additive_mask = causal_mask
+
+                attn_weights = attn_weights + additive_mask
 
             # 计算注意力权重
             attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(
