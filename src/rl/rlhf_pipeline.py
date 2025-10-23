@@ -16,6 +16,7 @@ import logging
 import os
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 import torch
 
@@ -27,12 +28,12 @@ if __name__ == "__main__":
 
 from config.training_config import get_config as get_training_config
 from training.pipeline.pipeline import TrainingPipeline
+from data import load_tokenizer as load_shared_tokenizer
 
 from .ppo.ppo_trainer import create_ppo_trainer
 from .ppo.value_model import create_value_model
 from .reward_model.preference_data import create_preference_dataloader
 from .reward_model.reward_trainer import create_reward_model, create_reward_trainer
-from tokenizer.bpe_tokenizer import BPETokenizer
 
 
 @dataclass
@@ -153,14 +154,17 @@ class RLHFPipeline:
         stage_config.enable_tensorboard = False
         stage_config.validation_split = 0.0
         stage_config.validation_min_samples = 0
+        tokenizer_path = Path(self.config.tokenizer_path)
         stage_config.tokenizer_json_path = self.config.tokenizer_path
-        stage_config.tokenizer_type = "huggingface"
+        if tokenizer_path.suffix == '.pkl' or (tokenizer_path.is_dir() and (tokenizer_path / 'tokenizer.pkl').exists()):
+            stage_config.tokenizer_type = 'rust-bpe'
+        else:
+            stage_config.tokenizer_type = 'huggingface'
         return stage_config
 
     def load_tokenizer(self):
         """加载分词器"""
-        tokenizer = BPETokenizer()
-        tokenizer.load(self.config.tokenizer_path)
+        tokenizer = load_shared_tokenizer(self.config.tokenizer_path)
         self.tokenizer = tokenizer
         self.logger.info("分词器加载完成")
 

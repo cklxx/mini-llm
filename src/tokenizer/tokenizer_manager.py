@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .bpe_tokenizer import BPETokenizer, train_tokenizer_from_data
+from .rust_bpe_tokenizer import RustBPETokenizer, train_rust_tokenizer_from_data
 
 
 @dataclass
@@ -29,7 +30,7 @@ class TokenizerConfig:
         """验证配置"""
         if self.vocab_size <= 0:
             raise ValueError("vocab_size must be positive")
-        if self.tokenizer_type not in ["bpe"]:
+        if self.tokenizer_type not in ["bpe", "rust-bpe"]:
             raise ValueError(f"Unsupported tokenizer_type: {self.tokenizer_type}")
 
     def to_dict(self) -> dict[str, Any]:
@@ -63,6 +64,13 @@ class TokenizerManager:
         self.cache_dir.mkdir(exist_ok=True, parents=True)
 
         # 创建子目录
+    def _create_tokenizer(self, config: TokenizerConfig):
+        if config.tokenizer_type == 'bpe':
+            return BPETokenizer(vocab_size=config.vocab_size)
+        if config.tokenizer_type == 'rust-bpe':
+            return RustBPETokenizer(vocab_size=config.vocab_size)
+        raise ValueError(f'Unsupported tokenizer_type: {config.tokenizer_type}')
+
         (self.cache_dir / "models").mkdir(exist_ok=True)
         (self.cache_dir / "metadata").mkdir(exist_ok=True)
 
@@ -151,7 +159,8 @@ class TokenizerManager:
         if not model_path.exists() or not metadata_path.exists():
             return False
 
-        if not (model_path / "tokenizer.json").exists():
+        artifact = 'tokenizer.json' if config.tokenizer_type == 'bpe' else 'tokenizer.pkl'
+        if not (model_path / artifact).exists():
             return False
 
         metadata = self._load_metadata(metadata_path)
@@ -174,7 +183,7 @@ class TokenizerManager:
         data_path: str,
         config: TokenizerConfig | dict[str, Any] | None = None,
         force_retrain: bool = False,
-    ) -> BPETokenizer:
+    ) -> Any:
         """
         获取或训练tokenizer（核心API）
 
@@ -205,7 +214,7 @@ class TokenizerManager:
         # 检查缓存
         if not force_retrain and self._is_cache_valid(model_path, metadata_path, config, data_hash):
             print(f"✅ Loading cached tokenizer: {model_path.name}")
-            tokenizer = BPETokenizer(vocab_size=config.vocab_size)
+            tokenizer = self._create_tokenizer(config)
             tokenizer.load(str(model_path))
 
             # 显示缓存信息
@@ -227,7 +236,10 @@ class TokenizerManager:
             print("   Reason: No valid cache found")
 
         # 训练tokenizer
-        tokenizer = train_tokenizer_from_data(data_path, config.vocab_size)
+        if config.tokenizer_type == 'bpe':
+            tokenizer = train_tokenizer_from_data(data_path, config.vocab_size)
+        else:
+            tokenizer = train_rust_tokenizer_from_data(data_path, config.vocab_size)
 
         # 保存到缓存
         print(f"💾 Caching tokenizer: {model_path.name}")
