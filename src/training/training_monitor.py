@@ -527,7 +527,7 @@ class TrainingMonitor:
         # 记录到各个系统（只在完整记录时写入详细信息）
         if should_log_full:
             self._log_to_tensorboard(metrics)
-            self._log_to_console(metrics, step % 100 == 0)  # 每100步打印一次详细信息
+            self._log_to_console(metrics, step % max(1, self.log_interval) == 0)
             self.visualizer.add_metrics(metrics)
         else:
             # 轻量级：只记录关键指标到 TensorBoard
