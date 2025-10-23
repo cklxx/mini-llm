@@ -18,17 +18,17 @@ class MiniGPTConfig:
     def __init__(
         self,
         # 基础模型参数
-        vocab_size: int = 10000,
+        vocab_size: int = 6400,
         hidden_size: int = 512,  # d_model
-        num_hidden_layers: int = 6,  # n_layers
+        num_hidden_layers: int = 8,  # n_layers
         num_attention_heads: int = 8,  # n_heads
-        intermediate_size: int | None = None,  # d_ff, 默认为 hidden_size * 4
-        max_position_embeddings: int = 1024,  # max_len
+        intermediate_size: int | None = None,
+        max_position_embeddings: int = 32768,  # max_len
         # 归一化和激活
-        rms_norm_eps: float = 1e-6,
-        hidden_act: str = "swiglu",  # 激活函数类型
+        rms_norm_eps: float = 1e-5,
+        hidden_act: str = "silu",  # 激活函数类型（MiniMind 默认）
         # 位置编码
-        rope_theta: float = 10000.0,  # RoPE theta参数
+        rope_theta: float = 1_000_000.0,  # RoPE theta参数
         use_rope: bool = True,  # 是否使用RoPE位置编码（推荐）
         rope_scaling: dict | None = None,  # 可选的RoPE扩展配置（如YaRN）
         # 训练参数
@@ -36,7 +36,7 @@ class MiniGPTConfig:
         attention_dropout: float = 0.0,
         # 注意力机制优化
         use_gqa: bool = True,  # 是否使用分组查询注意力
-        num_key_value_heads: int | None = None,  # KV头数量（默认为num_attention_heads//4）
+        num_key_value_heads: int | None = 2,
         # 权重共享
         tie_word_embeddings: bool = True,  # 是否共享输入输出嵌入权重
         # 特殊token
@@ -44,7 +44,7 @@ class MiniGPTConfig:
         eos_token_id: int = 2,
         pad_token_id: int = 0,
         # 性能优化
-        flash_attn: bool = False,  # 是否使用Flash Attention
+        flash_attn: bool = True,  # 是否使用Flash Attention
         gradient_checkpointing: bool = False,  # 梯度检查点
         # MOE配置 (Mixture of Experts)
         use_moe: bool = False,
@@ -67,7 +67,9 @@ class MiniGPTConfig:
         self.hidden_size = hidden_size
         self.num_hidden_layers = num_hidden_layers
         self.num_attention_heads = num_attention_heads
-        self.intermediate_size = intermediate_size or hidden_size * 4
+        self.intermediate_size = self._resolve_intermediate_size(
+            hidden_size, intermediate_size
+        )
         self.max_position_embeddings = max_position_embeddings
 
         # 归一化和激活
@@ -121,6 +123,19 @@ class MiniGPTConfig:
 
         # 验证配置
         self._validate_config()
+
+    @staticmethod
+    def _resolve_intermediate_size(
+        hidden_size: int, requested_size: int | None
+    ) -> int:
+        """Resolve FFN hidden size following MiniMind's 8/3 rounding strategy."""
+
+        if requested_size is not None:
+            return requested_size
+
+        raw = int(hidden_size * 8 / 3)
+        multiple = 64
+        return multiple * ((raw + multiple - 1) // multiple)
 
     @staticmethod
     def _normalize_num_key_value_heads(
@@ -210,169 +225,93 @@ class MiniGPTConfig:
         return f"{self.__class__.__name__}({self.to_dict()})"
 
 
-def get_tiny_config() -> MiniGPTConfig:
-    """获取tiny模型配置 (~1M参数)
-    采用深而窄的架构设计，提升参数效率
-    """
-    return MiniGPTConfig(
-        vocab_size=10000,
-        hidden_size=128,
-        num_hidden_layers=8,  # 增加深度
-        num_attention_heads=4,
-        num_key_value_heads=1,  # GQA优化
-        intermediate_size=384,  # 调整FFN大小
-        max_position_embeddings=512,
-        dropout=0.0,
-        use_rope=True,
-        use_gqa=True,
-        tie_word_embeddings=True,
-    )
+def get_dense_26m_config() -> MiniGPTConfig:
+    """26M 级别的 512×8 稠密骨干。"""
 
-
-def get_small_config() -> MiniGPTConfig:
-    """获取small模型配置 (~25M参数)
-    瘦长架构优化：更窄但更深，降低内存峰值
-    - 减少宽度(d_model)降低激活值内存占用
-    - 增加深度提升模型表达能力
-    - 保持总参数量基本不变
-    """
     return MiniGPTConfig(
-        vocab_size=10000,
         hidden_size=512,
         num_hidden_layers=8,
         num_attention_heads=8,
         num_key_value_heads=2,
-        intermediate_size=2048,
-        max_position_embeddings=512,
-        dropout=0.0,
-        use_rope=True,
-        use_gqa=True,
-        tie_word_embeddings=True,
+        use_moe=False,
     )
+
+
+def get_dense_104m_config() -> MiniGPTConfig:
+    """104M 级别的 768×16 稠密骨干。"""
+
+    return MiniGPTConfig(
+        hidden_size=768,
+        num_hidden_layers=16,
+        num_attention_heads=8,
+        num_key_value_heads=2,
+        use_moe=False,
+    )
+
+
+def get_moe_145m_config() -> MiniGPTConfig:
+    """145M 级别的 640×8 稀疏专家骨干。"""
+
+    return MiniGPTConfig(
+        hidden_size=640,
+        num_hidden_layers=8,
+        num_attention_heads=8,
+        num_key_value_heads=2,
+        use_moe=True,
+        n_routed_experts=5,
+        n_shared_experts=1,
+        num_experts_per_tok=2,
+    )
+
+
+def get_tiny_config() -> MiniGPTConfig:
+    """向后兼容：返回 26M 稠密配置。"""
+
+    return get_dense_26m_config()
+
+
+def get_small_config() -> MiniGPTConfig:
+    """向后兼容：返回 104M 稠密配置。"""
+
+    return get_dense_104m_config()
 
 
 def get_small_30m_config() -> MiniGPTConfig:
-    """获取约 30M 参数量的小型模型配置
+    """向后兼容：返回 26M 稠密配置。"""
 
-    相比 `small` 预设略微加深网络并提升上下文长度，适合作为轻量级对话/推理模型的起点。
-    """
-
-    return MiniGPTConfig(
-        vocab_size=12000,  # 略扩的词表覆盖范围
-        hidden_size=384,
-        num_hidden_layers=13,  # 比 small 略深增强表示能力
-        num_attention_heads=12,
-        num_key_value_heads=3,  # 维持 4:1 的 GQA 比例
-        intermediate_size=1408,  # ≈3.67× hidden，兼顾算力与表达力
-        max_position_embeddings=2048,
-        dropout=0.0,
-        attention_dropout=0.0,
-        use_rope=True,
-        use_gqa=True,
-        flash_attn=True,
-        tie_word_embeddings=True,
-    )
+    return get_dense_26m_config()
 
 
 def get_medium_config() -> MiniGPTConfig:
-    """获取 medium 模型配置 (≈75M 参数，瘦长架构)
+    """向后兼容：返回 145M 稀疏专家配置。"""
 
-    最新版本采用“瘦长”（narrow & deep）的结构策略：
-    - 隐藏维度压缩至 384，使单层计算与显存开销更低
-    - 层数提升至 20 层，以深度弥补宽度带来的表达能力下降
-    - 12 个注意力头 + 3 个 KV 头保持 4:1 的 GQA 比例，head_dim=32 确保稳定性
-    - FFN 宽度 1536 (= 4 × hidden)，兼顾收敛速度与实现简洁
-
-    在保持 2K 上下文的同时，Flash Attention 与权重共享仍默认启用，用于保证推理吞吐与显存友好性。
-    """
-
-    return MiniGPTConfig(
-        vocab_size=20000,
-        hidden_size=384,
-        num_hidden_layers=20,
-        num_attention_heads=12,
-        num_key_value_heads=3,  # GQA 4:1
-        intermediate_size=1536,
-        max_position_embeddings=2048,
-        dropout=0.0,
-        use_rope=True,
-        use_gqa=True,
-        flash_attn=True,
-        tie_word_embeddings=True,
-    )
+    return get_moe_145m_config()
 
 
 def get_large_config() -> MiniGPTConfig:
-    """获取large模型配置 (~350M参数)
-    全面优化的现代架构
-    """
-    return MiniGPTConfig(
-        vocab_size=32000,
-        hidden_size=768,  # 优化宽度
-        num_hidden_layers=32,  # 显著增加深度
-        num_attention_heads=24,
-        num_key_value_heads=6,  # GQA优化
-        intermediate_size=3072,
-        max_position_embeddings=4096,
-        dropout=0.0,
-        use_rope=True,
-        use_gqa=True,
-        tie_word_embeddings=True,
-    )
+    """向后兼容：返回 104M 稠密配置。"""
+
+    return get_dense_104m_config()
 
 
 def get_foundation_config() -> MiniGPTConfig:
-    """获取foundation模型配置 (~200M参数)
+    """向后兼容：返回 104M 稠密配置。"""
 
-    为训练具备基础智能能力的中型模型量身定制：
-    - 24层 Transformer，配合更宽的隐藏维度 768，平衡深度与计算吞吐
-    - 16 头注意力 + 4 个KV头（GQA 4:1）保证稳定性与高效显存利用
-    - FFN 宽度 2688 (= 3.5 × hidden_size) 在计算和表达力之间折衷
-    - 约 2.09 亿参数，适配 32GB 级别单卡或两卡训练
-    """
-    return MiniGPTConfig(
-        vocab_size=32000,
-        hidden_size=768,
-        num_hidden_layers=24,
-        num_attention_heads=16,
-        num_key_value_heads=4,
-        intermediate_size=2688,
-        max_position_embeddings=4096,
-        dropout=0.0,
-        attention_dropout=0.0,
-        use_rope=True,
-        use_gqa=True,
-        flash_attn=True,
-        gradient_checkpointing=True,
-        tie_word_embeddings=True,
-    )
+    return get_dense_104m_config()
 
 
 def get_moe_config() -> MiniGPTConfig:
-    """获取MOE模型配置
-    结合现代架构优化的专家混合模型
-    """
-    return MiniGPTConfig(
-        vocab_size=10000,
-        hidden_size=384,
-        num_hidden_layers=12,  # 深度优化
-        num_attention_heads=12,
-        num_key_value_heads=3,  # GQA优化
-        intermediate_size=1536,
-        max_position_embeddings=1024,
-        dropout=0.0,
-        use_rope=True,
-        use_gqa=True,
-        tie_word_embeddings=True,
-        use_moe=True,
-        num_experts_per_tok=2,
-        n_routed_experts=4,
-        n_shared_experts=1,
-    )
+    """向后兼容：返回 145M 稀疏专家配置。"""
+
+    return get_moe_145m_config()
 
 
-# 预定义配置映射
+# 预定义配置映射（统一使用模型规模命名）
 CONFIG_MAPPING = {
+    "dense_26m": get_dense_26m_config,
+    "dense_104m": get_dense_104m_config,
+    "moe_145m": get_moe_145m_config,
+    # 历史别名
     "tiny": get_tiny_config,
     "small": get_small_config,
     "small_30m": get_small_30m_config,
@@ -411,8 +350,20 @@ def estimate_params(config: MiniGPTConfig) -> int:
         # 传统MHA参数
         attention_params = 4 * config.hidden_size * config.hidden_size  # Q, K, V, O projections
 
-    # 前馈网络: SwiGLU需要3个线性层
-    ffn_params = 3 * config.hidden_size * config.intermediate_size
+    # 前馈网络：根据是否启用 MoE 调整线性层数量
+    if getattr(config, "use_moe", False):
+        total_experts = max(getattr(config, "n_routed_experts", 0), 0)
+        shared_experts = max(getattr(config, "n_shared_experts", 0), 0)
+        if total_experts > 0:
+            shared_experts = min(shared_experts, total_experts)
+        routed_experts = max(total_experts - shared_experts, 0)
+        expert_count = shared_experts + routed_experts
+        expert_params = expert_count * 3 * config.hidden_size * config.intermediate_size
+        router_params = config.hidden_size * routed_experts
+        mixing_params = shared_experts + (1 if routed_experts > 0 else 0)
+        ffn_params = expert_params + router_params + mixing_params
+    else:
+        ffn_params = 3 * config.hidden_size * config.intermediate_size
 
     # RMSNorm: 每层两个norm
     norm_params = 2 * config.hidden_size
@@ -438,7 +389,18 @@ def estimate_params(config: MiniGPTConfig) -> int:
 
 if __name__ == "__main__":
     # 测试配置
-    configs = ["tiny", "small", "small_30m", "medium", "foundation", "large", "moe"]
+    configs = [
+        "dense_26m",
+        "dense_104m",
+        "moe_145m",
+        "tiny",
+        "small",
+        "small_30m",
+        "medium",
+        "foundation",
+        "large",
+        "moe",
+    ]
 
     for config_name in configs:
         config = get_config(config_name)

@@ -34,7 +34,7 @@ def get_rtx3090_tiny_config() -> MiniGPTConfig:
         max_position_embeddings=512,
         dropout=0.0,
         attention_dropout=0.0,
-        rms_norm_eps=1e-6,
+        rms_norm_eps=1e-5,
         flash_attn=False,  # 使用自定义注意力实现（不需要flash-attn库）
         gradient_checkpointing=False,  # tiny模型不需要
         max_generate_length=256,
@@ -57,7 +57,7 @@ def get_rtx3090_small_config() -> MiniGPTConfig:
         max_position_embeddings=1024,
         dropout=0.0,
         attention_dropout=0.0,
-        rms_norm_eps=1e-6,
+        rms_norm_eps=1e-5,
         flash_attn=False,  # 使用自定义注意力实现
         gradient_checkpointing=True,  # 节省显存
         max_generate_length=512,
@@ -80,7 +80,7 @@ def get_rtx3090_medium_config() -> MiniGPTConfig:
         max_position_embeddings=2048,
         dropout=0.0,
         attention_dropout=0.0,
-        rms_norm_eps=1e-6,
+        rms_norm_eps=1e-5,
         flash_attn=False,  # 使用自定义注意力实现
         gradient_checkpointing=True,
         max_generate_length=1024,
@@ -103,7 +103,7 @@ def get_rtx3090_large_config() -> MiniGPTConfig:
         max_position_embeddings=2048,
         dropout=0.0,
         attention_dropout=0.0,
-        rms_norm_eps=1e-6,
+        rms_norm_eps=1e-5,
         flash_attn=False,  # 使用自定义注意力实现
         gradient_checkpointing=True,
         max_generate_length=1024,
@@ -126,7 +126,7 @@ def get_rtx3090_moe_config() -> MiniGPTConfig:
         max_position_embeddings=1024,
         dropout=0.0,
         attention_dropout=0.0,
-        rms_norm_eps=1e-6,
+        rms_norm_eps=1e-5,
         flash_attn=False,  # 使用自定义注意力实现
         gradient_checkpointing=True,
         # MOE 特定配置

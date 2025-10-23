@@ -294,7 +294,7 @@ class BaseConfig:
             os.environ.get("MINIGPT_PERF_DIAGNOSTICS", "1") == "1"
         )
         self.step_log_interval = max(
-            1, int(os.environ.get("MINIGPT_STEP_LOG_INTERVAL", 10))
+            1, int(os.environ.get("MINIGPT_STEP_LOG_INTERVAL", 100))
         )
         self.performance_window_updates = max(
             1,

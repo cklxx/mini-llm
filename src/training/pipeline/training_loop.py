@@ -84,7 +84,7 @@ class TrainingLoopRunner:
         best_val_loss = float("inf")
         no_improve_steps = 0
 
-        log_interval = max(1, getattr(self.config, "step_log_interval", 10))
+        log_interval = max(1, getattr(self.config, "step_log_interval", 100))
         perf_window_target = max(
             1, getattr(self.config, "performance_window_updates", log_interval)
         )
@@ -245,18 +245,26 @@ class TrainingLoopRunner:
                             else 0.0
                         )
 
+                        completed_updates = max(step - start_step, 1)
+                        avg_step_seconds = elapsed / completed_updates
+                        remaining_steps = max(self.config.max_steps - step, 0)
+                        eta_seconds = max(0.0, avg_step_seconds * remaining_steps)
+                        eta_minutes = int(eta_seconds // 60)
+                        eta_remainder = int(eta_seconds % 60)
+                        eta_label = f"{eta_minutes}m{eta_remainder:02d}s"
+
                         print(
-                            "Step {step:5d} | Loss: {loss:.4f} | Avg: {avg:.4f} | "
-                            "LR: {lr:.2e} ({phase} {progress}) | Time: {minutes:.1f}min | "
-                            "Tokens/update: {tokens:.0f}"
+                            "Step {step:5d}/{total:<5d} | Loss: {loss:.4f} | Avg: {avg:.4f} | "
+                            "LR: {lr:.2e} ({phase} {progress}) | ETA: {eta} | Tokens/update: {tokens:.0f}"
                             .format(
                                 step=step,
+                                total=self.config.max_steps,
                                 loss=loss_float if loss_float is not None else float("nan"),
                                 avg=avg_loss,
                                 lr=current_lr,
                                 phase=lr_phase,
                                 progress=lr_progress,
-                                minutes=elapsed / 60,
+                                eta=eta_label,
                                 tokens=avg_tokens_per_update,
                             )
                         )
@@ -385,6 +393,7 @@ class TrainingLoopRunner:
                 model, tokenizer, batch, scaler, accumulation_steps
             )
         try:
+            return_aux = bool(getattr(self.config, "use_moe", False))
             if isinstance(batch, dict):
                 full_input_ids = batch["input_ids"].to(self.device, non_blocking=True)
                 if full_input_ids.size(1) < 2:
@@ -421,22 +430,36 @@ class TrainingLoopRunner:
                         model_kwargs = {}
                         if attention_mask is not None:
                             model_kwargs["attention_mask"] = attention_mask
-                        outputs = model(input_ids, **model_kwargs)
+                        model_outputs = model(
+                            input_ids,
+                            return_aux_loss=return_aux,
+                            **model_kwargs,
+                        )
+                        logits, aux_loss = self._unpack_model_outputs(model_outputs)
                         loss = criterion(
-                            outputs.reshape(-1, outputs.size(-1)),
+                            logits.reshape(-1, logits.size(-1)),
                             target_ids.reshape(-1),
                         )
+                        if aux_loss is not None:
+                            loss = loss + aux_loss.to(loss.dtype)
                         loss = loss / accumulation_steps
                     scaler.scale(loss).backward()
                 else:
                     model_kwargs = {}
                     if attention_mask is not None:
                         model_kwargs["attention_mask"] = attention_mask
-                    outputs = model(input_ids, **model_kwargs)
+                    model_outputs = model(
+                        input_ids,
+                        return_aux_loss=return_aux,
+                        **model_kwargs,
+                    )
+                    logits, aux_loss = self._unpack_model_outputs(model_outputs)
                     loss = criterion(
-                        outputs.reshape(-1, outputs.size(-1)),
+                        logits.reshape(-1, logits.size(-1)),
                         target_ids.reshape(-1),
                     )
+                    if aux_loss is not None:
+                        loss = loss + aux_loss.to(loss.dtype)
                     loss = loss / accumulation_steps
                     loss.backward()
 
@@ -457,9 +480,10 @@ class TrainingLoopRunner:
 
                 if scaler is not None:
                     with torch.amp.autocast("cuda"):
-                        outputs = model(inputs)
+                        model_outputs = model(inputs, return_aux_loss=return_aux)
+                        logits, aux_loss = self._unpack_model_outputs(model_outputs)
                         per_token_loss = F.cross_entropy(
-                            outputs.reshape(-1, outputs.size(-1)),
+                            logits.reshape(-1, logits.size(-1)),
                             targets.reshape(-1),
                             ignore_index=tokenizer.pad_id,
                             reduction="none",
@@ -470,12 +494,15 @@ class TrainingLoopRunner:
                         per_token_loss = per_token_loss.view_as(targets)
                         denom = valid_mask.sum().clamp_min(1.0)
                         loss = (per_token_loss * valid_mask).sum() / denom
+                        if aux_loss is not None:
+                            loss = loss + aux_loss.to(loss.dtype)
                         loss = loss / accumulation_steps
                     scaler.scale(loss).backward()
                 else:
-                    outputs = model(inputs)
+                    model_outputs = model(inputs, return_aux_loss=return_aux)
+                    logits, aux_loss = self._unpack_model_outputs(model_outputs)
                     per_token_loss = F.cross_entropy(
-                        outputs.reshape(-1, outputs.size(-1)),
+                        logits.reshape(-1, logits.size(-1)),
                         targets.reshape(-1),
                         ignore_index=tokenizer.pad_id,
                         reduction="none",
@@ -486,6 +513,8 @@ class TrainingLoopRunner:
                     per_token_loss = per_token_loss.view_as(targets)
                     denom = valid_mask.sum().clamp_min(1.0)
                     loss = (per_token_loss * valid_mask).sum() / denom
+                    if aux_loss is not None:
+                        loss = loss + aux_loss.to(loss.dtype)
                     loss = loss / accumulation_steps
                     loss.backward()
 
@@ -500,19 +529,25 @@ class TrainingLoopRunner:
 
             if scaler is not None:
                 with torch.amp.autocast("cuda"):
-                    outputs = model(input_ids)
+                    model_outputs = model(input_ids, return_aux_loss=return_aux)
+                    logits, aux_loss = self._unpack_model_outputs(model_outputs)
                     loss = criterion(
-                        outputs.reshape(-1, outputs.size(-1)),
+                        logits.reshape(-1, logits.size(-1)),
                         target_ids.reshape(-1),
                     )
+                    if aux_loss is not None:
+                        loss = loss + aux_loss.to(loss.dtype)
                     loss = loss / accumulation_steps
                 scaler.scale(loss).backward()
             else:
-                outputs = model(input_ids)
+                model_outputs = model(input_ids, return_aux_loss=return_aux)
+                logits, aux_loss = self._unpack_model_outputs(model_outputs)
                 loss = criterion(
-                    outputs.reshape(-1, outputs.size(-1)),
+                    logits.reshape(-1, logits.size(-1)),
                     target_ids.reshape(-1),
                 )
+                if aux_loss is not None:
+                    loss = loss + aux_loss.to(loss.dtype)
                 loss = loss / accumulation_steps
                 loss.backward()
 
@@ -599,6 +634,18 @@ class TrainingLoopRunner:
                 tensor = tensor.cpu()
             return float(tensor.item())
         return float(value)
+
+    @staticmethod
+    def _unpack_model_outputs(outputs):
+        if isinstance(outputs, tuple):
+            logits = outputs[0]
+            aux_loss = None
+            for candidate in outputs[1:]:
+                if torch.is_tensor(candidate) and candidate.dim() == 0:
+                    aux_loss = candidate
+                    break
+            return logits, aux_loss
+        return outputs, None
 
     def _resolve_sequence_length(self, batch):
         if isinstance(batch, dict):

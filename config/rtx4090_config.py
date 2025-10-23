@@ -35,7 +35,7 @@ def get_rtx4090_tiny_config() -> MiniGPTConfig:
         max_position_embeddings=512,
         dropout=0.0,
         attention_dropout=0.0,
-        rms_norm_eps=1e-6,
+        rms_norm_eps=1e-5,
         flash_attn=False,  # 使用自定义注意力实现
         gradient_checkpointing=False,  # tiny模型不需要
         max_generate_length=256,
@@ -65,7 +65,7 @@ def get_rtx4090_small_config() -> MiniGPTConfig:
         max_position_embeddings=1024,
         dropout=0.0,
         attention_dropout=0.0,
-        rms_norm_eps=1e-6,
+        rms_norm_eps=1e-5,
         use_gqa=True,  # 启用分组查询注意力
         flash_attn=False,  # 使用自定义注意力实现
         gradient_checkpointing=True,  # 节省显存
@@ -89,7 +89,7 @@ def get_rtx4090_small_30m_config() -> MiniGPTConfig:
         max_position_embeddings=2048,
         dropout=0.0,
         attention_dropout=0.0,
-        rms_norm_eps=1e-6,
+        rms_norm_eps=1e-5,
         flash_attn=False,
         gradient_checkpointing=True,
         max_generate_length=1024,
@@ -112,7 +112,7 @@ def get_rtx4090_medium_config() -> MiniGPTConfig:
         max_position_embeddings=2048,
         dropout=0.0,
         attention_dropout=0.0,
-        rms_norm_eps=1e-6,
+        rms_norm_eps=1e-5,
         flash_attn=False,
         gradient_checkpointing=True,
         max_generate_length=1024,
@@ -135,7 +135,7 @@ def get_rtx4090_foundation_config() -> MiniGPTConfig:
         max_position_embeddings=4096,
         dropout=0.0,
         attention_dropout=0.0,
-        rms_norm_eps=1e-6,
+        rms_norm_eps=1e-5,
         flash_attn=False,
         gradient_checkpointing=True,
         max_generate_length=2048,
@@ -158,7 +158,7 @@ def get_rtx4090_large_config() -> MiniGPTConfig:
         max_position_embeddings=4096,
         dropout=0.0,
         attention_dropout=0.0,
-        rms_norm_eps=1e-6,
+        rms_norm_eps=1e-5,
         flash_attn=False,
         gradient_checkpointing=True,
         max_generate_length=2048,
@@ -181,7 +181,7 @@ def get_rtx4090_moe_config() -> MiniGPTConfig:
         max_position_embeddings=1024,
         dropout=0.0,
         attention_dropout=0.0,
-        rms_norm_eps=1e-6,
+        rms_norm_eps=1e-5,
         flash_attn=False,
         gradient_checkpointing=True,
         # MOE 特定配置

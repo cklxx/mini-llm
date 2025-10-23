@@ -103,7 +103,7 @@ class ModelFactory:
                     d_model=d_model,
                     nhead=n_heads,
                     dim_feedforward=d_ff,
-                    dropout=0.1,
+                    dropout=0.0,
                     activation="relu",
                     batch_first=True,
                 )

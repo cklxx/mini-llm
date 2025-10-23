@@ -338,7 +338,7 @@ class TrainingPipeline:
             enable_tensorboard=self.config.enable_tensorboard,
             enable_real_time_plots=False,
             lightweight_mode=True,
-            log_interval=10,
+            log_interval=self.config.step_log_interval,
         )
 
         benchmark_evaluator = self._maybe_create_benchmark_evaluator(tokenizer)
