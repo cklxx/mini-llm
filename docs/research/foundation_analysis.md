@@ -1,6 +1,6 @@
 # Foundation 配置架构分析
 
-> ⚠️ **提示**：Mini-LLM 的 `foundation` 别名现已映射到 MiniMind2（0.1B）配置，以下分析保留了历史 24 层方案，供需要更大稠密模型的读者参考。如需直接使用 MiniMind 对齐配置，请改用 `get_config("minimind_base")`。
+> ⚠️ **提示**：Mini-LLM 的 `foundation` 别名现已映射到 104M 稠密配置，以下分析保留了历史 24 层方案，供需要更大稠密模型的读者参考。如需直接使用该默认配置，请改用 `get_config("dense_104m")`。
 
 ## 目标概述
 - **目标参数量**：≈2 亿参数，具备基础推理/对话能力，适配 32GB GPU（单卡或两卡）

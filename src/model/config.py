@@ -225,8 +225,8 @@ class MiniGPTConfig:
         return f"{self.__class__.__name__}({self.to_dict()})"
 
 
-def get_minimind_small_config() -> MiniGPTConfig:
-    """MiniMind2-Small (≈26M) 稠密配置。"""
+def get_dense_26m_config() -> MiniGPTConfig:
+    """26M 级别的 512×8 稠密骨干。"""
 
     return MiniGPTConfig(
         hidden_size=512,
@@ -237,8 +237,8 @@ def get_minimind_small_config() -> MiniGPTConfig:
     )
 
 
-def get_minimind_base_config() -> MiniGPTConfig:
-    """MiniMind2 (≈104M) 稠密配置。"""
+def get_dense_104m_config() -> MiniGPTConfig:
+    """104M 级别的 768×16 稠密骨干。"""
 
     return MiniGPTConfig(
         hidden_size=768,
@@ -249,8 +249,8 @@ def get_minimind_base_config() -> MiniGPTConfig:
     )
 
 
-def get_minimind_moe_config() -> MiniGPTConfig:
-    """MiniMind2-MoE (≈145M) 稀疏专家配置。"""
+def get_moe_145m_config() -> MiniGPTConfig:
+    """145M 级别的 640×8 稀疏专家骨干。"""
 
     return MiniGPTConfig(
         hidden_size=640,
@@ -265,52 +265,52 @@ def get_minimind_moe_config() -> MiniGPTConfig:
 
 
 def get_tiny_config() -> MiniGPTConfig:
-    """向后兼容：返回 MiniMind2-Small 配置。"""
+    """向后兼容：返回 26M 稠密配置。"""
 
-    return get_minimind_small_config()
+    return get_dense_26m_config()
 
 
 def get_small_config() -> MiniGPTConfig:
-    """向后兼容：返回 MiniMind2 (0.1B) 稠密配置。"""
+    """向后兼容：返回 104M 稠密配置。"""
 
-    return get_minimind_base_config()
+    return get_dense_104m_config()
 
 
 def get_small_30m_config() -> MiniGPTConfig:
-    """向后兼容：返回 MiniMind2-Small 配置。"""
+    """向后兼容：返回 26M 稠密配置。"""
 
-    return get_minimind_small_config()
+    return get_dense_26m_config()
 
 
 def get_medium_config() -> MiniGPTConfig:
-    """向后兼容：返回 MiniMind2-MoE 配置。"""
+    """向后兼容：返回 145M 稀疏专家配置。"""
 
-    return get_minimind_moe_config()
+    return get_moe_145m_config()
 
 
 def get_large_config() -> MiniGPTConfig:
-    """向后兼容：返回 MiniMind2 (0.1B) 稠密配置。"""
+    """向后兼容：返回 104M 稠密配置。"""
 
-    return get_minimind_base_config()
+    return get_dense_104m_config()
 
 
 def get_foundation_config() -> MiniGPTConfig:
-    """向后兼容：返回 MiniMind2 (0.1B) 稠密配置。"""
+    """向后兼容：返回 104M 稠密配置。"""
 
-    return get_minimind_base_config()
+    return get_dense_104m_config()
 
 
 def get_moe_config() -> MiniGPTConfig:
-    """向后兼容：返回 MiniMind2-MoE 配置。"""
+    """向后兼容：返回 145M 稀疏专家配置。"""
 
-    return get_minimind_moe_config()
+    return get_moe_145m_config()
 
 
-# 预定义配置映射（含 MiniMind 命名与历史别名）
+# 预定义配置映射（统一使用模型规模命名）
 CONFIG_MAPPING = {
-    "minimind_small": get_minimind_small_config,
-    "minimind_base": get_minimind_base_config,
-    "minimind_moe": get_minimind_moe_config,
+    "dense_26m": get_dense_26m_config,
+    "dense_104m": get_dense_104m_config,
+    "moe_145m": get_moe_145m_config,
     # 历史别名
     "tiny": get_tiny_config,
     "small": get_small_config,
@@ -390,9 +390,9 @@ def estimate_params(config: MiniGPTConfig) -> int:
 if __name__ == "__main__":
     # 测试配置
     configs = [
-        "minimind_small",
-        "minimind_base",
-        "minimind_moe",
+        "dense_26m",
+        "dense_104m",
+        "moe_145m",
         "tiny",
         "small",
         "small_30m",

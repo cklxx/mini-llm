@@ -15,9 +15,9 @@ Mini-LLM 的核心模型定义在 `src/model` 目录下，围绕 `MiniGPTConfig`
 - **MoE 扩展**：`use_moe`、`n_routed_experts`、`n_shared_experts`、`num_experts_per_tok`、`aux_loss_alpha` 配置稀疏专家数量、共享专家和负载均衡损失权重；若参数不合法会在 `_validate_config` 中抛出断言。【F:src/model/config.py†L45-L134】
 - **推理默认值**：`max_generate_length`、`temperature`、`top_k`、`top_p` 会在 `MiniGPT.generate` 中作为默认参数使用。【F:src/model/config.py†L55-L115】【F:src/model/transformer.py†L312-L354】
 
-项目提供的 `get_minimind_small_config` / `get_minimind_base_config` / `get_minimind_moe_config` 三个核心函数分别对应 MiniMind2-Small（26M 稠密）、MiniMind2（104M 稠密）与 MiniMind2-MoE（145M 稀疏）三套参数；旧的 `get_tiny`/`small`/`medium` 等名称作为别名返回相同结果，方便沿用既有脚本。【F:src/model/config.py†L146-L259】
+项目提供的 `get_dense_26m_config` / `get_dense_104m_config` / `get_moe_145m_config` 三个核心函数，分别封装 26M 稠密、104M 稠密与 145M 稀疏专家三套骨干；旧的 `get_tiny`/`small`/`medium` 等名称作为别名返回相同结果，方便沿用既有脚本。【F:src/model/config.py†L228-L321】
 
-> 需要按需修改配置时，可先调用 `get_config("minimind_small")` 获得默认配置，再覆盖特定字段（如 `use_moe` 或 `rope_scaling`），最后传入 `create_model` 复用训练脚本的自动打印与参数统计逻辑。【F:src/model/config.py†L314-L360】【F:src/model/transformer.py†L360-L381】
+> 需要按需修改配置时，可先调用 `get_config("dense_26m")` 获得默认配置，再覆盖特定字段（如 `use_moe` 或 `rope_scaling`），最后传入 `create_model` 复用训练脚本的自动打印与参数统计逻辑。【F:src/model/config.py†L309-L360】【F:src/model/transformer.py†L360-L381】
 
 ## MiniGPT 架构
 

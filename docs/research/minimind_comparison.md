@@ -27,7 +27,7 @@
 
 ### 预设/变体
 
-- **Mini-LLM 预设族**：提供 `get_minimind_small_config`（512×8 稠密）、`get_minimind_base_config`（768×16 稠密）与 `get_minimind_moe_config`（640×8 MoE）三套核心配置，并保留 `tiny`/`small`/`medium` 等别名映射到相同组合，便于继承旧脚本。【F:src/model/config.py†L146-L259】
+- **Mini-LLM 预设族**：提供 `get_dense_26m_config`（512×8 稠密）、`get_dense_104m_config`（768×16 稠密）与 `get_moe_145m_config`（640×8 MoE）三套核心配置，并保留 `tiny`/`small`/`medium` 等别名映射到相同组合，便于继承旧脚本。【F:src/model/config.py†L228-L321】
 - **MiniMind 系列**：仓库注释列出 `MiniMind2-Small (26M)`（512×8）、`MiniMind2 (104M)`（768×16）、`MiniMind2-MoE (145M)`（640×8 且 `use_moe=True`）等规模，并在推理/评测脚本中通过命令行切换隐藏维度、层数和 MoE 开关（来源：MiniMind `eval_model.py` 第 103-123 行注释）。然而，其预训练脚本的默认配置采用 512 维、8 层且启用 4 专家 MoE 的组合，实际可训练参数量约为 95.1M，而非 README 中宣称的 104M；要复现 README 中的 26M 密集模型，需要先修正 `train_pretrain.py` 中 `--use_moe` 的布尔解析（`type=bool` 会把字符串 `'False'` 判定为真，从而继续启用 MoE），再使用 `--no_moe` 等同效参数启动，此时脚本会打印约 `25.83M` 的参数量。【F:docs/research/minimind_param_validation.md†L1-L122】
 
 **超参数差异要点**：两者默认值已保持一致，Mini-LLM 主要通过代码层面的封装与别名机制提供与 MiniMind 系列匹配的三套配置；MiniMind 仍依赖 HuggingFace 风格的配置/脚本调度来切换这些变体。
