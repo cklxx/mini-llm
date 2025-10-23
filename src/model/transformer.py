@@ -14,6 +14,7 @@ from torch.nn.utils.rnn import pad_sequence
 
 from .config import MiniGPTConfig
 from .moe import SharedExpertMoE, SparseMoE
+from .rope import apply_rotary_pos_emb
 
 
 class RMSNorm(nn.Module):
@@ -276,6 +277,13 @@ class GroupedQueryAttention(nn.Module):
 
         key_states = self._repeat_kv(key_states)
         value_states = self._repeat_kv(value_states)
+
+        if attention_mask is not None and attention_mask.dtype == torch.bool:
+            attention_mask = attention_mask.masked_fill(attention_mask, float("-inf")).to(
+                dtype=query_states.dtype
+            )
+        elif attention_mask is not None and attention_mask.dtype != query_states.dtype:
+            attention_mask = attention_mask.to(dtype=query_states.dtype)
 
         dropout_p = self.dropout.p if self.training else 0.0
         attn_output = F.scaled_dot_product_attention(
