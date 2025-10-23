@@ -1,4 +1,4 @@
-"""High-level text generation helpers aligned with MiniMind practices."""
+"""High-level text generation helpers aligned with project defaults."""
 
 from __future__ import annotations
 
@@ -115,7 +115,7 @@ class TextGenerator:
         config: GenerationConfig,
         attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Stochastic decoding with MiniMind-aligned heuristics."""
+        """Stochastic decoding with project-aligned heuristics."""
 
         eos_id = getattr(self.tokenizer, "eos_id", getattr(self.tokenizer, "eos_token_id", None))
         device = input_ids.device
@@ -205,7 +205,7 @@ class TextGenerator:
         history: Iterable[dict[str, str]] | None = None,
         config: GenerationConfig | None = None,
     ) -> str:
-        """Build a MiniMind-style chat prompt and return the decoded response."""
+        """Build a chat prompt following the project template and decode."""
 
         config = config or GenerationConfig()
         history = list(history or [])
