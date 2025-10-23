@@ -1,5 +1,7 @@
 # Foundation 配置架构分析
 
+> ⚠️ **提示**：Mini-LLM 的 `foundation` 别名现已映射到 MiniMind2（0.1B）配置，以下分析保留了历史 24 层方案，供需要更大稠密模型的读者参考。如需直接使用 MiniMind 对齐配置，请改用 `get_config("minimind_base")`。
+
 ## 目标概述
 - **目标参数量**：≈2 亿参数，具备基础推理/对话能力，适配 32GB GPU（单卡或两卡）
 - **任务类型**：通用中文 + 英文混合语料的自回归预训练，可扩展至指令对齐
@@ -17,10 +19,10 @@
 - **结构**：24 层 Decoder-only Transformer，hidden=768，heads=16，KV heads=4
 - **注意力**：RoPE + Flash Attention + GQA（4:1）
 - **激活**：SwiGLU，FFN hidden=2688
-- **归一化**：RMSNorm，eps=1e-6
-- **优化选项**：梯度检查点、权重共享、dropout=0.1、attention dropout=0.1
+- **归一化**：RMSNorm，eps=1e-5
+- **优化选项**：梯度检查点、权重共享、dropout=0.0、attention dropout=0.0
 - **上下文长度**：4K token，可通过压缩位置编码扩展
-- **参数估算**：`estimate_params(get_config('foundation')) ≈ 208,638,720`
+- **参数估算**：`estimate_params(MiniGPTConfig(hidden_size=768, num_hidden_layers=24, num_attention_heads=16, num_key_value_heads=4)) ≈ 208,638,720`
 
 ## 训练建议
 ### 数据与批次
@@ -36,7 +38,7 @@
 - 为进一步稳定，可启用 `adafactor` 变种或梯度噪声注入（后期阶段）。
 
 ### 正则化与对齐
-- 训练早期保持 `dropout=0.1`；当语料质量较高且训练稳定，可在后期降至 0.05。
+- MiniMind 对齐后默认维持 `dropout=0.0`；如需额外正则，可手动开启 0.05~0.1 的 dropout。
 - 预训练完成后可接入 LoRA + SFT/强化学习，以补足指令跟随能力。
 
 ## 可扩展性与演进路线

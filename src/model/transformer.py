@@ -28,7 +28,7 @@ class RMSNorm(nn.Module):
     其中 g 是可学习的缩放参数
     """
 
-    def __init__(self, hidden_size: int, eps: float = 1e-6):
+    def __init__(self, hidden_size: int, eps: float = 1e-5):
         super().__init__()
         self.weight = nn.Parameter(torch.ones(hidden_size))
         self.variance_epsilon = eps

@@ -132,7 +132,7 @@ class Expert(nn.Module):
         bias: bool = False,
     ):
         super().__init__()
-        if activation == "swiglu":
+        if activation.lower() in {"swiglu", "silu", "swish"}:
             self.ffn = SwiGLUFeedForward(d_model, d_ff, dropout, bias)
         else:
             self.ffn = get_feedforward_layer(d_model, d_ff, "standard", activation, dropout, bias)

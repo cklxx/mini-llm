@@ -25,11 +25,11 @@ else:
 def test_default_model_configs_define_dropout(config_name: str) -> None:
     cfg = model_config.get_config(config_name)
     assert hasattr(cfg, "dropout"), f"{config_name} 缺少 dropout 配置"
-    assert cfg.dropout is not None and cfg.dropout > 0.0, (
+    assert cfg.dropout is not None and cfg.dropout >= 0.0, (
         f"{config_name} dropout 设置异常: {cfg.dropout}"
     )
     assert hasattr(cfg, "attention_dropout"), f"{config_name} 缺少 attention_dropout 配置"
-    assert cfg.attention_dropout is not None and cfg.attention_dropout > 0.0, (
+    assert cfg.attention_dropout is not None and cfg.attention_dropout >= 0.0, (
         f"{config_name} attention_dropout 设置异常: {cfg.attention_dropout}"
     )
 
@@ -55,10 +55,10 @@ def _collect_gpu_specific_factories() -> list[tuple[str, Callable[[], object]]]:
 def test_gpu_specific_configs_define_dropout(factory_name: str, factory) -> None:
     cfg = factory()
     assert hasattr(cfg, "dropout"), f"{factory_name} 缺少 dropout 配置"
-    assert cfg.dropout is not None and cfg.dropout > 0.0, (
+    assert cfg.dropout is not None and cfg.dropout >= 0.0, (
         f"{factory_name} dropout 设置异常: {cfg.dropout}"
     )
     assert hasattr(cfg, "attention_dropout"), f"{factory_name} 缺少 attention_dropout 配置"
-    assert cfg.attention_dropout is not None and cfg.attention_dropout > 0.0, (
+    assert cfg.attention_dropout is not None and cfg.attention_dropout >= 0.0, (
         f"{factory_name} attention_dropout 设置异常: {cfg.attention_dropout}"
     )

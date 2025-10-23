@@ -11,9 +11,9 @@
 
 | 方面 | Mini-LLM | MiniMind |
 | --- | --- | --- |
-| 基础模块 | `MiniGPT` 由嵌入层、RoPE 位置编码、TransformerBlock 列表、末端 RMSNorm 与共享词表投影组成；可在 block 级别选择 GQA、SwiGLU 或 MoE。【F:docs/guides/model.md†L11-L49】 | `MiniMindModel` 使用相同的嵌入 → TransformerBlock → RMSNorm → 线性输出结构，默认共享嵌入权重；源码直接继承 `PreTrainedModel`，并在 `MiniMindForCausalLM` 中封装推理接口（来源：MiniMind `docs/07_ModelArchitecture.md`、`model/model_minimind.py`）。 |
+| 基础模块 | `MiniGPT` 由嵌入层、RoPE 位置编码、TransformerBlock 列表、末端 RMSNorm 与共享词表投影组成；可在 block 级别选择 GQA、SiLU 门控前馈（SwiGLU 结构）或 MoE。【F:docs/guides/model.md†L11-L49】 | `MiniMindModel` 使用相同的嵌入 → TransformerBlock → RMSNorm → 线性输出结构，默认共享嵌入权重；源码直接继承 `PreTrainedModel`，并在 `MiniMindForCausalLM` 中封装推理接口（来源：MiniMind `docs/07_ModelArchitecture.md`、`model/model_minimind.py`）。 |
 | 注意力机制 | 默认启用 RoPE，`use_gqa` 控制 KV 头压缩；可通过配置切换 Flash Attention 与梯度检查点。【F:src/model/config.py†L29-L65】【F:docs/guides/model.md†L27-L41】 | 同样提供 RoPE/GQA/Flash Attention；注意力模块在 `Attention` 中手动实现 KV repeat 与可选 Flash 路径（来源：MiniMind `model/model_minimind.py`）。 |
-| 前馈层 | 默认使用 SwiGLU，可按需替换为 MoE；MoE 支持路由/共享专家及辅助损失权重调节。【F:docs/guides/model.md†L31-L41】【F:src/model/config.py†L66-L88】 | 支持密集层与 MoE，MoE 参数与 Mini-LLM 类似但整体集成在 HuggingFace 风格模型中（来源：MiniMind `docs/01_MiniMindConfig.md`、`model/model_minimind.py`）。 |
+| 前馈层 | 默认使用 SiLU 门控（SwiGLU 结构），可按需替换为 MoE；MoE 支持路由/共享专家及辅助损失权重调节。【F:docs/guides/model.md†L31-L41】【F:src/model/config.py†L66-L88】 | 支持密集层与 MoE，MoE 参数与 Mini-LLM 类似但整体集成在 HuggingFace 风格模型中（来源：MiniMind `docs/01_MiniMindConfig.md`、`model/model_minimind.py`）。 |
 | 位置长度 | 预设配置最高支持 4096（`foundation`/`large`）或 2048（`small_30m`/`medium`），聚焦教学与桌面实验规模。【F:src/model/config.py†L214-L264】 | 默认 `max_position_embeddings=32768` 以兼容长上下文实验，同时在推理脚本中对 8K 输出窗口做限制（来源：MiniMind `docs/01_MiniMindConfig.md`、`eval_model.py` 第 103-123 行注释）。 |
 
 **总结**：Mini-LLM 将多种现代组件包装为配置开关，便于课堂/实验扩展；MiniMind 更贴近 HuggingFace 生态，强调对高上下文长度和 MoE 的直接支持。
@@ -22,15 +22,15 @@
 
 ### 默认配置
 
-- **Mini-LLM**：`MiniGPTConfig` 默认 `hidden_size=512`、`num_hidden_layers=6`、`num_attention_heads=8`，并默认开启 `use_gqa=True`、`dropout=0.1`、`attention_dropout=0.1`，同时在初始化时若启用 GQA 自动设置 `num_key_value_heads = num_attention_heads // 4`。【F:src/model/config.py†L17-L65】
+- **Mini-LLM**：`MiniGPTConfig` 现已与 MiniMind2-Small 对齐，默认 `hidden_size=512`、`num_hidden_layers=8`、`num_attention_heads=8`、`num_key_value_heads=2`，保持 `dropout=0.0`、`attention_dropout=0.0`、`flash_attn=True` 以及 `rope_theta=1e6`。【F:src/model/config.py†L17-L115】
 - **MiniMind**：`MiniMindConfig` 默认 `hidden_size=512`、`num_hidden_layers=8`、`num_attention_heads=8`，但 `dropout=0.0`、`num_key_value_heads=2`（固定 4:1 GQA 比例）、`max_position_embeddings=32768`、`flash_attn=True`，并沿用 `rope_theta=1e6` 以覆盖长上下文（来源：MiniMind `model/model_minimind.py`）。
 
 ### 预设/变体
 
-- **Mini-LLM 预设族**：提供 `tiny`（128×8 层）、`small`（384×12 层）、`small_30m`（384×13 层、上下文 2K）、`medium`（384×20 层，瘦长架构 + Flash Attention）、`foundation`（768×24 层，梯度检查点）、`large`（768×32 层）、`moe`（384×12 层 MoE）。这些预设覆盖 1M 至 350M 参数级别，方便按算力选择。【F:src/model/config.py†L170-L252】
-- **MiniMind 系列**：仓库注释列出 `MiniMind2-Small (26M)`（512×8）、`MiniMind2 (104M)`（768×16）、`MiniMind2-MoE (145M)`（640×8 且 `use_moe=True`）等规模，并在推理/评测脚本中通过命令行切换隐藏维度、层数和 MoE 开关（来源：MiniMind `eval_model.py` 第 103-123 行注释）。
+- **Mini-LLM 预设族**：提供 `get_minimind_small_config`（512×8 稠密）、`get_minimind_base_config`（768×16 稠密）与 `get_minimind_moe_config`（640×8 MoE）三套核心配置，并保留 `tiny`/`small`/`medium` 等别名映射到相同组合，便于继承旧脚本。【F:src/model/config.py†L146-L259】
+- **MiniMind 系列**：仓库注释列出 `MiniMind2-Small (26M)`（512×8）、`MiniMind2 (104M)`（768×16）、`MiniMind2-MoE (145M)`（640×8 且 `use_moe=True`）等规模，并在推理/评测脚本中通过命令行切换隐藏维度、层数和 MoE 开关（来源：MiniMind `eval_model.py` 第 103-123 行注释）。然而，其预训练脚本的默认配置采用 512 维、8 层且启用 4 专家 MoE 的组合，实际可训练参数量约为 95.1M，而非 README 中宣称的 104M；要复现 README 中的 26M 密集模型，需要先修正 `train_pretrain.py` 中 `--use_moe` 的布尔解析（`type=bool` 会把字符串 `'False'` 判定为真，从而继续启用 MoE），再使用 `--no_moe` 等同效参数启动，此时脚本会打印约 `25.83M` 的参数量。【F:docs/research/minimind_param_validation.md†L1-L122】
 
-**超参数差异要点**：Mini-LLM 通过代码层面的预设函数管理多模型族，强调教学中快速切换；MiniMind 借助脚本参数和 HuggingFace 配置默认值覆盖多个公开模型权重，并将上下文长度与 Flash Attention 默认值调高以支持长序列研究。
+**超参数差异要点**：两者默认值已保持一致，Mini-LLM 主要通过代码层面的封装与别名机制提供与 MiniMind 系列匹配的三套配置；MiniMind 仍依赖 HuggingFace 风格的配置/脚本调度来切换这些变体。
 
 ## 训练方案
 
