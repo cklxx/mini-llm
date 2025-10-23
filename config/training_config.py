@@ -522,7 +522,7 @@ class SmallConfig(BaseConfig):
         self.n_layers = 8
         self.d_ff = 2048
         self.max_seq_len = 512
-        self.dropout = 0.0
+        self.dropout = 0.1
 
         # 训练参数 - 优化内存使用和GPU利用率
         if self.device == "cuda":
@@ -547,7 +547,7 @@ class SmallConfig(BaseConfig):
             self.gradient_accumulation_steps = 16
 
         self.learning_rate = 5e-4
-        self.weight_decay = 0.01
+        self.weight_decay = 0.05
         self.warmup_steps = 2000
         self.max_steps = 60000
         self.eval_steps = 2000

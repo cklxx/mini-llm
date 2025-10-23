@@ -192,7 +192,7 @@ def get_small_config() -> MiniGPTConfig:
         num_key_value_heads=2,
         intermediate_size=2048,
         max_position_embeddings=512,
-        dropout=0.0,
+        dropout=0.1,
         use_rope=True,
         use_gqa=True,
         tie_word_embeddings=True,
