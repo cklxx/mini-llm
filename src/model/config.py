@@ -32,8 +32,8 @@ class MiniGPTConfig:
         use_rope: bool = True,  # 是否使用RoPE位置编码（推荐）
         rope_scaling: dict | None = None,  # 可选的RoPE扩展配置（如YaRN）
         # 训练参数
-        dropout: float = 0.1,
-        attention_dropout: float = 0.1,
+        dropout: float = 0.0,
+        attention_dropout: float = 0.0,
         # 注意力机制优化
         use_gqa: bool = True,  # 是否使用分组查询注意力
         num_key_value_heads: int | None = None,  # KV头数量（默认为num_attention_heads//4）
@@ -222,7 +222,7 @@ def get_tiny_config() -> MiniGPTConfig:
         num_key_value_heads=1,  # GQA优化
         intermediate_size=384,  # 调整FFN大小
         max_position_embeddings=512,
-        dropout=0.1,
+        dropout=0.0,
         use_rope=True,
         use_gqa=True,
         tie_word_embeddings=True,
@@ -244,7 +244,7 @@ def get_small_config() -> MiniGPTConfig:
         num_key_value_heads=2,
         intermediate_size=2048,
         max_position_embeddings=512,
-        dropout=0.1,
+        dropout=0.0,
         use_rope=True,
         use_gqa=True,
         tie_word_embeddings=True,
@@ -265,8 +265,8 @@ def get_small_30m_config() -> MiniGPTConfig:
         num_key_value_heads=3,  # 维持 4:1 的 GQA 比例
         intermediate_size=1408,  # ≈3.67× hidden，兼顾算力与表达力
         max_position_embeddings=2048,
-        dropout=0.1,
-        attention_dropout=0.1,
+        dropout=0.0,
+        attention_dropout=0.0,
         use_rope=True,
         use_gqa=True,
         flash_attn=True,
@@ -294,7 +294,7 @@ def get_medium_config() -> MiniGPTConfig:
         num_key_value_heads=3,  # GQA 4:1
         intermediate_size=1536,
         max_position_embeddings=2048,
-        dropout=0.1,
+        dropout=0.0,
         use_rope=True,
         use_gqa=True,
         flash_attn=True,
@@ -314,7 +314,7 @@ def get_large_config() -> MiniGPTConfig:
         num_key_value_heads=6,  # GQA优化
         intermediate_size=3072,
         max_position_embeddings=4096,
-        dropout=0.1,
+        dropout=0.0,
         use_rope=True,
         use_gqa=True,
         tie_word_embeddings=True,
@@ -338,8 +338,8 @@ def get_foundation_config() -> MiniGPTConfig:
         num_key_value_heads=4,
         intermediate_size=2688,
         max_position_embeddings=4096,
-        dropout=0.1,
-        attention_dropout=0.1,
+        dropout=0.0,
+        attention_dropout=0.0,
         use_rope=True,
         use_gqa=True,
         flash_attn=True,
@@ -360,7 +360,7 @@ def get_moe_config() -> MiniGPTConfig:
         num_key_value_heads=3,  # GQA优化
         intermediate_size=1536,
         max_position_embeddings=1024,
-        dropout=0.1,
+        dropout=0.0,
         use_rope=True,
         use_gqa=True,
         tie_word_embeddings=True,

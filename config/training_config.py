@@ -482,7 +482,7 @@ class TinyConfig(BaseConfig):
         self.n_layers = 8
         self.d_ff = 384
         self.max_seq_len = 512
-        self.dropout = 0.1
+        self.dropout = 0.0
 
         # 训练参数
         self.batch_size = 32
@@ -522,7 +522,7 @@ class SmallConfig(BaseConfig):
         self.n_layers = 8
         self.d_ff = 2048
         self.max_seq_len = 512
-        self.dropout = 0.1
+        self.dropout = 0.0
 
         # 训练参数 - 优化内存使用和GPU利用率
         if self.device == "cuda":
@@ -581,7 +581,7 @@ class Small30MConfig(BaseConfig):
         self.n_layers = 13
         self.d_ff = 1408
         self.max_seq_len = 2048
-        self.dropout = 0.1
+        self.dropout = 0.0
 
         # 训练参数
         if self.device == "cuda":
@@ -634,7 +634,7 @@ class MediumConfig(BaseConfig):
         self.n_layers = 20       # 提升深度以补足表达能力
         self.d_ff = 1536         # 4 × hidden 的 FFN 设计
         self.max_seq_len = 2048
-        self.dropout = 0.1
+        self.dropout = 0.0
 
         # GPU优化训练参数 - 针对A6000优化 (保守配置以避免OOM)
         if self.device == "cuda":
@@ -694,7 +694,7 @@ class FoundationConfig(BaseConfig):
         self.n_layers = 24
         self.d_ff = 2688
         self.max_seq_len = 4096
-        self.dropout = 0.1
+        self.dropout = 0.0
 
         # 训练参数 - GPU优化
         if self.device == "cuda":
@@ -753,7 +753,7 @@ class LargeConfig(BaseConfig):
         self.n_layers = 32
         self.d_ff = 3072
         self.max_seq_len = 4096
-        self.dropout = 0.1
+        self.dropout = 0.0
 
         # 只在高端 GPU 上运行
         if self.device == "cuda":
@@ -814,7 +814,7 @@ class MOEConfig(BaseConfig):
         self.n_layers = 12
         self.d_ff = 1536
         self.max_seq_len = 1024
-        self.dropout = 0.1
+        self.dropout = 0.0
 
         # MOE特有参数
         self.use_moe = True
