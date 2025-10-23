@@ -1,4 +1,0 @@
-{"id": "identity_intro", "prompt": "请用一句话介绍一下你自己。", "expect_substrings": ["alex-ckl.com", "AI助手"]}
-{"id": "identity_role", "prompt": "你的开发公司是谁？", "expect_substrings": ["alex-ckl.com"]}
-{"id": "ai_definition", "prompt": "人工智能是什么？", "expect_substrings": ["人工智能", "技术"]}
-{"id": "math_basic", "prompt": "1+1等于多少？", "expect_substrings": ["2"]}

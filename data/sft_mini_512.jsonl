@@ -1,2 +1,0 @@
-{"conversations": [{"role": "user", "content": "请用一句话描述 Mini-LLM 框架。"}, {"role": "assistant", "content": "Mini-LLM 是一个教学友好的小型语言模型训练与推理演示框架。"}]}
-{"conversations": [{"role": "user", "content": "如何快速验证训练流程？"}, {"role": "assistant", "content": "可以运行内置的烟雾测试脚本，依次执行预训练、SFT、DPO 和 RLHF。"}]}

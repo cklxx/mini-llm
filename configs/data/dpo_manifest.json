@@ -1,9 +1,0 @@
-{
-  "type": "dpo",
-  "datasets": [
-    {
-      "name": "dpo_pairs",
-      "path": "data/dpo.jsonl"
-    }
-  ]
-}
