@@ -11,9 +11,9 @@
 
 | 方面 | Mini-LLM | MiniMind |
 | --- | --- | --- |
-| 基础模块 | `MiniGPT` 由嵌入层、RoPE 位置编码、TransformerBlock 列表、末端 RMSNorm 与共享词表投影组成；可在 block 级别选择 GQA、SiLU 门控前馈（SwiGLU 结构）或 MoE。【F:docs/guides/model.md†L11-L49】 | `MiniMindModel` 使用相同的嵌入 → TransformerBlock → RMSNorm → 线性输出结构，默认共享嵌入权重；源码直接继承 `PreTrainedModel`，并在 `MiniMindForCausalLM` 中封装推理接口（来源：MiniMind `docs/07_ModelArchitecture.md`、`model/model_minimind.py`）。 |
-| 注意力机制 | 默认启用 RoPE，`use_gqa` 控制 KV 头压缩；可通过配置切换 Flash Attention 与梯度检查点。【F:src/model/config.py†L29-L65】【F:docs/guides/model.md†L27-L41】 | 同样提供 RoPE/GQA/Flash Attention；注意力模块在 `Attention` 中手动实现 KV repeat 与可选 Flash 路径（来源：MiniMind `model/model_minimind.py`）。 |
-| 前馈层 | 默认使用 SiLU 门控（SwiGLU 结构），可按需替换为 MoE；MoE 支持路由/共享专家及辅助损失权重调节。【F:docs/guides/model.md†L31-L41】【F:src/model/config.py†L66-L88】 | 支持密集层与 MoE，MoE 参数与 Mini-LLM 类似但整体集成在 HuggingFace 风格模型中（来源：MiniMind `docs/01_MiniMindConfig.md`、`model/model_minimind.py`）。 |
+| 基础模块 | `MiniGPT` 由 `MiniMindModel`（嵌入 + RoPE 缓存）与 `MiniMindBlock` 列表组成，末端经 RMSNorm 后复用嵌入矩阵或可选 `lm_head`；各层可在配置中切换 GQA、SiLU 门控前馈或 MiniMind 式 MoE。【F:docs/guides/model.md†L20-L57】【F:src/model/transformer.py†L154-L310】 | `MiniMindModel` 使用相同的嵌入 → TransformerBlock → RMSNorm → 线性输出结构，默认共享嵌入权重；源码直接继承 `PreTrainedModel`，并在 `MiniMindForCausalLM` 中封装推理接口（来源：MiniMind `docs/07_ModelArchitecture.md`、`model/model_minimind.py`）。 |
+| 注意力机制 | 默认启用 RoPE，`use_gqa` 控制 KV 头压缩；`MiniMindAttention` 复刻 MiniMind 的 KV 重复与 Flash/遮罩双路径实现。【F:src/model/config.py†L29-L65】【F:docs/guides/model.md†L37-L48】【F:src/model/transformer.py†L71-L151】 | 同样提供 RoPE/GQA/Flash Attention；注意力模块在 `Attention` 中手动实现 KV repeat 与可选 Flash 路径（来源：MiniMind `model/model_minimind.py`）。 |
+| 前馈层 | 默认使用 SiLU 门控的 `MiniMindFeedForward`，可按需切换到 `MiniMindMOEFeedForward`，支持路由/共享专家与辅助损失调节。【F:docs/guides/model.md†L37-L48】【F:src/model/moe.py†L35-L208】 | 支持密集层与 MoE，MoE 参数与 Mini-LLM 类似但整体集成在 HuggingFace 风格模型中（来源：MiniMind `docs/01_MiniMindConfig.md`、`model/model_minimind.py`）。 |
 | 位置长度 | 预设配置最高支持 4096（`foundation`/`large`）或 2048（`small_30m`/`medium`），聚焦教学与桌面实验规模。【F:src/model/config.py†L214-L264】 | 默认 `max_position_embeddings=32768` 以兼容长上下文实验，同时在推理脚本中对 8K 输出窗口做限制（来源：MiniMind `docs/01_MiniMindConfig.md`、`eval_model.py` 第 103-123 行注释）。 |
 
 **总结**：Mini-LLM 将多种现代组件包装为配置开关，便于课堂/实验扩展；MiniMind 更贴近 HuggingFace 生态，强调对高上下文长度和 MoE 的直接支持。
