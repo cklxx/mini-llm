@@ -27,6 +27,7 @@ class MiniGPTConfig:
         # 位置编码
         rope_theta: float = 10000.0,  # RoPE theta参数
         use_rope: bool = True,  # 是否使用RoPE位置编码（推荐）
+        rope_scaling: dict | None = None,  # 可选的RoPE扩展配置（如YaRN）
         # 训练参数
         dropout: float = 0.1,
         attention_dropout: float = 0.1,
@@ -73,6 +74,7 @@ class MiniGPTConfig:
         # 位置编码
         self.rope_theta = rope_theta
         self.use_rope = use_rope
+        self.rope_scaling = rope_scaling
 
         # 训练参数
         self.dropout = dropout

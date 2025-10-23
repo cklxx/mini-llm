@@ -30,7 +30,7 @@ def _resolve_tokenizer_path(path: Optional[str]) -> Path:
         if candidate.exists():
             return candidate
     raise FileNotFoundError(
-        "未找到默认的 MiniMind 分词器资源，请确保 tokenizers/minimind/tokenizer.json 存在。"
+        "未找到默认的分词器资源，请确保 tokenizers/minimind/tokenizer.json 存在。"
     )
 
 

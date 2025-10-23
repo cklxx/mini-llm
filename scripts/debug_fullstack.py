@@ -51,6 +51,33 @@ def _describe_padding(name: str, tensor: torch.Tensor, pad_id: int) -> None:
     )
 
 
+def _pad_to_length(tensor: torch.Tensor | None, target_length: int, pad_value: int) -> torch.Tensor | None:
+    if tensor is None:
+        return None
+    if tensor.dim() == 0:
+        return tensor
+    current_length = tensor.size(-1)
+    if current_length == target_length:
+        return tensor
+    if current_length > target_length:
+        return tensor[..., :target_length]
+    pad_shape = list(tensor.shape)
+    pad_shape[-1] = target_length - current_length
+    padding = torch.full(
+        pad_shape, pad_value, dtype=tensor.dtype, device=tensor.device
+    )
+    return torch.cat([tensor, padding], dim=-1)
+
+
+def _strip_padding_tensor(sequence: torch.Tensor, pad_id: int | None) -> torch.Tensor:
+    if pad_id is None or sequence.dim() != 1:
+        return sequence
+    non_pad = torch.nonzero(sequence.ne(pad_id), as_tuple=False).flatten()
+    if non_pad.numel() == 0:
+        return sequence.new_tensor([pad_id])
+    return sequence[: non_pad[-1].item() + 1]
+
+
 def _extract_raw_example(dataset: Any) -> str:
     if hasattr(dataset, "texts") and dataset.texts:
         return str(dataset.texts[0])
@@ -164,6 +191,17 @@ def run_fullstack_debug(mode: str, model_size: str, prompt: str, max_new_tokens:
             attention = batch.get("attention_mask")
             if attention is not None:
                 attention = attention.to(device)
+            max_seq_len = getattr(config, "max_seq_len", input_ids.size(-1))
+            pad_token = pad_id if pad_id is not None else 0
+            input_ids = _pad_to_length(input_ids, max_seq_len, pad_token)
+            batch["input_ids"] = input_ids
+            label_pad = getattr(tokenizer, "label_pad_token_id", -100)
+            if labels is not None:
+                labels = _pad_to_length(labels, input_ids.size(-1), label_pad)
+                batch["labels"] = labels
+            if attention is not None:
+                attention = _pad_to_length(attention, input_ids.size(-1), 0)
+                batch["attention_mask"] = attention
             print("\n🧮 Batch 结构 (dict)")
             _describe_tensor("input_ids", input_ids)
             if pad_id is not None:
@@ -175,6 +213,12 @@ def run_fullstack_debug(mode: str, model_size: str, prompt: str, max_new_tokens:
         elif "chosen_input_ids" in batch:
             input_ids = batch["chosen_input_ids"].to(device)
             rejected_ids = batch["rejected_input_ids"].to(device)
+            max_seq_len = getattr(config, "max_seq_len", input_ids.size(-1))
+            pad_token = pad_id if pad_id is not None else 0
+            input_ids = _pad_to_length(input_ids, max_seq_len, pad_token)
+            rejected_ids = _pad_to_length(rejected_ids, max_seq_len, pad_token)
+            batch["chosen_input_ids"] = input_ids
+            batch["rejected_input_ids"] = rejected_ids
             print("\n🧮 Batch 结构 (DPO)")
             _describe_tensor("chosen_input_ids", input_ids)
             _describe_tensor("rejected_input_ids", rejected_ids)
@@ -184,6 +228,13 @@ def run_fullstack_debug(mode: str, model_size: str, prompt: str, max_new_tokens:
             raise ValueError("无法识别的批次格式")
     else:
         inputs, targets, loss_mask = [tensor.to(device) for tensor in batch]
+        max_seq_len = getattr(config, "max_seq_len", inputs.size(-1))
+        pad_token = pad_id if pad_id is not None else 0
+        inputs = _pad_to_length(inputs, max_seq_len, pad_token)
+        label_pad = getattr(tokenizer, "label_pad_token_id", -100)
+        targets = _pad_to_length(targets, inputs.size(-1), label_pad)
+        loss_mask = _pad_to_length(loss_mask, inputs.size(-1), 0)
+        batch = (inputs, targets, loss_mask)
         print("\n🧮 Batch 结构 (tuple)")
         _describe_tensor("inputs", inputs)
         if pad_id is not None:
@@ -207,6 +258,8 @@ def run_fullstack_debug(mode: str, model_size: str, prompt: str, max_new_tokens:
             preview_inputs = preview_inputs[:1]
         token_embeds = model.token_embedding(preview_inputs)
         _describe_tensor("token_embedding", token_embeds)
+        dropped_embeds = model.dropout(token_embeds)
+        _describe_tensor("token_embedding_dropout", dropped_embeds)
 
         debug_snapshots: list[tuple[str, torch.Tensor]] = []
         call_counters: dict[str, int] = {}
@@ -285,13 +338,13 @@ def run_fullstack_debug(mode: str, model_size: str, prompt: str, max_new_tokens:
     decoded_prompt = _decode_tokens(tokenizer, prompt_ids_full.tolist())
     print(f"  经过分词器解码的提示: {decoded_prompt.strip()}")
 
-    if pad_id is not None:
-        prompt_ids = prompt_ids_full[prompt_ids_full != pad_id]
-    else:
-        prompt_ids = prompt_ids_full
+    prompt_ids = _strip_padding_tensor(prompt_ids_full, pad_id)
+    if pad_id is not None and prompt_ids.numel() == 1 and prompt_ids.item() == pad_id:
+        fill_id = bos_id if bos_id is not None else pad_id
+        prompt_ids = prompt_ids.new_tensor([fill_id])
     if prompt_ids.numel() == 0:
         fill_id = bos_id if bos_id is not None else (0 if pad_id is None else pad_id)
-        prompt_ids = torch.tensor([fill_id], dtype=torch.long)
+        prompt_ids = prompt_ids.new_tensor([fill_id])
     prompt_tensor = prompt_ids.unsqueeze(0).to(device)
     print(f"  实际用于推理的 token 数: {prompt_tensor.size(1)}")
     _describe_tensor("prompt_tensor", prompt_tensor)

@@ -1,4 +1,4 @@
-"""MiniMind-style language modeling dataset for pre-training."""
+"""Language modeling dataset for pre-training with padding support."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from torch.utils.data import Dataset
 class LanguageModelingDataset(Dataset):
     """Tokenise raw text on-the-fly and produce (X, Y, loss_mask) tuples.
 
-    MiniMind's ``PretrainDataset`` returns three tensors per sample: the
+    The reference implementation returns three tensors per sample: the
     left-shifted inputs ``X``, the right-shifted targets ``Y`` and a
     ``loss_mask`` indicating which target positions should contribute to the
     loss. This implementation mirrors that contract while supporting both
