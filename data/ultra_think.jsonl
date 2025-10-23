@@ -1,1 +1,0 @@
-{"conversations": [{"role": "user", "content": "请深入分析为什么要进行渐进式训练。"}, {"role": "assistant", "content": "<ultra_think>渐进式训练允许在保证稳定性的前提下逐步扩展模型：先用少量数据验证流程，再逐步放大规模，以便及时发现问题并控制资源。</ultra_think>"}]}
