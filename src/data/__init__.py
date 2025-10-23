@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.tokenizer.bpe_tokenizer import BPETokenizer
+from src.tokenizer.rust_bpe_tokenizer import RustBPETokenizer
 
 
 def _project_root() -> Path:
@@ -18,6 +19,7 @@ def _default_tokenizer_candidates() -> list[Path]:
     return [
         root / "tokenizers" / "minimind",
         root / "tokenizers" / "minimind" / "tokenizer.json",
+        root / "tokenizers" / "minimind" / "tokenizer.pkl",
     ]
 
 
@@ -39,6 +41,21 @@ def load_tokenizer(tokenizer_path: Optional[str] = None) -> BPETokenizer:
     """Load the shared tokenizer used across training and preprocessing."""
 
     resolved = _resolve_tokenizer_path(tokenizer_path)
+
+    if resolved.is_dir():
+        if (resolved / 'tokenizer.pkl').exists():
+            tokenizer = RustBPETokenizer()
+            tokenizer.load(str(resolved))
+            return tokenizer
+        tokenizer = BPETokenizer()
+        tokenizer.load(str(resolved))
+        return tokenizer
+
+    if resolved.suffix == '.pkl':
+        tokenizer = RustBPETokenizer()
+        tokenizer.load(str(resolved))
+        return tokenizer
+
     tokenizer = BPETokenizer()
     tokenizer.load(str(resolved))
     return tokenizer
