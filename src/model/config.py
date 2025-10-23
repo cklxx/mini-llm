@@ -3,6 +3,9 @@ MiniGPT模型配置类
 提供统一的配置管理，支持不同模型大小和训练模式
 """
 
+import math
+import warnings
+
 
 class MiniGPTConfig:
     """MiniGPT模型配置类
@@ -82,11 +85,11 @@ class MiniGPTConfig:
 
         # 注意力机制优化
         self.use_gqa = use_gqa
-        if use_gqa and num_key_value_heads is None:
-            # 默认GQA比例为4:1
-            self.num_key_value_heads = max(1, num_attention_heads // 4)
-        else:
-            self.num_key_value_heads = num_key_value_heads
+        self.num_key_value_heads = self._normalize_num_key_value_heads(
+            num_attention_heads=num_attention_heads,
+            requested_kv_heads=num_key_value_heads,
+            use_gqa=use_gqa,
+        )
 
         # 权重共享
         self.tie_word_embeddings = tie_word_embeddings
@@ -118,6 +121,55 @@ class MiniGPTConfig:
 
         # 验证配置
         self._validate_config()
+
+    @staticmethod
+    def _normalize_num_key_value_heads(
+        *,
+        num_attention_heads: int,
+        requested_kv_heads: int | None,
+        use_gqa: bool,
+    ) -> int | None:
+        """Derive a valid number of key/value heads for the configuration.
+
+        When grouped-query attention is enabled we ensure the returned value
+        divides the number of attention heads, falling back to sensible
+        defaults otherwise.  For plain multi-head attention we keep the
+        requested value so downstream modules can detect the original choice.
+        """
+
+        if not use_gqa:
+            return requested_kv_heads or num_attention_heads
+
+        if requested_kv_heads is None:
+            return max(1, num_attention_heads // 4)
+
+        normalized = requested_kv_heads
+        if requested_kv_heads <= 0:
+            normalized = max(1, num_attention_heads // 4)
+            warnings.warn(
+                "num_key_value_heads must be positive when using GQA; falling back to"
+                f" {normalized}.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+        elif requested_kv_heads > num_attention_heads:
+            normalized = num_attention_heads
+            warnings.warn(
+                "num_key_value_heads cannot exceed num_attention_heads; using"
+                f" {normalized}.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+        elif num_attention_heads % requested_kv_heads != 0:
+            normalized = math.gcd(num_attention_heads, requested_kv_heads) or 1
+            warnings.warn(
+                "num_key_value_heads does not evenly divide num_attention_heads;"
+                f" using {normalized} instead of {requested_kv_heads}.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+
+        return normalized
 
     def _validate_config(self):
         """验证配置参数的有效性"""

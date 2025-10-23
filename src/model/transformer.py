@@ -119,7 +119,14 @@ class MultiHeadAttention(nn.Module):
         # 现在形状为: (batch_size, n_heads, seq_len, d_k)
 
         # 3. 计算注意力
-        attention_output = F.scaled_dot_product_attention(Q, K, V, mask)
+        dropout_p = self.dropout.p if self.training else 0.0
+        attention_output = F.scaled_dot_product_attention(
+            Q,
+            K,
+            V,
+            attn_mask=mask,
+            dropout_p=dropout_p,
+        )
         # 形状: (batch_size, n_heads, seq_len, d_k)
 
         # 4. 拼接多头结果
@@ -129,7 +136,7 @@ class MultiHeadAttention(nn.Module):
         # 5. 输出投影
         output = self.w_o(attention_output)
 
-        return output
+        return self.dropout(output)
 
 
 class SwiGLUFeedForward(nn.Module):
@@ -190,7 +197,16 @@ class GroupedQueryAttention(nn.Module):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.num_heads = config.num_attention_heads
-        self.num_key_value_heads = getattr(config, "num_key_value_heads", None) or self.num_heads
+        self.use_gqa = getattr(config, "use_gqa", True)
+        requested_kv_heads = getattr(config, "num_key_value_heads", None)
+        if self.use_gqa:
+            self.num_key_value_heads = MiniGPTConfig._normalize_num_key_value_heads(
+                num_attention_heads=self.num_heads,
+                requested_kv_heads=requested_kv_heads,
+                use_gqa=True,
+            ) or self.num_heads
+        else:
+            self.num_key_value_heads = self.num_heads
         assert (
             self.hidden_size % self.num_heads == 0
         ), "hidden_size必须能被num_attention_heads整除"
