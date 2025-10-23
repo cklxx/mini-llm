@@ -6,6 +6,7 @@ Mini-LLM 是一个面向教学与原型验证的小型语言模型训练框架�
 - **模块化 Transformer 实现**：`MiniGPTConfig` 与 `MiniGPT` 提供可配置的隐藏层数、注意力头数、RoPE、GQA、SwiGLU、MoE 等现代组件，便于按需裁剪模型规模与特性。
 - **训练流水线抽象**：`training.pipeline.TrainingPipeline` 串联 `DatasetPreparer`、`TrainingLoopRunner`、`CheckpointManager` 与 `TrainingMonitor`，负责单一入口的配置快照、数据采样与训练调度，可直接通过 `scripts/train.py` 复现完整训练回路。【F:src/training/pipeline/pipeline.py†L23-L230】【F:src/training/pipeline/training_loop.py†L18-L214】
 - **数据与分词支持**：`training.datasets` 提供语言建模与对话 SFT 数据集实现，支持角色标记、掩码策略与轮次截断增强；`TokenizerManager` 管理分词器训练与缓存复用，降低重复开销。【F:src/training/datasets/conversation.py†L10-L145】【F:src/training/pipeline/tokenizer_manager.py†L1-L118】
+- **RustBPE 分词加速**：集成来自 nanochat 的 Rust 训练器与 tiktoken 推理封装，`RustBPETokenizer` 保持 HuggingFace API 兼容并提供缓存复用的新型词表管线。【F:src/tokenizer/rust_bpe_tokenizer.py†L1-L236】【F:src/tokenizer/tokenizer_manager.py†L1-L230】
 - **监控与实验追踪**：增强版 `TrainingMonitor` 记录训练/验证损失、PPL、系统资源与梯度健康指标，并在训练结束自动生成 TensorBoard 与可视化摘要。【F:src/training/training_monitor.py†L120-L332】
 - **推理与评估**：`TextGenerator` 提供贪心、Top-k、Top-p、Beam Search 等生成策略；`benchmarks/performance_benchmark.py` 可用于快速评估不同配置的性能。
 - **RLHF 管道雏形**：`RLHFPipeline` 串联监督微调、奖励模型训练与 PPO 策略优化，展示 RLHF 端到端流程的关键步骤。
@@ -56,6 +57,11 @@ mini-llm/
    make train-pretrain   # 使用 medium 配置执行预训练流程
    make train-dpo        # 依赖已完成的 SFT 权重，启动 DPO 训练
    ```
+   ```bash
+  bash scripts/train.sh   # 串联数据准备→RustBPE 训练→主干训练，默认启用自动恢复
+  bash scripts/resume.sh --mode pretrain --config medium  # 包装 train.py，异常退出后自动续跑
+  ```
+  > `train.sh` 会自动安装 `uv`/Rust toolchain、构建 rustbpe 扩展、训练 tokenizer 并调用主训练脚本；`resume.sh` 则在训练进程异常时按固定间隔重试，确保长时任务不中断。【F:scripts/train.sh†L1-L63】【F:scripts/resume.sh†L1-L48】
    > 这些命令封装了常见的训练参数组合，可在初次体验或演示场景下直接复用；若需更细粒度控制，可继续使用上方的 CLI 参数自定义运行。【F:Makefile†L73-L107】
 
 ### 命令行字段详解
