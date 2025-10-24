@@ -1,17 +1,18 @@
 # MiniLLM
 
-![visitors](https://visitor-badge.laobi.icu/badge?page_id=jingyaogong/minillm) [![GitHub Repo stars](https://img.shields.io/github/stars/jingyaogong/minillm?style=social)](https://github.com/jingyaogong/minillm/stargazers) [![GitHub Code License](https://img.shields.io/github/license/jingyaogong/minillm)](LICENSE) [![GitHub last commit](https://img.shields.io/github/last-commit/jingyaogong/minillm)](https://github.com/jingyaogong/minillm/commits/master) [![GitHub pull request](https://img.shields.io/badge/PRs-welcome-blue)](https://github.com/jingyaogong/minillm/pulls) [![Collection](https://img.shields.io/badge/🤗-MiniLLM%20%20Collection-blue)](https://huggingface.co/collections/jingyaogong/minillm-66caf8d999f5c7fa64f399e5) [![GitHub Trend](https://trendshift.io/api/badge/repositories/12586)](https://trendshift.io/repositories/12586)
-
 [中文](./README.md) | English
 
-* Train a 25.8M parameter MiniLLM model from scratch in roughly two hours for about three RMB of GPU time.
-* MiniLLM variants are extremely lightweight—the smallest model is roughly $\frac{1}{7000}$ the size of GPT-3—so common consumer GPUs can reproduce the experiments quickly.
-* The project exposes the minimalist LLM architecture, shared MoE extensions, dataset cleaning, pre-training, SFT, LoRA, DPO, RLAIF (PPO/GRPO) and distillation pipelines.
-* All core algorithms are rebuilt from scratch with native PyTorch APIs while remaining interoperable with transformers, trl and peft.
-* Training scripts include single- and multi-GPU (DDP/DeepSpeed) workflows with built-in WandB/SwanLab tracking and resumable runs.
-* 📘 The new [Chinese pipeline booklet](docs/booklet_cn.md) walks through optional RustBPE tokenization, embedding export, Chinese data mixtures, and the one-click pretrain/SFT/DPO workflow.
+MiniLLM is an open-source project designed for learners who want to understand, implement, and train lightweight language models from scratch with minimal hardware cost. It provides end-to-end code, datasets, and documentation so developers can explore the essential building blocks of LLMs.
 
-> The “2 hour” figure assumes a single NVIDIA 3090. “3 RMB” reflects typical short-term GPU rental costs; see the hardware section below for details.
+## Highlights
+
+- Reproduce the 25.8M-parameter MiniLLM model in about two hours for roughly three RMB of GPU time.
+- Minimal Dense/MoE architecture and training pipeline covering data curation, pretraining, SFT, LoRA, DPO, RLAIF, and knowledge distillation.
+- Core algorithms implemented directly with native PyTorch while remaining compatible with `transformers`, `trl`, and `peft` ecosystems.
+- Training scripts support single-GPU and multi-GPU (DDP, DeepSpeed) setups with WandB/Swanlab monitoring and resumable runs.
+- 📘 The [Chinese pipeline booklet](docs/booklet_cn.md) details RustBPE tokenization, embedding export, and the one-click Pretrain/SFT/DPO workflow.
+
+> The “two-hour” figure assumes a single NVIDIA 3090. “Three RMB” reflects typical short-term GPU rental costs; see the hardware section below for details.
 
 ---
 
@@ -1614,87 +1615,6 @@ ollama run minillm2
 ```
 
 > For more usage of the above three-party frameworks, please refer to their official documentation 😊
-
-# 📌 Acknowledge
-
-> [!NOTE]
-> If you find `MiniLLM series` helpful, you can add a ⭐ on GitHub<br/>
-> This document is lengthy with limited knowledge. Welcome to discuss in Issues or submit PRs to improve the project<br/>
-> Your small support is the motivation to continuously improve this project!
-
-## 🤝 [Contributors](https://github.com/jingyaogong/minillm/graphs/contributors)
-
-<a href="https://github.com/jingyaogong"><img src="https://avatars.githubusercontent.com/u/62287848" width="70px" height="70px"/></a>
-&nbsp;
-<a href="https://github.com/MuWinds"><img src="https://avatars.githubusercontent.com/u/93832089" width="70px" height="70px"/></a>
-&nbsp;
-<a href="https://github.com/chuanzhubin"><img src="https://avatars.githubusercontent.com/u/2813798" width="70px" height="70px"/></a>
-&nbsp;
-<a href="https://github.com/iomgaa-ycz"><img src="https://avatars.githubusercontent.com/u/124225682" width="70px" height="70px"/></a>
-&nbsp;
-
-## 😊 Thanks
-
-<a href="https://github.com/ipfgao"><b>@ipfgao</b></a>:
-<a href="https://github.com/jingyaogong/minillm/issues/26">🔗 Training Steps Recording</a>
-
-<a href="https://github.com/chuanzhubin"><b>@chuanzhubin</b></a>:
-<a href="https://github.com/jingyaogong/minillm/pull/34">🔗 Code Line-by-Line Comments</a>
-
-<a href="https://github.com/WangRongsheng"><b>@WangRongsheng</b></a>:
-<a href="https://github.com/jingyaogong/minillm/issues/39">🔗 Large Dataset Preprocessing</a>
-
-<a href="https://github.com/pengqianhan"><b>@pengqianhan</b></a>:
-<a href="https://github.com/jingyaogong/minillm/issues/73">🔗 A Simple Tutorial</a>
-
-<a href="https://github.com/RyanSunn"><b>@RyanSunn</b></a>:
-<a href="https://github.com/jingyaogong/minillm/issues/75">🔗 Inference Process Learning Record</a>
-
-<a href="https://github.com/Nijikadesu"><b>@Nijikadesu</b></a>:
-<a href="https://github.com/jingyaogong/minillm/issues/213">🔗 Interactive Notebook Decomposition of Project Code</a>
-
-<details close> 
-<summary> <b>Reference Links & Thanks to the Following Excellent Papers or Projects</b> </summary>
-
-- Ranking does not represent any order
-- [https://github.com/meta-llama/llama3](https://github.com/meta-llama/llama3)
-- [https://github.com/karpathy/llama2.c](https://github.com/karpathy/llama2.c)
-- [https://github.com/DLLXW/baby-llama2-chinese](https://github.com/DLLXW/baby-llama2-chinese)
-- [(DeepSeek-V2)https://arxiv.org/abs/2405.04434](https://arxiv.org/abs/2405.04434)
-- [https://github.com/charent/ChatLM-mini-Chinese](https://github.com/charent/ChatLM-mini-Chinese)
-- [https://github.com/wdndev/tiny-llm-zh](https://github.com/wdndev/tiny-llm-zh)
-- [(Mistral-MoE)https://arxiv.org/pdf/2401.04088](https://arxiv.org/pdf/2401.04088)
-- [https://github.com/Tongjilibo/build_MiniLLM_from_scratch](https://github.com/Tongjilibo/build_MiniLLM_from_scratch)
-- [https://github.com/jzhang38/TinyLlama](https://github.com/jzhang38/TinyLlama)
-- [https://github.com/AI-Study-Han/Zero-Chatgpt](https://github.com/AI-Study-Han/Zero-Chatgpt)
-- [https://github.com/xusenlinzy/api-for-open-llm](https://github.com/xusenlinzy/api-for-open-llm)
-- [https://github.com/HqWu-HITCS/Awesome-Chinese-LLM](https://github.com/HqWu-HITCS/Awesome-Chinese-LLM)
-
-</details>
-
-## 🫶 Supporters
-
-<a href="https://github.com/jingyaogong/minillm/stargazers">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://reporoster.com/stars/dark/jingyaogong/minillm"/>
-      <source media="(prefers-color-scheme: light)" srcset="https://reporoster.com/stars/jingyaogong/minillm"/>
-      <img alt="github contribution grid snake animation" src="https://reporoster.com/stars/jingyaogong/minillm"/>
-    </picture>
-</a>
-
-<a href="https://github.com/jingyaogong/minillm/network/members">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://reporoster.com/forks/dark/jingyaogong/minillm"/>
-      <source media="(prefers-color-scheme: light)" srcset="https://reporoster.com/forks/jingyaogong/minillm"/>
-      <img alt="github contribution grid snake animation" src="https://reporoster.com/forks/jingyaogong/minillm"/>
-    </picture>
-</a>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=jingyaogong/minillm&type=Date&theme=dark"/>
-  <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=jingyaogong/minillm&type=Date"/>
-  <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=jingyaogong/minillm&type=Date"/>
-</picture>
 
 # License
 
