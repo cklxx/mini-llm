@@ -178,10 +178,52 @@ fi
 
 MODEL_HIDDEN_SIZE=${MODEL_HIDDEN_SIZE:-512}
 MODEL_NUM_LAYERS=${MODEL_NUM_LAYERS:-8}
+USE_MOE=${USE_MOE:-false}
 
 CHECKPOINT_PRETRAIN="$OUT_DIR/pretrain_${MODEL_HIDDEN_SIZE}.pth"
 CHECKPOINT_SFT="$OUT_DIR/full_sft_${MODEL_HIDDEN_SIZE}.pth"
 CHECKPOINT_DPO="$OUT_DIR/rlhf_${MODEL_HIDDEN_SIZE}.pth"
+
+# Auto-load pretrained checkpoints from /openbayes/home/out or environment
+PRETRAINED_PATH=""
+find_pretrained_checkpoint() {
+  local stage=$1
+  local model_size=$2
+  local moe_suffix=""
+
+  if [ "$USE_MOE" = "true" ]; then
+    moe_suffix="_moe"
+  fi
+
+  # Check environment variable first
+  if [ -n "${MINILLM_PRETRAINED_PATH:-}" ] && [ -f "$MINILLM_PRETRAINED_PATH" ]; then
+    echo "$MINILLM_PRETRAINED_PATH"
+    return 0
+  fi
+
+  # Check /openbayes/home/out (OpenBayes environment)
+  local remote_path="/openbayes/home/out/${stage}_${model_size}${moe_suffix}.pth"
+  if [ -f "$remote_path" ]; then
+    echo "$remote_path"
+    return 0
+  fi
+
+  # Check local out directory
+  local local_path="$OUT_DIR/${stage}_${model_size}${moe_suffix}.pth"
+  if [ -f "$local_path" ]; then
+    echo "$local_path"
+    return 0
+  fi
+
+  return 1
+}
+
+# Initialize PRETRAINED_PATH if available
+PRETRAINED_PATH=$(find_pretrained_checkpoint "pretrain" "$MODEL_HIDDEN_SIZE" 2>/dev/null || true)
+if [ -n "$PRETRAINED_PATH" ]; then
+  echo "[checkpoint] Found pretrained model at: $PRETRAINED_PATH"
+  EXTRA_PRETRAIN_ARGS+=(--pretrained_path "$PRETRAINED_PATH")
+fi
 
 TB_PRETRAIN_DIR="$TF_DIR/pretrain"
 TB_SFT_DIR="$TF_DIR/sft"
@@ -225,7 +267,18 @@ else
 fi
 
 echo "[stage] Starting SFT"
-python trainer/train_full_sft.py --data_path "$SFT_JSON" --hidden_size "$MODEL_HIDDEN_SIZE" --num_hidden_layers "$MODEL_NUM_LAYERS" --out_dir "$OUT_DIR" --tensorboard_dir "$TB_SFT_DIR" "${EXTRA_SFT_ARGS[@]}"
+# Auto-load SFT pretrained checkpoint
+SFT_PRETRAINED_PATH=$(find_pretrained_checkpoint "full_sft" "$MODEL_HIDDEN_SIZE" 2>/dev/null || true)
+SFT_ARGS_WITH_PRETRAIN=("${EXTRA_SFT_ARGS[@]}")
+if [ -z "$SFT_PRETRAINED_PATH" ]; then
+  # If no full_sft checkpoint, try pretrain checkpoint
+  SFT_PRETRAINED_PATH=$(find_pretrained_checkpoint "pretrain" "$MODEL_HIDDEN_SIZE" 2>/dev/null || true)
+fi
+if [ -n "$SFT_PRETRAINED_PATH" ]; then
+  echo "[checkpoint] Using pretrained model for SFT: $SFT_PRETRAINED_PATH"
+  SFT_ARGS_WITH_PRETRAIN+=(--pretrained_path "$SFT_PRETRAINED_PATH")
+fi
+python trainer/train_full_sft.py --data_path "$SFT_JSON" --hidden_size "$MODEL_HIDDEN_SIZE" --num_hidden_layers "$MODEL_NUM_LAYERS" --out_dir "$OUT_DIR" --tensorboard_dir "$TB_SFT_DIR" "${SFT_ARGS_WITH_PRETRAIN[@]}"
 
 if [ -f "$CHECKPOINT_SFT" ]; then
   echo "[eval] SFT evaluation"
@@ -235,7 +288,22 @@ else
 fi
 
 echo "[stage] Starting DPO"
-python trainer/train_dpo.py --data_path "$DPO_JSON" --hidden_size "$MODEL_HIDDEN_SIZE" --num_hidden_layers "$MODEL_NUM_LAYERS" --out_dir "$OUT_DIR" --tensorboard_dir "$TB_DPO_DIR" "${EXTRA_DPO_ARGS[@]}"
+# Auto-load DPO pretrained checkpoint
+DPO_PRETRAINED_PATH=$(find_pretrained_checkpoint "full_sft" "$MODEL_HIDDEN_SIZE" 2>/dev/null || true)
+DPO_ARGS_WITH_PRETRAIN=("${EXTRA_DPO_ARGS[@]}")
+if [ -z "$DPO_PRETRAINED_PATH" ]; then
+  # If no full_sft checkpoint, try rlhf checkpoint
+  DPO_PRETRAINED_PATH=$(find_pretrained_checkpoint "rlhf" "$MODEL_HIDDEN_SIZE" 2>/dev/null || true)
+fi
+if [ -z "$DPO_PRETRAINED_PATH" ]; then
+  # If no rlhf checkpoint, try pretrain checkpoint
+  DPO_PRETRAINED_PATH=$(find_pretrained_checkpoint "pretrain" "$MODEL_HIDDEN_SIZE" 2>/dev/null || true)
+fi
+if [ -n "$DPO_PRETRAINED_PATH" ]; then
+  echo "[checkpoint] Using pretrained model for DPO: $DPO_PRETRAINED_PATH"
+  DPO_ARGS_WITH_PRETRAIN+=(--pretrained_path "$DPO_PRETRAINED_PATH")
+fi
+python trainer/train_dpo.py --data_path "$DPO_JSON" --hidden_size "$MODEL_HIDDEN_SIZE" --num_hidden_layers "$MODEL_NUM_LAYERS" --out_dir "$OUT_DIR" --tensorboard_dir "$TB_DPO_DIR" "${DPO_ARGS_WITH_PRETRAIN[@]}"
 
 if [ -f "$CHECKPOINT_DPO" ]; then
   echo "[eval] DPO evaluation"
