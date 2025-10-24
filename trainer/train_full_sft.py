@@ -18,6 +18,7 @@ from torch.utils.tensorboard import SummaryWriter
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from model.model_minillm import MiniLLMConfig, MiniLLMForCausalLM
 from dataset.lm_dataset import SFTDataset
+from checkpoint_loader import CheckpointLoader
 
 warnings.filterwarnings('ignore')
 
@@ -117,13 +118,28 @@ def train_epoch(epoch, wandb):
 def init_model(lm_config):
     tokenizer = AutoTokenizer.from_pretrained('./model')
     model = MiniLLMForCausalLM(lm_config)
-    moe_path = '_moe' if lm_config.use_moe else ''
-    ckp = f'{args.save_dir}/pretrain_{lm_config.hidden_size}{moe_path}.pth'
-    state_dict = torch.load(ckp, map_location=args.device)
-    model.load_state_dict(state_dict, strict=False)
 
-    Logger(f'LLM可训练总参数量：{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6:.3f} 百万')
+    # Determine checkpoint path with multiple fallback strategies
+    # For SFT, try to load from pretrain checkpoint first, then fall back to explicit paths
+    ckp_path = CheckpointLoader.resolve_checkpoint_path(
+        explicit_path=args.pretrained_path,
+        stage='pretrain' if not args.load_from_remote else None,
+        hidden_size=args.hidden_size if not args.load_from_remote else None,
+        use_moe=lm_config.use_moe,
+        env_var='MINILLM_PRETRAINED_PATH',
+        local_dir=args.save_dir,
+        remote_dir='/openbayes/home/out',
+        logger=Logger,
+    )
+
+    # Load checkpoint if found
+    if ckp_path:
+        CheckpointLoader.load_checkpoint(model, ckp_path, device=args.device, logger=Logger)
+    else:
+        Logger('Warning: No pretrained checkpoint found')
+
     model = model.to(args.device)
+    Logger(f'LLM可训练总参数量：{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6:.3f} 百万')
     return model, tokenizer
 
 
@@ -165,6 +181,11 @@ if __name__ == "__main__":
     parser.add_argument("--tensorboard_dir", type=str, default=None)
     parser.add_argument("--max_steps", type=int, default=None, help="Limit total training iterations (for smoke tests)")
 
+    # Pretrained model checkpoint arguments
+    parser.add_argument("--pretrained_path", type=str, default=None,
+                        help="Path to pretrained model checkpoint (supports /openbayes/home/out)")
+    parser.add_argument("--load_from_remote", action="store_true",
+                        help="Load pretrained model from /openbayes/home/out instead of local directory")
     args = parser.parse_args()
 
     if args.max_steps is not None and args.max_steps <= 0:

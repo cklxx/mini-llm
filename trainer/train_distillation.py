@@ -203,6 +203,11 @@ if __name__ == "__main__":
     parser.add_argument('--local_rank', type=int, default=-1)
     parser.add_argument("--data_path", type=str, default="../dataset/sft_xxx.jsonl")
 
+    # Pretrained model checkpoint arguments
+    parser.add_argument("--pretrained_path", type=str, default=None,
+                        help="Path to pretrained model checkpoint (supports /openbayes/home/out)")
+    parser.add_argument("--load_from_remote", action="store_true",
+                        help="Load pretrained model from /openbayes/home/out instead of local directory")
     args = parser.parse_args()
     # 定义学生模型和教师模型
     lm_config_student = MiniLLMConfig(hidden_size=512, num_hidden_layers=8)

@@ -263,6 +263,11 @@ if __name__ == "__main__":
     parser.add_argument("--num_generations", type=int, default=8)
     parser.add_argument("--beta", type=float, default=0.02)
     parser.add_argument("--reasoning", type=int, default=1, help='0:普通模型，1:推理模型')
+    # Pretrained model checkpoint arguments
+    parser.add_argument("--pretrained_path", type=str, default=None,
+                        help="Path to pretrained model checkpoint (supports /openbayes/home/out)")
+    parser.add_argument("--load_from_remote", action="store_true",
+                        help="Load pretrained model from /openbayes/home/out instead of local directory")
     args = parser.parse_args()
 
     lm_config = MiniLLMConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers,

@@ -156,6 +156,11 @@ if __name__ == "__main__":
     parser.add_argument('--use_moe', default=False, type=bool)
     parser.add_argument("--data_path", type=str, default="../dataset/r1_mix_1024.jsonl")
 
+    # Pretrained model checkpoint arguments
+    parser.add_argument("--pretrained_path", type=str, default=None,
+                        help="Path to pretrained model checkpoint (supports /openbayes/home/out)")
+    parser.add_argument("--load_from_remote", action="store_true",
+                        help="Load pretrained model from /openbayes/home/out instead of local directory")
     args = parser.parse_args()
 
     lm_config = MiniLLMConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers,

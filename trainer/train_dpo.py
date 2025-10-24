@@ -19,6 +19,7 @@ from torch.utils.tensorboard import SummaryWriter
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from model.model_minillm import MiniLLMConfig, MiniLLMForCausalLM
 from dataset.lm_dataset import DPODataset
+from checkpoint_loader import CheckpointLoader
 
 warnings.filterwarnings('ignore')
 
@@ -211,6 +212,11 @@ if __name__ == "__main__":
     parser.add_argument("--tensorboard_dir", type=str, default=None)
     parser.add_argument("--max_steps", type=int, default=None, help="Limit total training iterations (for smoke tests)")
 
+    # Pretrained model checkpoint arguments
+    parser.add_argument("--pretrained_path", type=str, default=None,
+                        help="Path to pretrained model checkpoint (supports /openbayes/home/out)")
+    parser.add_argument("--load_from_remote", action="store_true",
+                        help="Load pretrained model from /openbayes/home/out instead of local directory")
     args = parser.parse_args()
 
     if args.max_steps is not None and args.max_steps <= 0:
