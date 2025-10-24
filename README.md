@@ -1,17 +1,18 @@
 # MiniLLM
 
-![visitors](https://visitor-badge.laobi.icu/badge?page_id=jingyaogong/minillm) [![GitHub Repo stars](https://img.shields.io/github/stars/jingyaogong/minillm?style=social)](https://github.com/jingyaogong/minillm/stargazers) [![GitHub Code License](https://img.shields.io/github/license/jingyaogong/minillm)](LICENSE) [![GitHub last commit](https://img.shields.io/github/last-commit/jingyaogong/minillm)](https://github.com/jingyaogong/minillm/commits/master) [![GitHub pull request](https://img.shields.io/badge/PRs-welcome-blue)](https://github.com/jingyaogong/minillm/pulls) [![Collection](https://img.shields.io/badge/🤗-MiniLLM%20%20Collection-blue)](https://huggingface.co/collections/jingyaogong/minillm-66caf8d999f5c7fa64f399e5) [![GitHub Trend](https://trendshift.io/api/badge/repositories/12586)](https://trendshift.io/repositories/12586)
-
 中文 | [English](./README_en.md)
 
-* 此开源项目旨在完全从0开始，仅用3块钱成本 + 2小时即可训练出仅为25.8M的超小语言模型 **MiniLLM**。
-* **MiniLLM** 系列极其轻量，最小版本体积是 GPT-3 的 $\frac{1}{7000}$，力求做到最普通的个人 GPU 也可快速训练。
-* 项目开源大模型的极简结构，覆盖共享混合专家(MoE)、数据集清洗、预训练(Pretrain)、监督微调(SFT)、LoRA 微调、直接偏好优化 (DPO)、强化学习训练 (RLAIF: PPO/GRPO 等) 以及模型蒸馏的全过程代码。
-* 所有核心算法均以 PyTorch 原生 API 从零实现，几乎不依赖第三方库抽象接口，兼容 transformers、trl、peft 等主流框架。
-* 📘 新增 [《MiniLLM 全流程小册子》](docs/booklet_cn.md)，详细拆解数据构建、可选的 RustBPE 分词、嵌入导出以及一键式 Pretrain/SFT/DPO 流程。
-* 预置训练脚本支持单机单卡、单机多卡 (DDP、DeepSpeed)、WandB/Swanlab 训练可视化及动态启停。
+MiniLLM 是一个面向学习者的开源项目，展示如何以极低的硬件成本从零实现、训练并部署轻量级大语言模型。项目提供完整的代码、数据和文档，帮助开发者理解 LLM 的核心组件与训练流程。
 
-> “2 小时” 数据基于 NVIDIA 3090 (单卡) 测试，“3 块钱” 指 GPU 服务器租用成本，具体规格详见下文。
+## 项目亮点
+
+- 仅需约 2 小时和 3 元 GPU 成本即可复现 25.8M 参数的 MiniLLM 模型。
+- 极简 Dense/MoE 架构与训练脚本，从数据清洗、预训练到指令微调、LoRA、DPO、RLAIF、蒸馏一应俱全。
+- 所有核心算法基于原生 PyTorch 实现，同时兼容 `transformers`、`trl`、`peft` 等主流生态。
+- 训练脚本适配单机单卡与多卡 (DDP、DeepSpeed)，支持 WandB/Swanlab 可视化与动态启停。
+- 📘 [《MiniLLM 全流程小册子》](docs/booklet_cn.md) 详解数据构建、RustBPE 分词、嵌入导出及一键式 Pretrain/SFT/DPO 流程。
+
+> “2 小时” 数据基于 NVIDIA 3090（单卡）测试，“3 块钱” 指 GPU 服务器租用成本，具体规格详见下文。
 
 ---
 
@@ -1695,94 +1696,6 @@ ollama run minillm2
 ```
 
 > 以上三方框架的更多用法请参考对应官方文档😊
-
-# 📌 Acknowledge
-
-> [!NOTE]
-> 如果觉得`MiniLLM系列`对您有所帮助，可以在 GitHub 上加一个⭐<br/>
-> 篇幅超长水平有限难免纰漏，欢迎在Issues交流指正或提交PR改进项目<br/>
-> 您的小小支持就是持续改进此项目的动力！
-
-## 🤝[贡献者](https://github.com/jingyaogong/minillm/graphs/contributors)
-
-<!--
-<a href="https://github.com/jingyaogong/minillm/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=jingyaogong/minillm&v3" />
-</a>
--->
-
-<a href="https://github.com/jingyaogong"><img src="https://avatars.githubusercontent.com/u/62287848" width="70px" height="70px"/></a>
-&nbsp;
-<a href="https://github.com/MuWinds"><img src="https://avatars.githubusercontent.com/u/93832089" width="70px" height="70px"/></a>
-&nbsp;
-<a href="https://github.com/chuanzhubin"><img src="https://avatars.githubusercontent.com/u/2813798" width="70px" height="70px"/></a>
-&nbsp;
-<a href="https://github.com/iomgaa-ycz"><img src="https://avatars.githubusercontent.com/u/124225682" width="70px" height="70px"/></a>
-&nbsp;
-
-## 😊鸣谢
-
-<a href="https://github.com/ipfgao"><b>@ipfgao</b></a>:
-<a href="https://github.com/jingyaogong/minillm/issues/26">🔗训练步骤记录</a>
-
-<a href="https://github.com/chuanzhubin"><b>@chuanzhubin</b></a>:
-<a href="https://github.com/jingyaogong/minillm/pull/34">🔗代码逐行注释</a>
-
-<a href="https://github.com/WangRongsheng"><b>@WangRongsheng</b></a>:
-<a href="https://github.com/jingyaogong/minillm/issues/39">🔗大型数据集预处理</a>
-
-<a href="https://github.com/pengqianhan"><b>@pengqianhan</b></a>:
-<a href="https://github.com/jingyaogong/minillm/issues/73">🔗一个简明教程</a>
-
-<a href="https://github.com/RyanSunn"><b>@RyanSunn</b></a>:
-<a href="https://github.com/jingyaogong/minillm/issues/75">🔗推理过程学习记录</a>
-
-<a href="https://github.com/Nijikadesu"><b>@Nijikadesu</b></a>:
-<a href="https://github.com/jingyaogong/minillm/issues/213">🔗以交互笔记本方式分解项目代码</a>
-
-
-<details close> 
-<summary> <b>参考链接 & 感谢以下优秀的论文或项目</b> </summary>
-
-- 排名不分任何先后顺序
-- [https://github.com/meta-llama/llama3](https://github.com/meta-llama/llama3)
-- [https://github.com/karpathy/llama2.c](https://github.com/karpathy/llama2.c)
-- [https://github.com/DLLXW/baby-llama2-chinese](https://github.com/DLLXW/baby-llama2-chinese)
-- [(DeepSeek-V2)https://arxiv.org/abs/2405.04434](https://arxiv.org/abs/2405.04434)
-- [https://github.com/charent/ChatLM-mini-Chinese](https://github.com/charent/ChatLM-mini-Chinese)
-- [https://github.com/wdndev/tiny-llm-zh](https://github.com/wdndev/tiny-llm-zh)
-- [(Mistral-MoE)https://arxiv.org/pdf/2401.04088](https://arxiv.org/pdf/2401.04088)
-- [https://github.com/Tongjilibo/build_MiniLLM_from_scratch](https://github.com/Tongjilibo/build_MiniLLM_from_scratch)
-- [https://github.com/jzhang38/TinyLlama](https://github.com/jzhang38/TinyLlama)
-- [https://github.com/AI-Study-Han/Zero-Chatgpt](https://github.com/AI-Study-Han/Zero-Chatgpt)
-- [https://github.com/xusenlinzy/api-for-open-llm](https://github.com/xusenlinzy/api-for-open-llm)
-- [https://github.com/HqWu-HITCS/Awesome-Chinese-LLM](https://github.com/HqWu-HITCS/Awesome-Chinese-LLM)
-
-</details>
-
-## 🫶支持者
-
-<a href="https://github.com/jingyaogong/minillm/stargazers">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://reporoster.com/stars/dark/jingyaogong/minillm"/>
-      <source media="(prefers-color-scheme: light)" srcset="https://reporoster.com/stars/jingyaogong/minillm"/>
-      <img alt="github contribution grid snake animation" src="https://reporoster.com/stars/jingyaogong/minillm"/>
-    </picture>
-</a>
-
-<a href="https://github.com/jingyaogong/minillm/network/members">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://reporoster.com/forks/dark/jingyaogong/minillm"/>
-      <source media="(prefers-color-scheme: light)" srcset="https://reporoster.com/forks/jingyaogong/minillm"/>
-      <img alt="github contribution grid snake animation" src="https://reporoster.com/forks/jingyaogong/minillm"/>
-    </picture>
-</a>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=jingyaogong/minillm&type=Date&theme=dark"/>
-  <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=jingyaogong/minillm&type=Date"/>
-  <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=jingyaogong/minillm&type=Date"/>
-</picture>
 
 # License
 
