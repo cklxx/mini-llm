@@ -36,36 +36,55 @@ done
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT_DIR"
 
-PYTHON_BIN=${PYTHON:-python3}
+export PYTHONPATH="$ROOT_DIR${PYTHONPATH:+:$PYTHONPATH}"
+
 VENV_DIR=${VENV_DIR:-.venv}
 TF_DIR=${TF_DIR:-/openbayes/home/tf_dir}
 OUT_DIR=${OUT_DIR:-out}
 DATA_DIR=${DATA_DIR:-data/processed}
 RESULTS_FILE=${RESULTS_FILE:-"$TF_DIR/eval_results.jsonl"}
 
-if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
-  echo "Python executable '$PYTHON_BIN' not found" >&2
-  exit 1
+USE_UV=0
+
+if [ -d "$VENV_DIR" ]; then
+  echo "[env] Using existing virtual environment at $VENV_DIR"
+else
+  echo "[env] No virtual environment found at $VENV_DIR; bootstrapping with uv"
+  USE_UV=1
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "[env] Installing uv toolchain"
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.cargo/bin:$PATH"
+  fi
+  uv venv "$VENV_DIR"
 fi
 
-echo "[env] Using Python: $PYTHON_BIN"
-
-if [ ! -d "$VENV_DIR" ]; then
-  echo "[env] Creating virtual environment at $VENV_DIR"
-  "$PYTHON_BIN" -m venv "$VENV_DIR"
+if [ ! -x "$VENV_DIR/bin/python" ]; then
+  echo "Python interpreter not found in $VENV_DIR" >&2
+  exit 1
 fi
 
 # shellcheck disable=SC1090
 source "$VENV_DIR/bin/activate"
 trap 'deactivate >/dev/null 2>&1 || true' EXIT
 
-if [ ! -f "$VENV_DIR/.deps_installed" ]; then
-  echo "[env] Installing Python dependencies via pip"
-  python -m pip install --upgrade pip
-  python -m pip install -r requirements.txt
-  touch "$VENV_DIR/.deps_installed"
+if [ "$USE_UV" -eq 1 ]; then
+  if [ ! -f "$VENV_DIR/.deps_installed" ]; then
+    echo "[env] Syncing Python dependencies via uv"
+    uv pip sync requirements.txt
+    touch "$VENV_DIR/.deps_installed"
+  else
+    echo "[env] Dependencies already synced via uv, skipping"
+  fi
 else
-  echo "[env] Dependencies already installed, skipping pip install"
+  if [ ! -f "$VENV_DIR/.deps_installed" ]; then
+    echo "[env] Installing Python dependencies via pip"
+    python -m pip install --upgrade pip
+    python -m pip install -r requirements.txt
+    touch "$VENV_DIR/.deps_installed"
+  else
+    echo "[env] Dependencies already installed, skipping pip install"
+  fi
 fi
 
 mkdir -p "$TF_DIR"
