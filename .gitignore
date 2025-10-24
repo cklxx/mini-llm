@@ -59,6 +59,7 @@ tf_dir/
 results/
 eval_results.jsonl
 *.jsonl
+!dataset/*.jsonl
 
 # System files
 .env

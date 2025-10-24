@@ -1,0 +1,2 @@
+{"prompt": "请简要介绍 MiniLLM 项目的目标。", "preferred": "MiniLLM 项目旨在提供一套轻量化的中文对话模型训练流程，让开发者能快速上手端到端微调。", "other": "我不知道 MiniLLM 是什么。", "source": "sample"}
+{"prompt": "微调模型前需要准备哪些数据？", "preferred": "通常需要通用对话、知识问答、数学推理等多种数据，同时准备偏好对比数据用于 DPO。", "other": "只要随便准备一些句子就可以。", "source": "sample"}
