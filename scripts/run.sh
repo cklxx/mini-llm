@@ -59,9 +59,15 @@ RESULTS_FILE=${RESULTS_FILE:-"$TF_DIR/eval_results.jsonl"}
 
 USE_UV=0
 
-if [ -d "$VENV_DIR" ]; then
+# Check if venv exists and is valid
+if [ -d "$VENV_DIR" ] && [ -x "$VENV_DIR/bin/python" ]; then
   echo "[env] Using existing virtual environment at $VENV_DIR"
 else
+  # Venv doesn't exist or is broken, recreate it
+  if [ -d "$VENV_DIR" ]; then
+    echo "[env] Virtual environment at $VENV_DIR is broken, removing it"
+    rm -rf "$VENV_DIR"
+  fi
   echo "[env] No virtual environment found at $VENV_DIR; bootstrapping with uv"
   USE_UV=1
   if ! command -v uv >/dev/null 2>&1; then
@@ -73,7 +79,7 @@ else
 fi
 
 if [ ! -x "$VENV_DIR/bin/python" ]; then
-  echo "Python interpreter not found in $VENV_DIR" >&2
+  echo "[error] Python interpreter not found in $VENV_DIR after setup" >&2
   exit 1
 fi
 
