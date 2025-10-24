@@ -20,6 +20,7 @@ DEFAULT_MIX = {
 DEFAULT_PREFERENCE = {"preference": {"path": Path("data/chinese/preference_pairs.jsonl"), "target": 60_000}}
 
 SAMPLE_IDENTITY_FALLBACK = Path("dataset/identity_cn_sample.jsonl")
+SAMPLE_PREFERENCE_FALLBACK = Path("dataset/preference_cn_sample.jsonl")
 
 
 def iter_jsonl(path: Path) -> Iterator[dict]:
@@ -136,6 +137,9 @@ def main() -> None:
 
     preference_cfg = DEFAULT_PREFERENCE["preference"]
     preference_records = load_records(preference_cfg["path"])
+    if not preference_records and SAMPLE_PREFERENCE_FALLBACK.exists():
+        preference_records = load_records(SAMPLE_PREFERENCE_FALLBACK)
+
     if preference_records:
         preference_samples = sample_records(preference_records, preference_cfg["target"], rng=rng)
     else:
