@@ -235,7 +235,7 @@ class CriticModel(MiniLLMForCausalLM):
 
 
 def init_model(lm_config):
-    tokenizer = AutoTokenizer.from_pretrained('../model/', padding_side='left')
+    tokenizer = AutoTokenizer.from_pretrained('./model/', padding_side='left')
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
