@@ -8,6 +8,7 @@
 * **MiniLLM** 系列极其轻量，最小版本体积是 GPT-3 的 $\frac{1}{7000}$，力求做到最普通的个人 GPU 也可快速训练。
 * 项目开源大模型的极简结构，覆盖共享混合专家(MoE)、数据集清洗、预训练(Pretrain)、监督微调(SFT)、LoRA 微调、直接偏好优化 (DPO)、强化学习训练 (RLAIF: PPO/GRPO 等) 以及模型蒸馏的全过程代码。
 * 所有核心算法均以 PyTorch 原生 API 从零实现，几乎不依赖第三方库抽象接口，兼容 transformers、trl、peft 等主流框架。
+* 📘 新增 [《MiniLLM 全流程小册子》](docs/booklet_cn.md)，详细拆解数据构建、可选的 RustBPE 分词、嵌入导出以及一键式 Pretrain/SFT/DPO 流程。
 * 预置训练脚本支持单机单卡、单机多卡 (DDP、DeepSpeed)、WandB/Swanlab 训练可视化及动态启停。
 
 > “2 小时” 数据基于 NVIDIA 3090 (单卡) 测试，“3 块钱” 指 GPU 服务器租用成本，具体规格详见下文。
@@ -267,11 +268,37 @@ print(torch.cuda.is_available())
 
 </details>
 
-### 3.开始训练
+### 3.一键全流程（可选）
+
+项目提供 `scripts/run.sh` 实现“一键预训练 + SFT + DPO”：
+
+```bash
+bash scripts/run.sh
+```
+
+该脚本会自动完成以下步骤：
+
+1. 使用 `python3 -m venv` 初始化虚拟环境，并在首次执行时 `pip install -r requirements.txt`；
+2. 构建 `data/processed/` 目录，确保 `data/chinese/identity_conversations.jsonl` 被采样进混合数据；
+3. 基于默认配置分别运行预训练（2 轮）、SFT 与 DPO；
+4. 每个阶段结束后调用 `scripts/evaluate_stage.py` 输出评测分数，并把结果追加到 `../tf_dir/eval_results.jsonl`；
+5. 支持通过 `PRETRAIN_ARGS` / `SFT_ARGS` / `DPO_ARGS` 环境变量追加训练参数，`OUT_DIR`、`TF_DIR`、`VENV_DIR` 等也可定制。
+
+若需要重新拉起训练，只需确保 `.venv/.deps_installed` 存在即可跳过依赖安装，满足“环境 ready 后直接训练”的要求。
+
+如果只想在本地 CPU 上做一次快速冒烟测试，可执行：
+
+```bash
+bash scripts/run.sh --smoke-test
+```
+
+该模式会自动裁剪数据集，强制使用 CPU、float32 和极小步数，让完整流程在几分钟内完成，验证代码链路是否正常。
+
+### 4.手动训练
 
 目录位于`trainer`
 
-**3.1 预训练（学知识）**
+**4.1 预训练（学知识）**
 
 ```bash
 python train_pretrain.py
@@ -280,7 +307,7 @@ python train_pretrain.py
 > 执行预训练，得到 `pretrain_*.pth` 作为预训练的输出权重（其中*为模型的dimension，默认为512）
 
 
-**3.2 监督微调（学对话方式）**
+**4.2 监督微调（学对话方式）**
 
 ```bash
 python train_full_sft.py

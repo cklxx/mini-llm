@@ -9,6 +9,7 @@
 * The project exposes the minimalist LLM architecture, shared MoE extensions, dataset cleaning, pre-training, SFT, LoRA, DPO, RLAIF (PPO/GRPO) and distillation pipelines.
 * All core algorithms are rebuilt from scratch with native PyTorch APIs while remaining interoperable with transformers, trl and peft.
 * Training scripts include single- and multi-GPU (DDP/DeepSpeed) workflows with built-in WandB/SwanLab tracking and resumable runs.
+* 📘 The new [Chinese pipeline booklet](docs/booklet_cn.md) walks through optional RustBPE tokenization, embedding export, Chinese data mixtures, and the one-click pretrain/SFT/DPO workflow.
 
 > The “2 hour” figure assumes a single NVIDIA 3090. “3 RMB” reflects typical short-term GPU rental costs; see the hardware section below for details.
 
@@ -258,11 +259,37 @@ You can freely choose data files. The section below provides multiple combinatio
 
 </details>
 
-### 3. Start Training
+### 3. One-click Pipeline (Optional)
+
+We provide `scripts/run.sh` to launch the full pipeline (pretrain + SFT + DPO) in one go:
+
+```bash
+bash scripts/run.sh
+```
+
+The script performs the following tasks automatically:
+
+1. Bootstraps a virtual environment via `python3 -m venv` and installs `requirements.txt` with pip the first time it runs;
+2. Builds `data/processed/` and ensures `data/chinese/identity_conversations.jsonl` participates in the sampling mix;
+3. Runs pretrain (2 epochs), SFT, and DPO with the default configuration;
+4. Calls `scripts/evaluate_stage.py` after each phase to print quick evaluation scores and append JSON summaries to `../tf_dir/eval_results.jsonl`;
+5. Allows customization through environment variables such as `PRETRAIN_ARGS`, `SFT_ARGS`, `DPO_ARGS`, `OUT_DIR`, `TF_DIR`, and `VENV_DIR`.
+
+If you restart the workflow later, the presence of `.venv/.deps_installed` lets the script skip dependency installation so it can jump straight to training once the environment is ready.
+
+For a quick CPU-only smoke test, run:
+
+```bash
+bash scripts/run.sh --smoke-test
+```
+
+This mode trims each dataset, forces CPU/float32, and caps the step count so the full pretrain → SFT → DPO loop finishes in just a few minutes to verify the pipeline.
+
+### 4. Manual Training
 
 Directory is located in `trainer`
 
-**3.1 Pretraining (Learning Knowledge)**
+**4.1 Pretraining (Learning Knowledge)**
 
 ```bash
 python train_pretrain.py
@@ -270,7 +297,7 @@ python train_pretrain.py
 
 > Execute pretraining to get `pretrain_*.pth` as the output weights for pretraining (where * is the model's dimension, default is 512)
 
-**3.2 Supervised Fine-tuning (Learning Conversation Style)**
+**4.2 Supervised Fine-tuning (Learning Conversation Style)**
 
 ```bash
 python train_full_sft.py

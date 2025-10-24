@@ -13,12 +13,16 @@ import torch.distributed as dist
 from torch import optim, nn
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.tensorboard import SummaryWriter
 from contextlib import nullcontext
 from transformers import AutoTokenizer
 from model.model_minillm import MiniLLMConfig, MiniLLMForCausalLM
 from dataset.lm_dataset import PretrainDataset
 
 warnings.filterwarnings('ignore')
+
+
+training_state = {"max_steps": None, "global_step": 0, "stop": False}
 
 
 def Logger(content):
@@ -33,7 +37,12 @@ def get_lr(current_step, total_steps, lr):
 def train_epoch(epoch, wandb):
     loss_fct = nn.CrossEntropyLoss(reduction='none')
     start_time = time.time()
+    if training_state["stop"]:
+        return
+
     for step, (X, Y, loss_mask) in enumerate(train_loader):
+        if training_state["stop"]:
+            break
         X = X.to(args.device)
         Y = Y.to(args.device)
         loss_mask = loss_mask.to(args.device)
@@ -80,6 +89,11 @@ def train_epoch(epoch, wandb):
                            "lr": optimizer.param_groups[-1]['lr'],
                            "epoch_Time": spend_time / (step + 1) * iter_per_epoch // 60 - spend_time // 60})
 
+            if writer is not None and (not ddp or dist.get_rank() == 0):
+                global_step = epoch * iter_per_epoch + step
+                writer.add_scalar("train/loss", loss.item() * args.accumulation_steps, global_step)
+                writer.add_scalar("train/lr", optimizer.param_groups[-1]['lr'], global_step)
+
         if ((step + 1) % args.save_interval == 0 or step == iter_per_epoch - 1) and (not ddp or dist.get_rank() == 0):
             model.eval()
             moe_path = '_moe' if lm_config.use_moe else ''
@@ -93,6 +107,13 @@ def train_epoch(epoch, wandb):
             state_dict = {k: v.half() for k, v in state_dict.items()}  # 半精度保存
             torch.save(state_dict, ckp)
             model.train()
+
+        training_state["global_step"] += 1
+        max_steps = training_state["max_steps"]
+        if max_steps is not None and training_state["global_step"] >= max_steps:
+            Logger(f"[smoke] Reached max_steps={max_steps}, stopping early")
+            training_state["stop"] = True
+            break
 
 
 def init_model(lm_config):
@@ -139,7 +160,12 @@ if __name__ == "__main__":
     parser.add_argument('--max_seq_len', default=512, type=int)
     parser.add_argument('--use_moe', default=False, type=bool)
     parser.add_argument("--data_path", type=str, default="../dataset/pretrain_hq.jsonl")
+    parser.add_argument("--tensorboard_dir", type=str, default=None)
+    parser.add_argument("--max_steps", type=int, default=None, help="Limit total training iterations (for smoke tests)")
     args = parser.parse_args()
+
+    if args.max_steps is not None and args.max_steps <= 0:
+        args.max_steps = None
 
     lm_config = MiniLLMConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers,
                                use_moe=args.use_moe)
@@ -175,6 +201,12 @@ if __name__ == "__main__":
     else:
         wandb = None
 
+    global writer
+    writer = None
+    if args.tensorboard_dir and (not ddp or dist.get_rank() == 0):
+        os.makedirs(args.tensorboard_dir, exist_ok=True)
+        writer = SummaryWriter(log_dir=args.tensorboard_dir)
+
     model, tokenizer = init_model(lm_config)
     train_ds = PretrainDataset(args.data_path, tokenizer, max_length=args.max_seq_len)
     train_sampler = DistributedSampler(train_ds) if ddp else None
@@ -195,7 +227,21 @@ if __name__ == "__main__":
         model._ddp_params_and_buffers_to_ignore = {"freqs_cos", "freqs_sin"}
         model = DistributedDataParallel(model, device_ids=[ddp_local_rank])
 
+    global iter_per_epoch
     iter_per_epoch = len(train_loader)
+    training_state["max_steps"] = args.max_steps
+    training_state["global_step"] = 0
+    training_state["stop"] = False
+
     for epoch in range(args.epochs):
+        if training_state["stop"]:
+            break
         train_sampler and train_sampler.set_epoch(epoch)
         train_epoch(epoch, wandb)
+        if training_state["stop"]:
+            Logger("[smoke] Early stop triggered, exiting training loop")
+            break
+
+    if writer is not None:
+        writer.flush()
+        writer.close()
