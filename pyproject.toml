@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "minigpt-training"
+version = "0.1.0"
+description = "MiniGPT training pipeline for language model pretraining, SFT, and DPO"
+requires-python = ">=3.9,<3.13"
+readme = "README.md"
+license = {text = "MIT"}
+
+[tool.pip]
+# Use Tsinghua mirror by default for faster downloads in China
+index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+
+# Build configuration
+[tool.setuptools]
+py-modules = []

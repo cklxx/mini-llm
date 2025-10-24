@@ -8,6 +8,9 @@ import argparse
 import time
 import math
 import warnings
+
+# Suppress pynvml deprecation warning from torch.cuda
+warnings.filterwarnings('ignore', category=FutureWarning, module='torch.cuda')
 import torch
 import torch.nn.functional as F
 import torch.distributed as dist

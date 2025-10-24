@@ -65,3 +65,6 @@ eval_results.jsonl
 .env
 .env.local
 .env.*.local
+# macOS resource fork files
+._*
+**/.___pycache__

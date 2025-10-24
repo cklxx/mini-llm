@@ -38,7 +38,59 @@ cd "$ROOT_DIR"
 
 export PYTHONPATH="$ROOT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
+# Unset proxy variables that may interfere with package installation
+unset http_proxy
+unset https_proxy
+unset HTTP_PROXY
+unset HTTPS_PROXY
+unset no_proxy
+unset NO_PROXY
+
+# Use Tsinghua mirror for faster package downloads in China
+# Can be overridden by setting PIP_INDEX_URL environment variable
+export PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+
 VENV_DIR=${VENV_DIR:-.venv}
+
+# Check Python version compatibility (requires Python 3.9-3.12)
+check_python_version() {
+  local python_cmd=$1
+  if ! command -v "$python_cmd" >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local py_version=$("$python_cmd" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+  local major=$(echo "$py_version" | cut -d. -f1)
+  local minor=$(echo "$py_version" | cut -d. -f2)
+
+  # Check if version is in supported range (3.9-3.12)
+  if [ "$major" -eq 3 ] && [ "$minor" -ge 9 ] && [ "$minor" -le 12 ]; then
+    echo "$python_cmd"
+    return 0
+  fi
+  return 1
+}
+
+# Find compatible Python interpreter
+PYTHON_CMD=""
+for py_candidate in python3.12 python3.11 python3.10 python3.9 python3 python; do
+  if PYTHON_CMD=$(check_python_version "$py_candidate" 2>/dev/null); then
+    PY_VERSION=$("$PYTHON_CMD" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+    echo "[env] Using Python $PY_VERSION at $PYTHON_CMD"
+    break
+  fi
+done
+
+if [ -z "$PYTHON_CMD" ]; then
+  echo "[error] No compatible Python version found (requires 3.9-3.12)" >&2
+  echo "[error] Current Python versions detected:" >&2
+  for py_test in python3 python; do
+    if command -v "$py_test" >/dev/null 2>&1; then
+      "$py_test" --version >&2 || true
+    fi
+  done
+  exit 1
+fi
 
 # Detect cloud environment and set defaults accordingly
 # Check if running in OpenBayes environment
@@ -59,23 +111,73 @@ RESULTS_FILE=${RESULTS_FILE:-"$TF_DIR/eval_results.jsonl"}
 
 USE_UV=0
 
+# Validate virtual environment thoroughly
+validate_venv() {
+  local venv_path=$1
+
+  # Check if venv directory exists
+  if [ ! -d "$venv_path" ]; then
+    return 1
+  fi
+
+  # Check if python interpreter exists and is executable
+  if [ ! -x "$venv_path/bin/python" ]; then
+    return 1
+  fi
+
+  # Check if pip is available (critical for dependency installation)
+  if ! "$venv_path/bin/python" -m pip --version >/dev/null 2>&1; then
+    echo "[env] Virtual environment at $venv_path is missing pip" >&2
+    return 1
+  fi
+
+  # Check if venv Python version matches our requirements
+  local venv_py_version=$("$venv_path/bin/python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)
+  local major=$(echo "$venv_py_version" | cut -d. -f1)
+  local minor=$(echo "$venv_py_version" | cut -d. -f2)
+
+  if [ "$major" -eq 3 ] && [ "$minor" -ge 9 ] && [ "$minor" -le 12 ]; then
+    return 0
+  else
+    echo "[env] Virtual environment Python version $venv_py_version is not compatible (requires 3.9-3.12)" >&2
+    return 1
+  fi
+}
+
 # Check if venv exists and is valid
-if [ -d "$VENV_DIR" ] && [ -x "$VENV_DIR/bin/python" ]; then
-  echo "[env] Using existing virtual environment at $VENV_DIR"
+if validate_venv "$VENV_DIR"; then
+  VENV_PY_VERSION=$("$VENV_DIR/bin/python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+  echo "[env] Using existing virtual environment at $VENV_DIR (Python $VENV_PY_VERSION)"
 else
   # Venv doesn't exist or is broken, recreate it
   if [ -d "$VENV_DIR" ]; then
-    echo "[env] Virtual environment at $VENV_DIR is broken, removing it"
+    echo "[env] Virtual environment at $VENV_DIR is broken or incompatible, removing it"
     rm -rf "$VENV_DIR"
   fi
-  echo "[env] No virtual environment found at $VENV_DIR; bootstrapping with uv"
-  USE_UV=1
-  if ! command -v uv >/dev/null 2>&1; then
-    echo "[env] Installing uv toolchain"
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.cargo/bin:$PATH"
+
+  # Prefer uv for faster environment creation if available
+  if command -v uv >/dev/null 2>&1; then
+    echo "[env] Attempting to create virtual environment with uv using $PYTHON_CMD"
+    # uv venv doesn't include pip by default, so we need to check if it works properly
+    if uv venv "$VENV_DIR" --python "$PYTHON_CMD" --seed 2>/dev/null; then
+      # Verify pip is available
+      if "$VENV_DIR/bin/python" -m pip --version >/dev/null 2>&1; then
+        USE_UV=1
+        echo "[env] Virtual environment created successfully with uv"
+      else
+        echo "[env] uv venv missing pip, falling back to venv"
+        rm -rf "$VENV_DIR" 2>/dev/null || true
+        "$PYTHON_CMD" -m venv "$VENV_DIR"
+      fi
+    else
+      echo "[env] uv failed, falling back to venv"
+      rm -rf "$VENV_DIR" 2>/dev/null || true
+      "$PYTHON_CMD" -m venv "$VENV_DIR"
+    fi
+  else
+    echo "[env] Creating virtual environment with venv using $PYTHON_CMD"
+    "$PYTHON_CMD" -m venv "$VENV_DIR"
   fi
-  uv venv "$VENV_DIR"
 fi
 
 if [ ! -x "$VENV_DIR/bin/python" ]; then
@@ -87,22 +189,54 @@ fi
 source "$VENV_DIR/bin/activate"
 trap 'deactivate >/dev/null 2>&1 || true' EXIT
 
-if [ "$USE_UV" -eq 1 ]; then
-  if [ ! -f "$VENV_DIR/.deps_installed" ]; then
-    echo "[env] Syncing Python dependencies via uv"
-    uv pip sync requirements.txt
-    touch "$VENV_DIR/.deps_installed"
-  else
-    echo "[env] Dependencies already synced via uv, skipping"
-  fi
+# Check if dependencies need to be installed or updated
+REQUIREMENTS_HASH=$(shasum -a 256 requirements.txt 2>/dev/null | cut -d' ' -f1 || echo "unknown")
+DEPS_MARKER="$VENV_DIR/.deps_installed"
+DEPS_HASH_FILE="$VENV_DIR/.deps_hash"
+
+NEED_INSTALL=0
+if [ ! -f "$DEPS_MARKER" ]; then
+  NEED_INSTALL=1
+  echo "[env] No dependency marker found, will install"
+elif [ ! -f "$DEPS_HASH_FILE" ]; then
+  NEED_INSTALL=1
+  echo "[env] No hash file found, will reinstall to ensure consistency"
+elif [ "$REQUIREMENTS_HASH" != "$(cat "$DEPS_HASH_FILE" 2>/dev/null)" ]; then
+  NEED_INSTALL=1
+  echo "[env] requirements.txt has changed, will update dependencies"
 else
-  if [ ! -f "$VENV_DIR/.deps_installed" ]; then
+  echo "[env] Dependencies are up to date, skipping installation"
+fi
+
+if [ "$NEED_INSTALL" -eq 1 ]; then
+  INSTALL_SUCCESS=0
+
+  if [ "$USE_UV" -eq 1 ] && command -v uv >/dev/null 2>&1; then
+    echo "[env] Attempting to sync Python dependencies via uv"
+    if uv pip sync requirements.txt 2>/dev/null; then
+      INSTALL_SUCCESS=1
+      echo "[env] Dependencies synced successfully via uv"
+    else
+      echo "[env] uv pip sync failed, falling back to pip"
+    fi
+  fi
+
+  if [ "$INSTALL_SUCCESS" -eq 0 ]; then
     echo "[env] Installing Python dependencies via pip"
     python -m pip install --upgrade pip
-    python -m pip install -r requirements.txt
-    touch "$VENV_DIR/.deps_installed"
+    # Use --no-cache-dir to avoid potential corruption and ensure fresh install
+    python -m pip install --no-cache-dir -r requirements.txt
+    INSTALL_SUCCESS=1
+  fi
+
+  if [ "$INSTALL_SUCCESS" -eq 1 ]; then
+    # Mark dependencies as installed and save hash
+    touch "$DEPS_MARKER"
+    echo "$REQUIREMENTS_HASH" > "$DEPS_HASH_FILE"
+    echo "[env] Dependencies installed successfully"
   else
-    echo "[env] Dependencies already installed, skipping pip install"
+    echo "[error] Failed to install dependencies" >&2
+    exit 1
   fi
 fi
 

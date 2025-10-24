@@ -49,10 +49,11 @@ wandb==0.18.3
 streamlit==1.50.0
 einops==0.8.1
 swanlab==0.6.8
+nvidia-ml-py==12.560.30
 pyyaml==6.0.2
 sympy==1.13.1
 mpmath==1.3.0
-torch @ https://download.pytorch.org/whl/cpu/torch-2.6.0%2Bcpu-cp311-cp311-linux_x86_64.whl
-torchvision @ https://download.pytorch.org/whl/cpu/torchvision-0.21.0%2Bcpu-cp311-cp311-linux_x86_64.whl
+torch==2.6.0
+torchvision==0.21.0
 tensorboard==2.17.1
 typing_extensions>=4.5.0

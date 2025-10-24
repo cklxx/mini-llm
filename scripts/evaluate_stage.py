@@ -5,8 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import warnings
 from pathlib import Path
 from typing import Dict, Tuple
+
+# Suppress pynvml deprecation warning from torch.cuda
+warnings.filterwarnings('ignore', category=FutureWarning, module='torch.cuda')
 
 import torch
 import torch.nn.functional as F
