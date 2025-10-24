@@ -173,6 +173,16 @@ MiniLLM2系列旧模型均经过权重映射+（微调训练）QKVO线性层校�
 
 </details>
 
+# 📚 文档
+
+完整的文档请参考 [docs/](./docs/README.md) 目录，包含：
+
+- **[快速指南](./docs/guides/README.md)** - 使用和开发指南
+  - [Checkpoint 加载指南](./docs/guides/CHECKPOINT_LOADING.md) - 如何从 OpenBayes 和本地目录加载预训练模型
+- **[变更日志](./docs/changelog/CHANGELOG.md)** - 版本历史和详细改动
+- **[完整文档](./docs/booklet_cn.md)** - 详细的中文技术文档（小册子）
+- **[社区指南](./docs/CODE_OF_CONDUCT.md)** - 社区行为准则
+
 # 📌 快速开始
 
 <details style="color:rgb(128,128,128)">

@@ -39,7 +39,20 @@ cd "$ROOT_DIR"
 export PYTHONPATH="$ROOT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
 VENV_DIR=${VENV_DIR:-.venv}
-TF_DIR=${TF_DIR:-/openbayes/home/tf_dir}
+
+# Detect cloud environment and set defaults accordingly
+# Check if running in OpenBayes environment
+if [ -d "/openbayes/home" ] 2>/dev/null; then
+  IS_CLOUD=1
+  TF_DIR=${TF_DIR:-/openbayes/home/tf_dir}
+  PRETRAIN_DEFAULT_ROOT=${DATA_ROOT:-/openbayes/input/input0}
+else
+  IS_CLOUD=0
+  TF_DIR=${TF_DIR:-./tf_dir}
+  PRETRAIN_DEFAULT_ROOT=${DATA_ROOT:-./data}
+  echo "[env] Running in local environment (TF_DIR: $TF_DIR)"
+fi
+
 OUT_DIR=${OUT_DIR:-out}
 DATA_DIR=${DATA_DIR:-data/processed}
 RESULTS_FILE=${RESULTS_FILE:-"$TF_DIR/eval_results.jsonl"}
@@ -87,11 +100,14 @@ else
   fi
 fi
 
-mkdir -p "$TF_DIR"
-mkdir -p "$OUT_DIR"
-mkdir -p "$DATA_DIR"
+mkdir -p "$TF_DIR" || { echo "[warn] Could not create $TF_DIR directory"; }
+mkdir -p "$OUT_DIR" || { echo "[error] Could not create $OUT_DIR directory" >&2; exit 1; }
+mkdir -p "$DATA_DIR" || { echo "[error] Could not create $DATA_DIR directory" >&2; exit 1; }
 
-PRETRAIN_DEFAULT_ROOT=${DATA_ROOT:-/openbayes/input/input0}
+# PRETRAIN_DEFAULT_ROOT was already set in cloud environment detection above
+if [ -z "${PRETRAIN_DEFAULT_ROOT:-}" ]; then
+  PRETRAIN_DEFAULT_ROOT=${DATA_ROOT:-./data}
+fi
 PRETRAIN_JSON=${PRETRAIN_JSON:-"$PRETRAIN_DEFAULT_ROOT/pretrain_hq.jsonl"}
 SFT_JSON=${SFT_JSON:-"$PRETRAIN_DEFAULT_ROOT/sft_mini_512.jsonl"}
 DPO_JSON=${DPO_JSON:-"$PRETRAIN_DEFAULT_ROOT/dpo_pairs.jsonl"}

@@ -166,6 +166,16 @@ After this update, maintenance of the entire minillm-v1 series will be abandoned
 
 </details>
 
+# 📚 Documentation
+
+For comprehensive documentation, please refer to the [docs/](./docs/README.md) directory, which includes:
+
+- **[Quick Guides](./docs/guides/README.md)** - Usage and development guides
+  - [Checkpoint Loading Guide](./docs/guides/CHECKPOINT_LOADING.md) - How to load pre-trained models from OpenBayes and local directories
+- **[Changelog](./docs/changelog/CHANGELOG.md)** - Version history and detailed changes
+- **[Complete Documentation](./docs/booklet_cn.md)** - Detailed technical documentation (in Chinese)
+- **[Community Guidelines](./docs/CODE_OF_CONDUCT.md)** - Code of conduct
+
 # 📌 Quick Start
 
 <details style="color:rgb(128,128,128)">
