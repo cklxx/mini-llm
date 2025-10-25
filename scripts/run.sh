@@ -604,11 +604,12 @@ fi
 
 echo "[stage] Starting SFT"
 # Auto-load SFT pretrained checkpoint
-SFT_PRETRAINED_PATH=$(find_pretrained_checkpoint "full_sft" "$MODEL_HIDDEN_SIZE" 2>/dev/null || true)
+# Priority: pretrain checkpoint (for initial SFT training) > full_sft checkpoint (for resume)
+SFT_PRETRAINED_PATH=$(find_pretrained_checkpoint "pretrain" "$MODEL_HIDDEN_SIZE" 2>/dev/null || true)
 SFT_ARGS_WITH_PRETRAIN=("${EXTRA_SFT_ARGS[@]}")
 if [ -z "$SFT_PRETRAINED_PATH" ]; then
-  # If no full_sft checkpoint, try pretrain checkpoint
-  SFT_PRETRAINED_PATH=$(find_pretrained_checkpoint "pretrain" "$MODEL_HIDDEN_SIZE" 2>/dev/null || true)
+  # If no pretrain checkpoint, try full_sft checkpoint (resume scenario)
+  SFT_PRETRAINED_PATH=$(find_pretrained_checkpoint "full_sft" "$MODEL_HIDDEN_SIZE" 2>/dev/null || true)
 fi
 if [ -n "$SFT_PRETRAINED_PATH" ]; then
   echo "[checkpoint] Using pretrained model for SFT: $SFT_PRETRAINED_PATH"
