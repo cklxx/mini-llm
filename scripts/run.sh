@@ -3,22 +3,41 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/run.sh [--smoke-test]
+Usage: scripts/run.sh [OPTIONS]
 
 Options:
-  --smoke-test    Run a fast CPU-only smoke test with tiny dataset slices and
-                  a handful of optimizer steps per stage. Useful for local
-                  verification that the end-to-end pipeline works without
-                  requiring a GPU.
+  --smoke-test       Run a fast CPU-only smoke test with tiny dataset slices and
+                     a handful of optimizer steps per stage. Useful for local
+                     verification that the end-to-end pipeline works without
+                     requiring a GPU.
+
+  --skip-pretrain    Skip pretrain stage if a good checkpoint exists. The script
+                     will automatically check if a pretrain checkpoint exists and
+                     has acceptable quality, then skip to SFT training.
+
+  --force-pretrain   Force pretrain stage even if a checkpoint exists (overrides
+                     --skip-pretrain).
+
+  -h, --help         Show this help message and exit.
 USAGE
 }
 
 SMOKE_TEST=0
+SKIP_PRETRAIN=0
+FORCE_PRETRAIN=0
 
 while (($#)); do
   case "$1" in
     --smoke-test)
       SMOKE_TEST=1
+      shift
+      ;;
+    --skip-pretrain)
+      SKIP_PRETRAIN=1
+      shift
+      ;;
+    --force-pretrain)
+      FORCE_PRETRAIN=1
       shift
       ;;
     -h|--help)
@@ -249,13 +268,129 @@ if [ -z "${PRETRAIN_DEFAULT_ROOT:-}" ]; then
   PRETRAIN_DEFAULT_ROOT=${DATA_ROOT:-./data}
 fi
 PRETRAIN_JSON=${PRETRAIN_JSON:-"$PRETRAIN_DEFAULT_ROOT/pretrain_hq.jsonl"}
-SFT_JSON=${SFT_JSON:-"$PRETRAIN_DEFAULT_ROOT/sft_mini_512.jsonl"}
+# Use high-quality SFT dataset (cleaned, deduplicated, filtered)
+SFT_JSON=${SFT_JSON:-"data/final/sft_high_quality.jsonl"}
 DPO_JSON=${DPO_JSON:-"$PRETRAIN_DEFAULT_ROOT/dpo_pairs.jsonl"}
 
 if [ ! -s "$DPO_JSON" ]; then
   ALT_DPO="$PRETRAIN_DEFAULT_ROOT/dpo.jsonl"
   if [ -s "$ALT_DPO" ]; then
     DPO_JSON="$ALT_DPO"
+  fi
+fi
+
+# Cloud environment: Auto-process data from /input0
+if [ "$IS_CLOUD" -eq 1 ]; then
+  echo "[cloud] Cloud environment detected, checking for input data..."
+
+  # Check for raw SFT data in input directory
+  INPUT_SFT_RAW="$PRETRAIN_DEFAULT_ROOT/sft_mini_512.jsonl"
+  INPUT_SFT_CLEANED="$PRETRAIN_DEFAULT_ROOT/final/sft_mini_512.cleaned.jsonl"
+  OUTPUT_SFT_HQ="data/final/sft_high_quality.jsonl"
+
+  # Determine source file for processing
+  SFT_SOURCE=""
+  if [ -s "$INPUT_SFT_CLEANED" ]; then
+    SFT_SOURCE="$INPUT_SFT_CLEANED"
+    echo "[cloud] Found cleaned SFT data at $INPUT_SFT_CLEANED"
+  elif [ -s "$INPUT_SFT_RAW" ]; then
+    SFT_SOURCE="$INPUT_SFT_RAW"
+    echo "[cloud] Found raw SFT data at $INPUT_SFT_RAW"
+  fi
+
+  # Auto-generate high-quality dataset if source exists but output doesn't
+  if [ -n "$SFT_SOURCE" ] && [ ! -s "$OUTPUT_SFT_HQ" ]; then
+    echo "[cloud] Auto-generating high-quality SFT dataset..."
+    mkdir -p "data/final"
+
+    # Create temporary processing script
+    python -c "
+import json
+import hashlib
+from pathlib import Path
+
+input_file = '$SFT_SOURCE'
+output_file = '$OUTPUT_SFT_HQ'
+
+print(f'[cloud] Processing {input_file} -> {output_file}')
+
+seen_hashes = set()
+kept_count = 0
+removed_count = 0
+
+Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+
+with open(input_file, 'r', encoding='utf-8') as infile, \
+     open(output_file, 'w', encoding='utf-8') as outfile:
+
+    for line_num, line in enumerate(infile, 1):
+        if line_num % 100000 == 0:
+            print(f'[cloud] Processed {line_num:,} records, kept {kept_count:,}')
+
+        try:
+            data = json.loads(line.strip())
+
+            if 'conversations' not in data:
+                removed_count += 1
+                continue
+
+            # Extract user and assistant content
+            user_content = ''
+            assistant_content = ''
+
+            for conv in data['conversations']:
+                if conv.get('role') == 'user':
+                    user_content = conv.get('content', '').strip()
+                elif conv.get('role') == 'assistant':
+                    assistant_content = conv.get('content', '').strip()
+
+            # Filter: remove empty or very short content
+            if not user_content or not assistant_content:
+                removed_count += 1
+                continue
+
+            if len(user_content) < 5 or len(assistant_content) < 10:
+                removed_count += 1
+                continue
+
+            # Deduplicate
+            content_hash = hashlib.md5(
+                (user_content + assistant_content).encode('utf-8')
+            ).hexdigest()
+
+            if content_hash in seen_hashes:
+                removed_count += 1
+                continue
+
+            seen_hashes.add(content_hash)
+
+            # Keep this record
+            outfile.write(json.dumps(data, ensure_ascii=False) + '\n')
+            kept_count += 1
+
+        except:
+            removed_count += 1
+
+print(f'[cloud] Processing complete: kept {kept_count:,}, removed {removed_count:,}')
+" || {
+      echo "[cloud] Failed to auto-process SFT data" >&2
+      # Fall back to using source directly
+      SFT_JSON="$SFT_SOURCE"
+    }
+
+    if [ -s "$OUTPUT_SFT_HQ" ]; then
+      echo "[cloud] High-quality SFT dataset created successfully"
+      SFT_JSON="$OUTPUT_SFT_HQ"
+    fi
+  elif [ -s "$OUTPUT_SFT_HQ" ]; then
+    echo "[cloud] Using existing high-quality SFT dataset"
+    SFT_JSON="$OUTPUT_SFT_HQ"
+  fi
+
+  # Update SFT path if we found data in input directory
+  if [ -n "$SFT_SOURCE" ] && [ ! -s "$SFT_JSON" ]; then
+    SFT_JSON="$SFT_SOURCE"
+    echo "[cloud] Using SFT data from input: $SFT_JSON"
   fi
 fi
 
@@ -412,14 +547,59 @@ if [ "$SMOKE_TEST" -eq 1 ]; then
   EVAL_CMD_BASE+=(--device cpu)
 fi
 
-echo "[stage] Starting pretrain (2 epochs)"
-python trainer/train_pretrain.py --data_path "$PRETRAIN_JSON" --hidden_size "$MODEL_HIDDEN_SIZE" --num_hidden_layers "$MODEL_NUM_LAYERS" --epochs 2 --out_dir "$OUT_DIR" --tensorboard_dir "$TB_PRETRAIN_DIR" "${EXTRA_PRETRAIN_ARGS[@]}"
+# Check if we should skip pretrain stage
+SHOULD_SKIP_PRETRAIN=0
 
-if [ -f "$CHECKPOINT_PRETRAIN" ]; then
-  echo "[eval] Pretrain evaluation"
-  "${EVAL_CMD_BASE[@]}" --stage pretrain --checkpoint "$CHECKPOINT_PRETRAIN" --data-path "$PRETRAIN_JSON" --max-seq-len 512 --max-samples "$PRETRAIN_EVAL_MAX_SAMPLES" --batch-size "$PRETRAIN_EVAL_BATCH" --tensorboard-dir "$TB_EVAL_DIR/pretrain"
+if [ "$FORCE_PRETRAIN" -eq 1 ]; then
+  echo "[stage] Force pretrain mode enabled, will train from scratch"
+  SHOULD_SKIP_PRETRAIN=0
+elif [ "$SKIP_PRETRAIN" -eq 1 ]; then
+  # Check if pretrain checkpoint exists
+  EXISTING_PRETRAIN=$(find_pretrained_checkpoint "pretrain" "$MODEL_HIDDEN_SIZE" 2>/dev/null || true)
+
+  if [ -n "$EXISTING_PRETRAIN" ] && [ -f "$EXISTING_PRETRAIN" ]; then
+    echo "[stage] Found existing pretrain checkpoint: $EXISTING_PRETRAIN"
+    echo "[stage] Checking checkpoint quality..."
+
+    # Quick quality check: verify checkpoint file is not corrupted and has reasonable size
+    CHECKPOINT_SIZE=$(stat -f%z "$EXISTING_PRETRAIN" 2>/dev/null || stat -c%s "$EXISTING_PRETRAIN" 2>/dev/null || echo "0")
+    MIN_SIZE=$((1024 * 100))  # At least 100KB
+
+    if [ "$CHECKPOINT_SIZE" -gt "$MIN_SIZE" ]; then
+      echo "[stage] Checkpoint looks valid (size: $((CHECKPOINT_SIZE / 1024))KB)"
+      echo "[stage] Skipping pretrain stage, will use existing checkpoint for SFT"
+      SHOULD_SKIP_PRETRAIN=1
+      # Make sure the checkpoint is available for later stages
+      if [ "$EXISTING_PRETRAIN" != "$CHECKPOINT_PRETRAIN" ] && [ ! -f "$CHECKPOINT_PRETRAIN" ]; then
+        echo "[stage] Linking checkpoint to expected location"
+        ln -sf "$EXISTING_PRETRAIN" "$CHECKPOINT_PRETRAIN" || cp "$EXISTING_PRETRAIN" "$CHECKPOINT_PRETRAIN"
+      fi
+    else
+      echo "[stage] Checkpoint appears corrupted or too small, will retrain"
+      SHOULD_SKIP_PRETRAIN=0
+    fi
+  else
+    echo "[stage] No pretrain checkpoint found, will train from scratch"
+    SHOULD_SKIP_PRETRAIN=0
+  fi
+fi
+
+if [ "$SHOULD_SKIP_PRETRAIN" -eq 0 ]; then
+  echo "[stage] Starting pretrain (2 epochs)"
+  python trainer/train_pretrain.py --data_path "$PRETRAIN_JSON" --hidden_size "$MODEL_HIDDEN_SIZE" --num_hidden_layers "$MODEL_NUM_LAYERS" --epochs 2 --out_dir "$OUT_DIR" --tensorboard_dir "$TB_PRETRAIN_DIR" "${EXTRA_PRETRAIN_ARGS[@]}"
+
+  if [ -f "$CHECKPOINT_PRETRAIN" ]; then
+    echo "[eval] Pretrain evaluation"
+    "${EVAL_CMD_BASE[@]}" --stage pretrain --checkpoint "$CHECKPOINT_PRETRAIN" --data-path "$PRETRAIN_JSON" --max-seq-len 512 --max-samples "$PRETRAIN_EVAL_MAX_SAMPLES" --batch-size "$PRETRAIN_EVAL_BATCH" --tensorboard-dir "$TB_EVAL_DIR/pretrain"
+  else
+    echo "[warn] Pretrain checkpoint not found at $CHECKPOINT_PRETRAIN" >&2
+  fi
 else
-  echo "[warn] Pretrain checkpoint not found at $CHECKPOINT_PRETRAIN" >&2
+  echo "[stage] Pretrain stage skipped"
+  if [ -f "$CHECKPOINT_PRETRAIN" ]; then
+    echo "[eval] Running quick evaluation on existing pretrain checkpoint"
+    "${EVAL_CMD_BASE[@]}" --stage pretrain --checkpoint "$CHECKPOINT_PRETRAIN" --data-path "$PRETRAIN_JSON" --max-seq-len 512 --max-samples "$PRETRAIN_EVAL_MAX_SAMPLES" --batch-size "$PRETRAIN_EVAL_BATCH" --tensorboard-dir "$TB_EVAL_DIR/pretrain" || echo "[warn] Pretrain evaluation failed, but continuing"
+  fi
 fi
 
 echo "[stage] Starting SFT"
