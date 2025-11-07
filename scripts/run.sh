@@ -521,6 +521,32 @@ MODEL_HIDDEN_SIZE=${MODEL_HIDDEN_SIZE:-512}
 MODEL_NUM_LAYERS=${MODEL_NUM_LAYERS:-8}
 USE_MOE=${USE_MOE:-false}
 
+# Auto-detect GPU count and enable multi-GPU training
+detect_gpu_count() {
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    local gpu_count=$(nvidia-smi --list-gpus | wc -l | tr -d ' ')
+    echo "$gpu_count"
+  elif [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
+    local gpu_count=$(echo "$CUDA_VISIBLE_DEVICES" | tr ',' '\n' | wc -l | tr -d ' ')
+    echo "$gpu_count"
+  else
+    echo "1"
+  fi
+}
+
+NUM_GPUS=${NUM_GPUS:-$(detect_gpu_count)}
+if [ "$NUM_GPUS" -gt 1 ]; then
+  echo "[gpu] Detected $NUM_GPUS GPUs, will use torchrun for multi-GPU training"
+  TRAIN_CMD_PREFIX="torchrun --nproc_per_node=$NUM_GPUS"
+  # For 24GB GPUs, you can optimize batch_size via environment variables:
+  # export PRETRAIN_ARGS="--batch_size 64 --accumulation_steps 4"  # 2卡时每卡32，总batch=64
+  # export SFT_ARGS="--batch_size 32 --accumulation_steps 2"        # 2卡时每卡16，总batch=32
+  # export DPO_ARGS="--batch_size 8 --accumulation_steps 1"         # 2卡时每卡4，总batch=8
+else
+  echo "[gpu] Using single GPU or CPU mode"
+  TRAIN_CMD_PREFIX="python"
+fi
+
 CHECKPOINT_PRETRAIN="$OUT_DIR/pretrain_${MODEL_HIDDEN_SIZE}.pth"
 CHECKPOINT_SFT="$OUT_DIR/full_sft_${MODEL_HIDDEN_SIZE}.pth"
 CHECKPOINT_DPO="$OUT_DIR/rlhf_${MODEL_HIDDEN_SIZE}.pth"
@@ -636,7 +662,7 @@ fi
 
 if [ "$SHOULD_SKIP_PRETRAIN" -eq 0 ]; then
   echo "[stage] Starting pretrain (2 epochs)"
-  python trainer/train_pretrain.py --data_path "$PRETRAIN_JSON" --hidden_size "$MODEL_HIDDEN_SIZE" --num_hidden_layers "$MODEL_NUM_LAYERS" --epochs 2 --out_dir "$OUT_DIR" --tensorboard_dir "$TB_PRETRAIN_DIR" ${EXTRA_PRETRAIN_ARGS[@]+"${EXTRA_PRETRAIN_ARGS[@]}"}
+  $TRAIN_CMD_PREFIX trainer/train_pretrain.py --data_path "$PRETRAIN_JSON" --hidden_size "$MODEL_HIDDEN_SIZE" --num_hidden_layers "$MODEL_NUM_LAYERS" --epochs 2 --out_dir "$OUT_DIR" --tensorboard_dir "$TB_PRETRAIN_DIR" ${EXTRA_PRETRAIN_ARGS[@]+"${EXTRA_PRETRAIN_ARGS[@]}"}
 
   if [ -f "$CHECKPOINT_PRETRAIN" ]; then
     echo "[eval] Pretrain evaluation"
@@ -665,7 +691,7 @@ if [ -n "$SFT_PRETRAINED_PATH" ]; then
   echo "[checkpoint] Using pretrained model for SFT: $SFT_PRETRAINED_PATH"
   SFT_ARGS_WITH_PRETRAIN+=(--pretrained_path "$SFT_PRETRAINED_PATH")
 fi
-python trainer/train_full_sft.py --data_path "$SFT_JSON" --hidden_size "$MODEL_HIDDEN_SIZE" --num_hidden_layers "$MODEL_NUM_LAYERS" --out_dir "$OUT_DIR" --tensorboard_dir "$TB_SFT_DIR" ${SFT_ARGS_WITH_PRETRAIN[@]+"${SFT_ARGS_WITH_PRETRAIN[@]}"}
+$TRAIN_CMD_PREFIX trainer/train_full_sft.py --data_path "$SFT_JSON" --hidden_size "$MODEL_HIDDEN_SIZE" --num_hidden_layers "$MODEL_NUM_LAYERS" --out_dir "$OUT_DIR" --tensorboard_dir "$TB_SFT_DIR" ${SFT_ARGS_WITH_PRETRAIN[@]+"${SFT_ARGS_WITH_PRETRAIN[@]}"}
 
 if [ -f "$CHECKPOINT_SFT" ]; then
   echo "[eval] SFT evaluation"
@@ -690,7 +716,7 @@ if [ -n "$DPO_PRETRAINED_PATH" ]; then
   echo "[checkpoint] Using pretrained model for DPO: $DPO_PRETRAINED_PATH"
   DPO_ARGS_WITH_PRETRAIN+=(--pretrained_path "$DPO_PRETRAINED_PATH")
 fi
-python trainer/train_dpo.py --data_path "$DPO_JSON" --hidden_size "$MODEL_HIDDEN_SIZE" --num_hidden_layers "$MODEL_NUM_LAYERS" --out_dir "$OUT_DIR" --tensorboard_dir "$TB_DPO_DIR" ${DPO_ARGS_WITH_PRETRAIN[@]+"${DPO_ARGS_WITH_PRETRAIN[@]}"}
+$TRAIN_CMD_PREFIX trainer/train_dpo.py --data_path "$DPO_JSON" --hidden_size "$MODEL_HIDDEN_SIZE" --num_hidden_layers "$MODEL_NUM_LAYERS" --out_dir "$OUT_DIR" --tensorboard_dir "$TB_DPO_DIR" ${DPO_ARGS_WITH_PRETRAIN[@]+"${DPO_ARGS_WITH_PRETRAIN[@]}"}
 
 if [ -f "$CHECKPOINT_DPO" ]; then
   echo "[eval] DPO evaluation"
