@@ -249,6 +249,22 @@ if [ "$NEED_INSTALL" -eq 1 ]; then
   fi
 
   if [ "$INSTALL_SUCCESS" -eq 1 ]; then
+    # Verify critical dependencies are installed
+    echo "[env] Verifying critical dependencies..."
+    if ! python -c "import torch" 2>/dev/null; then
+      echo "[env] Warning: torch not found, attempting to install..."
+      python -m pip install torch --index-url https://mirrors.aliyun.com/pypi/simple/ || {
+        echo "[error] Failed to install torch" >&2
+        exit 1
+      }
+    fi
+    if ! python -c "import transformers" 2>/dev/null; then
+      echo "[env] Warning: transformers not found, attempting to install..."
+      python -m pip install transformers --index-url https://mirrors.aliyun.com/pypi/simple/ || {
+        echo "[error] Failed to install transformers" >&2
+        exit 1
+      }
+    fi
     # Mark dependencies as installed and save hash
     touch "$DEPS_MARKER"
     echo "$REQUIREMENTS_HASH" > "$DEPS_HASH_FILE"
@@ -267,6 +283,40 @@ mkdir -p "$DATA_DIR" || { echo "[error] Could not create $DATA_DIR directory" >&
 if [ -z "${PRETRAIN_DEFAULT_ROOT:-}" ]; then
   PRETRAIN_DEFAULT_ROOT=${DATA_ROOT:-./data}
 fi
+
+# Check /gemini/data-1/ directory first (highest priority)
+GEMINI_DATA_DIR="/gemini/data-1"
+if [ -d "$GEMINI_DATA_DIR" ]; then
+  echo "[data] Found /gemini/data-1/ directory, checking for training data..."
+  
+  # Check for pretrain data
+  if [ -s "$GEMINI_DATA_DIR/pretrain_hq.jsonl" ]; then
+    PRETRAIN_DEFAULT_ROOT="$GEMINI_DATA_DIR"
+    echo "[data] Using pretrain data from $GEMINI_DATA_DIR/pretrain_hq.jsonl"
+  elif [ -s "$GEMINI_DATA_DIR/pretrain.jsonl" ]; then
+    PRETRAIN_DEFAULT_ROOT="$GEMINI_DATA_DIR"
+    echo "[data] Using pretrain data from $GEMINI_DATA_DIR/pretrain.jsonl"
+  fi
+  
+  # Check for SFT data
+  if [ -s "$GEMINI_DATA_DIR/sft_mini_512.jsonl" ]; then
+    SFT_JSON="$GEMINI_DATA_DIR/sft_mini_512.jsonl"
+    echo "[data] Using SFT data from $SFT_JSON"
+  elif [ -s "$GEMINI_DATA_DIR/sft.jsonl" ]; then
+    SFT_JSON="$GEMINI_DATA_DIR/sft.jsonl"
+    echo "[data] Using SFT data from $SFT_JSON"
+  fi
+  
+  # Check for DPO data
+  if [ -s "$GEMINI_DATA_DIR/dpo.jsonl" ]; then
+    DPO_JSON="$GEMINI_DATA_DIR/dpo.jsonl"
+    echo "[data] Using DPO data from $DPO_JSON"
+  elif [ -s "$GEMINI_DATA_DIR/dpo_pairs.jsonl" ]; then
+    DPO_JSON="$GEMINI_DATA_DIR/dpo_pairs.jsonl"
+    echo "[data] Using DPO data from $DPO_JSON"
+  fi
+fi
+
 PRETRAIN_JSON=${PRETRAIN_JSON:-"$PRETRAIN_DEFAULT_ROOT/pretrain_hq.jsonl"}
 # Use high-quality SFT dataset (cleaned, deduplicated, filtered)
 SFT_JSON=${SFT_JSON:-"data/final/sft_high_quality.jsonl"}
@@ -586,7 +636,7 @@ fi
 
 if [ "$SHOULD_SKIP_PRETRAIN" -eq 0 ]; then
   echo "[stage] Starting pretrain (2 epochs)"
-  python trainer/train_pretrain.py --data_path "$PRETRAIN_JSON" --hidden_size "$MODEL_HIDDEN_SIZE" --num_hidden_layers "$MODEL_NUM_LAYERS" --epochs 2 --out_dir "$OUT_DIR" --tensorboard_dir "$TB_PRETRAIN_DIR" "${EXTRA_PRETRAIN_ARGS[@]}"
+  python trainer/train_pretrain.py --data_path "$PRETRAIN_JSON" --hidden_size "$MODEL_HIDDEN_SIZE" --num_hidden_layers "$MODEL_NUM_LAYERS" --epochs 2 --out_dir "$OUT_DIR" --tensorboard_dir "$TB_PRETRAIN_DIR" ${EXTRA_PRETRAIN_ARGS[@]+"${EXTRA_PRETRAIN_ARGS[@]}"}
 
   if [ -f "$CHECKPOINT_PRETRAIN" ]; then
     echo "[eval] Pretrain evaluation"
@@ -615,7 +665,7 @@ if [ -n "$SFT_PRETRAINED_PATH" ]; then
   echo "[checkpoint] Using pretrained model for SFT: $SFT_PRETRAINED_PATH"
   SFT_ARGS_WITH_PRETRAIN+=(--pretrained_path "$SFT_PRETRAINED_PATH")
 fi
-python trainer/train_full_sft.py --data_path "$SFT_JSON" --hidden_size "$MODEL_HIDDEN_SIZE" --num_hidden_layers "$MODEL_NUM_LAYERS" --out_dir "$OUT_DIR" --tensorboard_dir "$TB_SFT_DIR" "${SFT_ARGS_WITH_PRETRAIN[@]}"
+python trainer/train_full_sft.py --data_path "$SFT_JSON" --hidden_size "$MODEL_HIDDEN_SIZE" --num_hidden_layers "$MODEL_NUM_LAYERS" --out_dir "$OUT_DIR" --tensorboard_dir "$TB_SFT_DIR" ${SFT_ARGS_WITH_PRETRAIN[@]+"${SFT_ARGS_WITH_PRETRAIN[@]}"}
 
 if [ -f "$CHECKPOINT_SFT" ]; then
   echo "[eval] SFT evaluation"
@@ -640,7 +690,7 @@ if [ -n "$DPO_PRETRAINED_PATH" ]; then
   echo "[checkpoint] Using pretrained model for DPO: $DPO_PRETRAINED_PATH"
   DPO_ARGS_WITH_PRETRAIN+=(--pretrained_path "$DPO_PRETRAINED_PATH")
 fi
-python trainer/train_dpo.py --data_path "$DPO_JSON" --hidden_size "$MODEL_HIDDEN_SIZE" --num_hidden_layers "$MODEL_NUM_LAYERS" --out_dir "$OUT_DIR" --tensorboard_dir "$TB_DPO_DIR" "${DPO_ARGS_WITH_PRETRAIN[@]}"
+python trainer/train_dpo.py --data_path "$DPO_JSON" --hidden_size "$MODEL_HIDDEN_SIZE" --num_hidden_layers "$MODEL_NUM_LAYERS" --out_dir "$OUT_DIR" --tensorboard_dir "$TB_DPO_DIR" ${DPO_ARGS_WITH_PRETRAIN[@]+"${DPO_ARGS_WITH_PRETRAIN[@]}"}
 
 if [ -f "$CHECKPOINT_DPO" ]; then
   echo "[eval] DPO evaluation"
