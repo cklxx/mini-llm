@@ -206,22 +206,31 @@ class MiniMindVLM(MiniLLMForCausalLM):
         pixel_values: Optional[torch.FloatTensor] = None,
         **kwargs,
     ) -> torch.Tensor:
+        if input_ids is None:
+            raise ValueError("input_ids must not be None")
         _, seq_length = input_ids.shape
-        if hasattr(past_key_values, "layers"):
+        if past_key_values is not None and hasattr(past_key_values, "layers"):
             past_key_values = None
-        past_key_values = past_key_values or [None] * len(self.model.layers)
-        start_pos = past_key_values[0][0].shape[1] if past_key_values[0] is not None else 0
+
+        past_key_values_list: List[Optional[Tuple[torch.Tensor, torch.Tensor]]]
+        if past_key_values is None:
+            past_key_values_list = [None] * len(self.model.layers)
+        else:
+            past_key_values_list = list(past_key_values)
+
+        start_pos = past_key_values_list[0][0].shape[1] if past_key_values_list[0] is not None else 0
 
         hidden_states = self.model.dropout(self.model.embed_tokens(input_ids))
 
         if pixel_values is not None and start_pos == 0:
-            if pixel_values.dim() == 6:
-                pixel_values = pixel_values.squeeze(2)
-            bs, num_images, _, _, _ = pixel_values.shape
+            pixel_values_tensor: torch.Tensor = pixel_values
+            if pixel_values_tensor.dim() == 6:
+                pixel_values_tensor = pixel_values_tensor.squeeze(2)
+            bs, num_images, _, _, _ = pixel_values_tensor.shape
             stack_dim = 1 if bs > 1 else 0
             vision_tensors = torch.stack(
                 [
-                    self.get_image_embeddings(pixel_values[:, idx, :, :, :], self.vision_encoder)
+                    self.get_image_embeddings(pixel_values_tensor[:, idx, :, :, :], self.vision_encoder)
                     for idx in range(num_images)
                 ],
                 dim=stack_dim,
@@ -236,7 +245,7 @@ class MiniMindVLM(MiniLLMForCausalLM):
         )
 
         presents: List[Tuple[torch.Tensor, torch.Tensor]] = []
-        for layer, past_key_value in zip(self.model.layers, past_key_values):
+        for layer, past_key_value in zip(self.model.layers, past_key_values_list):
             hidden_states, present = layer(
                 hidden_states,
                 position_embeddings,

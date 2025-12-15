@@ -2,6 +2,8 @@
 #                                             MiniLLM Config
 # 📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘
 
+from typing import Optional
+
 from transformers import PretrainedConfig
 
 
@@ -15,14 +17,14 @@ class MiniLLMConfig(PretrainedConfig):
             eos_token_id: int = 2,
             hidden_act: str = 'silu',
             hidden_size: int = 512,
-            intermediate_size: int = None,
+            intermediate_size: Optional[int] = None,
             max_position_embeddings: int = 32768,
             num_attention_heads: int = 8,
             num_hidden_layers: int = 8,
             num_key_value_heads: int = 2,
             vocab_size: int = 6400,
             rms_norm_eps: float = 1e-05,
-            rope_theta: int = 1000000.0,
+            rope_theta: float = 1000000.0,
             inference_rope_scaling: bool = False,
             flash_attn: bool = True,
             ####################################################
@@ -402,10 +404,19 @@ class MiniLLMModel(nn.Module):
                 past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]] = None,
                 use_cache: bool = False,
                 **kwargs):
+        if input_ids is None:
+            raise ValueError("input_ids must not be None")
         batch_size, seq_length = input_ids.shape
-        if hasattr(past_key_values, 'layers'): past_key_values = None
-        past_key_values = past_key_values or [None] * len(self.layers)
-        start_pos = past_key_values[0][0].shape[1] if past_key_values[0] is not None else 0
+        if past_key_values is not None and hasattr(past_key_values, 'layers'):
+            past_key_values = None
+
+        past_key_values_list: List[Optional[Tuple[torch.Tensor, torch.Tensor]]]
+        if past_key_values is None:
+            past_key_values_list = [None] * len(self.layers)
+        else:
+            past_key_values_list = list(past_key_values)
+
+        start_pos = past_key_values_list[0][0].shape[1] if past_key_values_list[0] is not None else 0
 
         hidden_states = self.dropout(self.embed_tokens(input_ids))
 
@@ -415,7 +426,7 @@ class MiniLLMModel(nn.Module):
         )
 
         presents = []
-        for layer_idx, (layer, past_key_value) in enumerate(zip(self.layers, past_key_values)):
+        for layer_idx, (layer, past_key_value) in enumerate(zip(self.layers, past_key_values_list)):
             hidden_states, present = layer(
                 hidden_states,
                 position_embeddings,
@@ -439,7 +450,7 @@ class MiniLLMModel(nn.Module):
 class MiniLLMForCausalLM(PreTrainedModel, GenerationMixin):
     config_class = MiniLLMConfig
 
-    def __init__(self, config: MiniLLMConfig = None):
+    def __init__(self, config: Optional[MiniLLMConfig] = None):
         self.config = config or MiniLLMConfig()
         super().__init__(self.config)
         self.model = MiniLLMModel(self.config)

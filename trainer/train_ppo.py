@@ -6,6 +6,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import argparse
 import re
+from typing import Any, List, Optional, Tuple, Union
+
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
@@ -224,13 +226,29 @@ class CriticModel(MiniLLMForCausalLM):
         # 替换lm_head为输出单一价值的线性层
         self.value_head = nn.Linear(params.hidden_size, 1)
 
-    def forward(self, input_ids=None, attention_mask=None, **kwargs):
+    def forward(
+        self,
+        input_ids: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]] = None,
+        use_cache: bool = False,
+        logits_to_keep: Union[int, torch.Tensor] = 0,
+        **kwargs,
+    ) -> Any:
         # 使用基础模型获取隐藏状态
-        outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, **kwargs)
+        outputs = self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            past_key_values=past_key_values,
+            use_cache=use_cache,
+            **kwargs,
+        )
         # self.model 返回的是一个元组，第一个元素是 last_hidden_state
         hidden_states = self.model.norm(outputs[0])
         # 使用value_head获取价值估计
         values = self.value_head(hidden_states).squeeze(-1)
+        if isinstance(logits_to_keep, int) and logits_to_keep > 0:
+            values = values[:, -logits_to_keep:]
         return values
 
 

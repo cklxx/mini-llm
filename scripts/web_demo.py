@@ -275,6 +275,9 @@ def main():
                     answer = f"API调用出错: {str(e)}"
                     placeholder.markdown(answer, unsafe_allow_html=True)
             else:
+                if model is None or tokenizer is None:
+                    raise RuntimeError("Local model/tokenizer is not loaded")
+
                 random_seed = random.randint(0, 2 ** 32 - 1)
                 setup_seed(random_seed)
 

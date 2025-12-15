@@ -68,9 +68,11 @@ def train_epoch(epoch, wandb, alpha=0.0, temperature=1.0):
             student_logits = res.logits
 
         # 教师模型前向传播（只在eval & no_grad）
-        if teacher_model is not None:
+        teacher = teacher_model
+        teacher_logits = None
+        if teacher is not None:
             with torch.no_grad():
-                teacher_logits = teacher_model(X).logits
+                teacher_logits = teacher(X).logits
                 vocab_size_student = student_logits.size(-1)  # N
                 teacher_logits = teacher_logits[..., :vocab_size_student]
 
@@ -88,7 +90,8 @@ def train_epoch(epoch, wandb, alpha=0.0, temperature=1.0):
             ce_loss += res.aux_loss
 
         # 2) Distillation Loss（可选）
-        if teacher_model is not None:
+        if teacher is not None:
+            assert teacher_logits is not None
             # 只在有效token位置做蒸馏
             distill_loss = distillation_loss_fn(
                 student_logits.view(-1, student_logits.size(-1))[loss_mask_flat == 1],

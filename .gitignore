@@ -1,5 +1,6 @@
 model/__pycache__
 out
+out_mlx*
 website/
 docs-minillm/
 

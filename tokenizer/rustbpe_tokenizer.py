@@ -6,7 +6,7 @@ import os
 import pickle
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterable, List, Sequence, Tuple
+from typing import Any, Iterable, List, Sequence, Tuple, cast
 
 import rustbpe  # type: ignore
 import tiktoken  # type: ignore
@@ -50,7 +50,7 @@ class RustBPETokenizer:
     ) -> "RustBPETokenizer":
         """Train a tokenizer using rustbpe and return a fast tiktoken wrapper."""
 
-        tokenizer = rustbpe.Tokenizer()
+        tokenizer = cast(Any, rustbpe).Tokenizer()
         vocab_size_no_special = vocab_size - len(SPECIAL_TOKENS)
         if vocab_size_no_special < 256:
             raise ValueError(

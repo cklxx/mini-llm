@@ -1,6 +1,6 @@
 # MiniLLM
 
-> 本仓库由 [MiniMind](https://github.com/mistralai/minimind) 项目重构而来，在保留“从零实现轻量级 LLM”教学目标的同时，补全了数据、训练、评估与部署的一体化流程。
+> 本仓库由 [MiniMind](https://github.com/jingyaogong/minimind) 项目重构而来，在保留“从零实现轻量级 LLM”教学目标的同时，补全了数据、训练、评估与部署的一体化流程。
 
 中文 | [English](./README_en.md)
 
@@ -66,6 +66,20 @@ scripts/run.sh --skip-pretrain
 scripts/run.sh --smoke-test
 ```
 
+### 3.1 MLX 一键训练（≈200MB 预设）
+
+如果你使用 Apple Silicon 并希望用 **MLX** 跑通训练/推理流程，可使用：
+
+```bash
+# 完整流程：自动下载 MiniMind 数据 -> 预训练 -> SFT
+bash scripts/run_mlx.sh
+
+# Smoke：小数据 + 少量步数 + 推理
+bash scripts/run_mlx.sh --smoke-test
+```
+
+更多说明见 `mlx_train/README.md`。
+
 脚本会自动：
 
 - 检测本地或云端环境并选择合适的数据/Checkpoint；
@@ -125,4 +139,3 @@ scripts/run.sh --smoke-test
 ## 📄 许可协议
 
 本项目采用 [MIT License](./LICENSE)。在引用或再发布模型与数据时，请遵守相应数据集或权重的许可证要求。
-

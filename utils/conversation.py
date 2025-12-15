@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Mapping, Sequence
+from typing import List, Mapping, Sequence, cast
 
 
 @dataclass
@@ -36,15 +36,20 @@ def _coerce_role(raw: str) -> str:
 def normalize_conversation(record: Mapping[str, object]) -> List[Message]:
     """Return a normalized conversation list for a wide range of data formats."""
 
-    def _from_messages(messages: Sequence[Mapping[str, object]]) -> List[Message]:
+    def _from_messages(raw_messages: Sequence[object]) -> List[Message]:
         normalized: List[Message] = []
-        for item in messages:
+        for item in raw_messages:
             if not isinstance(item, Mapping):
                 raise TypeError("Conversation message must be a mapping")
-            role_raw = item.get("role") or item.get("from") or item.get("speaker")
+            message = cast(Mapping[str, object], item)
+            role_raw = message.get("role") or message.get("from") or message.get(
+                "speaker"
+            )
             if role_raw is None:
                 raise KeyError("Conversation message is missing 'role'/'from'/'speaker'")
-            content_raw = item.get("content") or item.get("value") or item.get("text")
+            content_raw = message.get("content") or message.get("value") or message.get(
+                "text"
+            )
             if content_raw is None:
                 raise KeyError("Conversation message is missing text field")
             normalized.append(Message(role=_coerce_role(str(role_raw)), content=str(content_raw).strip()))
@@ -59,10 +64,10 @@ def normalize_conversation(record: Mapping[str, object]) -> List[Message]:
         return _from_messages(conv)
 
     if "messages" in record:
-        messages = record["messages"]
-        if not isinstance(messages, Sequence):
+        raw_messages = record["messages"]
+        if not isinstance(raw_messages, Sequence):
             raise TypeError("'messages' must be a sequence")
-        return _from_messages(messages)
+        return _from_messages(raw_messages)
 
     if "instruction" in record and "output" in record:
         system_prompt = str(record.get("system", "")).strip()

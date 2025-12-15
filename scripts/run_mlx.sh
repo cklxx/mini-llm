@@ -1,0 +1,429 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+on_interrupt() {
+  echo
+  echo "[abort] Interrupted (SIGINT)."
+  exit 130
+}
+
+trap on_interrupt INT
+
+usage() {
+  cat <<'USAGE'
+Usage: scripts/run_mlx.sh [OPTIONS]
+
+Runs a one-click MLX pipeline (pretrain -> SFT -> infer) aligned with MiniMind datasets.
+
+Options:
+  --smoke-test       Tiny fast run (downloads minimind:smoke, runs infer).
+  --download-only    Only download datasets, then exit.
+  --skip-pretrain    Skip pretrain stage (requires existing checkpoint or MLX_INIT_FROM).
+  --skip-sft         Skip SFT stage.
+  --skip-infer       Skip final inference.
+  --                Forward remaining args to mlx_train.train (pretrain & sft).
+  -h, --help         Show this help message and exit.
+
+Environment overrides (common):
+  VENV_DIR           Virtualenv directory (default: .venv_mlx)
+  USE_UV             Use uv to create/install venv (default: auto)
+  OUT_DIR            Output root (default: out/mlx; smoke-test: out/mlx_smoke)
+  DATA_DIR           Dataset cache dir (default: dataset/minimind)
+  HF_ENDPOINT        Optional HuggingFace mirror endpoint (e.g. https://hf-mirror.com)
+  MAX_DOWNLOAD_MB    Per-file download guard in MB (default: 2048; set 0 to disable)
+  KEEP_LAST_CHECKPOINTS  Keep last N checkpoints per stage (default: 3)
+  CLEANUP_SMOKE      Auto-delete smoke-test outputs (default: 1)
+
+Model/training overrides:
+  PRESET             Model preset: 200mb|tiny|custom (default: 200mb)
+  DTYPE              float16|bfloat16|float32 (default: bfloat16)
+
+  PRETRAIN_SEQ_LEN, PRETRAIN_BATCH_SIZE, PRETRAIN_ACCUM_STEPS, PRETRAIN_EPOCHS, PRETRAIN_MAX_STEPS
+  SFT_SEQ_LEN, SFT_BATCH_SIZE, SFT_ACCUM_STEPS, SFT_EPOCHS, SFT_MAX_STEPS
+
+Advanced:
+  MLX_INIT_FROM      Checkpoint dir or model.safetensors to init SFT from (overrides auto-detect).
+  INFER_PROMPT       Prompt used by smoke-test inference (default: hi)
+  INFER_MAX_NEW_TOKENS  Max new tokens for smoke-test inference (default: 64)
+  INFER_MIN_NEW_TOKENS  Force at least N new tokens (default: 1)
+  INFER_TEMPERATURE  0 for greedy; >0 for sampling (default: 0)
+  INFER_TOP_P        Nucleus sampling threshold (default: 1.0)
+USAGE
+}
+
+SMOKE_TEST=0
+DOWNLOAD_ONLY=0
+SKIP_PRETRAIN=0
+SKIP_SFT=0
+SKIP_INFER=0
+OUT_DIR_WAS_SET=0
+if [ -n "${OUT_DIR+x}" ]; then
+  OUT_DIR_WAS_SET=1
+fi
+
+TRAIN_EXTRA_ARGS=()
+while (($#)); do
+  case "$1" in
+    --smoke-test) SMOKE_TEST=1; shift ;;
+    --download-only) DOWNLOAD_ONLY=1; shift ;;
+    --skip-pretrain) SKIP_PRETRAIN=1; shift ;;
+    --skip-sft) SKIP_SFT=1; shift ;;
+    --skip-infer) SKIP_INFER=1; shift ;;
+    --) shift; TRAIN_EXTRA_ARGS+=("$@"); break ;;
+    -h|--help) usage; exit 0 ;;
+    *) TRAIN_EXTRA_ARGS+=("$1"); shift ;;
+  esac
+done
+
+ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$ROOT_DIR"
+
+export PYTHONPATH="$ROOT_DIR${PYTHONPATH:+:$PYTHONPATH}"
+
+# Mirrors (consistent with scripts/run.sh)
+unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY no_proxy NO_PROXY || true
+export PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+export UV_INDEX_URL=${UV_INDEX_URL:-$PIP_INDEX_URL}
+
+# Silence transformers advisory warning in MLX-only envs (no torch/tf/flax).
+export TRANSFORMERS_VERBOSITY=${TRANSFORMERS_VERBOSITY:-error}
+
+VENV_DIR=${VENV_DIR:-.venv_mlx}
+DATA_DIR=${DATA_DIR:-dataset/minimind}
+MAX_DOWNLOAD_MB=${MAX_DOWNLOAD_MB:-2048}
+KEEP_LAST_CHECKPOINTS=${KEEP_LAST_CHECKPOINTS:-3}
+if [ "$SMOKE_TEST" -eq 1 ]; then
+  OUT_DIR=${OUT_DIR:-out/mlx_smoke}
+  PRESET=${PRESET:-tiny}
+  DTYPE=${DTYPE:-float32}
+  CLEANUP_SMOKE=${CLEANUP_SMOKE:-1}
+else
+  OUT_DIR=${OUT_DIR:-out/mlx}
+  PRESET=${PRESET:-200mb}
+  DTYPE=${DTYPE:-bfloat16}
+  CLEANUP_SMOKE=${CLEANUP_SMOKE:-0}
+fi
+
+PYTHON_CMD=${PYTHON_CMD:-python3}
+if ! command -v "$PYTHON_CMD" >/dev/null 2>&1; then
+  echo "[error] python3 not found" >&2
+  exit 1
+fi
+
+USE_UV=${USE_UV:-auto}
+if [ "$USE_UV" = "auto" ]; then
+  if command -v uv >/dev/null 2>&1; then
+    USE_UV=1
+  else
+    USE_UV=0
+  fi
+fi
+
+if [ "$USE_UV" = "1" ]; then
+  if [ ! -x "$VENV_DIR/bin/python" ]; then
+    echo "[env] Creating venv with uv at $VENV_DIR"
+    uv venv "$VENV_DIR" --python "$PYTHON_CMD" --seed
+  fi
+  PY="$VENV_DIR/bin/python"
+  echo "[env] Using $PY"
+  uv pip install -r mlx_train/requirements.txt -p "$PY"
+else
+  if [ ! -x "$VENV_DIR/bin/python" ]; then
+    echo "[env] Creating venv at $VENV_DIR"
+    "$PYTHON_CMD" -m venv "$VENV_DIR"
+  fi
+  PY="$VENV_DIR/bin/python"
+  echo "[env] Using $PY"
+  "$PY" -m pip -q install --upgrade pip
+  "$PY" -m pip -q install -r mlx_train/requirements.txt
+fi
+
+if ! "$PY" -c "import mlx, transformers, huggingface_hub, requests, jinja2" >/dev/null 2>&1; then
+  echo "[error] MLX deps not available after install" >&2
+  exit 1
+fi
+
+abs_path() {
+  "$PYTHON_CMD" -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$1"
+}
+
+safe_rm_rf() {
+  local target=$1
+  if [ -z "$target" ]; then
+    echo "[cleanup] Refusing to remove empty path" >&2
+    exit 1
+  fi
+  local abs
+  abs=$(abs_path "$target")
+  local root_abs
+  root_abs=$(abs_path "$ROOT_DIR")
+
+  case "$abs" in
+    "$root_abs"/*) ;;
+    *) echo "[cleanup] Refusing to remove path outside repo: $abs" >&2; exit 1 ;;
+  esac
+  if [ "$abs" = "$root_abs" ] || [ "$abs" = "/" ]; then
+    echo "[cleanup] Refusing to remove unsafe path: $abs" >&2
+    exit 1
+  fi
+  rm -rf "$abs"
+}
+
+download_minimind() {
+  local spec=$1
+  local task=$2
+  "$PY" - <<PY
+import os
+from mlx_train.download import resolve_data_path_spec
+
+print(
+    resolve_data_path_spec(
+        "${spec}",
+        task="${task}",
+        data_dir=os.environ.get("DATA_DIR", "dataset/minimind"),
+        hf_repo_id="jingyaogong/minimind_dataset",
+        hf_endpoint=os.environ.get("HF_ENDPOINT"),
+        force_download=False,
+        max_download_mb=int(os.environ.get("MAX_DOWNLOAD_MB", "2048")),
+    )
+)
+PY
+}
+
+if [ "$SMOKE_TEST" -eq 1 ] && [ "$CLEANUP_SMOKE" = "1" ] && [ "$OUT_DIR_WAS_SET" -eq 0 ]; then
+  if [ -d "$OUT_DIR" ]; then
+    echo "[cleanup] Removing previous smoke outputs: $OUT_DIR"
+    safe_rm_rf "$OUT_DIR"
+  fi
+fi
+
+mkdir -p "$DATA_DIR"
+
+if [ "$SMOKE_TEST" -eq 1 ]; then
+  export DATA_DIR MAX_DOWNLOAD_MB HF_ENDPOINT
+  echo "[data] Download smoke dataset"
+  download_minimind "minimind:smoke" "sft"
+else
+  export DATA_DIR MAX_DOWNLOAD_MB HF_ENDPOINT
+  echo "[data] Download required datasets"
+  download_minimind "minimind:pretrain_hq.jsonl" "pretrain"
+  download_minimind "minimind:sft_mini_512.jsonl" "sft"
+  download_minimind "minimind:dpo_pairs.jsonl" "sft"
+fi
+
+if [ "$DOWNLOAD_ONLY" -eq 1 ]; then
+  echo "[done] Download complete."
+  exit 0
+fi
+
+mkdir -p "$OUT_DIR"
+
+latest_ckpt() {
+  local stage_dir=$1
+  ls -dt "$stage_dir"/checkpoints/step_* 2>/dev/null | head -n 1 || true
+}
+
+ckpt_step_num() {
+  local ckpt_path=$1
+  local base
+  base=$(basename "$ckpt_path")
+  if [[ "$base" =~ ^step_([0-9]+)$ ]]; then
+    echo "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  echo ""
+  return 1
+}
+
+smoke_bump_max_steps() {
+  local resume_path=$1
+  local current_max=$2
+  local extra=${3:-5}
+
+  if [ -z "$resume_path" ] || [ -z "$current_max" ]; then
+    echo "$current_max"
+    return 0
+  fi
+
+  local step
+  step=$(ckpt_step_num "$resume_path" || true)
+  if [ -z "$step" ]; then
+    echo "$current_max"
+    return 0
+  fi
+
+  local step_num
+  step_num=$((10#$step))
+  if [ "$step_num" -ge "$current_max" ]; then
+    echo $((step_num + extra))
+    return 0
+  fi
+
+  echo "$current_max"
+}
+
+run_stage() {
+  local stage=$1
+  shift
+  echo
+  echo "[stage] $stage"
+  echo "$PY -m mlx_train.train $*"
+  "$PY" -m mlx_train.train "$@"
+}
+
+PRETRAIN_OUT="$OUT_DIR/pretrain"
+SFT_OUT="$OUT_DIR/sft"
+
+if [ "$SMOKE_TEST" -eq 1 ]; then
+  PRETRAIN_SEQ_LEN=${PRETRAIN_SEQ_LEN:-256}
+  PRETRAIN_BATCH_SIZE=${PRETRAIN_BATCH_SIZE:-2}
+  PRETRAIN_ACCUM_STEPS=${PRETRAIN_ACCUM_STEPS:-1}
+  PRETRAIN_EPOCHS=${PRETRAIN_EPOCHS:-1}
+  PRETRAIN_MAX_STEPS=${PRETRAIN_MAX_STEPS:-5}
+
+  SFT_SEQ_LEN=${SFT_SEQ_LEN:-256}
+  SFT_BATCH_SIZE=${SFT_BATCH_SIZE:-2}
+  SFT_ACCUM_STEPS=${SFT_ACCUM_STEPS:-1}
+  SFT_EPOCHS=${SFT_EPOCHS:-1}
+  SFT_MAX_STEPS=${SFT_MAX_STEPS:-5}
+
+  LOG_INTERVAL=${LOG_INTERVAL:-1}
+  SAVE_INTERVAL=${SAVE_INTERVAL:-2}
+else
+  PRETRAIN_SEQ_LEN=${PRETRAIN_SEQ_LEN:-1024}
+  PRETRAIN_BATCH_SIZE=${PRETRAIN_BATCH_SIZE:-1}
+  PRETRAIN_ACCUM_STEPS=${PRETRAIN_ACCUM_STEPS:-8}
+  PRETRAIN_EPOCHS=${PRETRAIN_EPOCHS:-1}
+  PRETRAIN_MAX_STEPS=${PRETRAIN_MAX_STEPS:-}
+
+  SFT_SEQ_LEN=${SFT_SEQ_LEN:-512}
+  SFT_BATCH_SIZE=${SFT_BATCH_SIZE:-1}
+  SFT_ACCUM_STEPS=${SFT_ACCUM_STEPS:-8}
+  SFT_EPOCHS=${SFT_EPOCHS:-1}
+  SFT_MAX_STEPS=${SFT_MAX_STEPS:-}
+
+  LOG_INTERVAL=${LOG_INTERVAL:-10}
+  SAVE_INTERVAL=${SAVE_INTERVAL:-200}
+fi
+
+if [ "$SKIP_PRETRAIN" -eq 0 ]; then
+  PRETRAIN_RESUME=$(latest_ckpt "$PRETRAIN_OUT")
+  if [ "$SMOKE_TEST" -eq 1 ] && [ -n "$PRETRAIN_MAX_STEPS" ]; then
+    PRETRAIN_MAX_STEPS=$(smoke_bump_max_steps "$PRETRAIN_RESUME" "$PRETRAIN_MAX_STEPS" "${SMOKE_EXTRA_STEPS:-5}")
+  fi
+  PRETRAIN_ARGS=(
+    --task pretrain
+    --preset "$PRESET"
+    --dtype "$DTYPE"
+    --data_path "$( [ "$SMOKE_TEST" -eq 1 ] && echo minimind:smoke || echo minimind:pretrain_hq.jsonl )"
+    --data_dir "$DATA_DIR"
+    --max_download_mb "$MAX_DOWNLOAD_MB"
+    --out_dir "$PRETRAIN_OUT"
+    --keep_last_checkpoints "$KEEP_LAST_CHECKPOINTS"
+    --seq_len "$PRETRAIN_SEQ_LEN"
+    --batch_size "$PRETRAIN_BATCH_SIZE"
+    --accum_steps "$PRETRAIN_ACCUM_STEPS"
+    --epochs "$PRETRAIN_EPOCHS"
+    --log_interval "$LOG_INTERVAL"
+    --save_interval "$SAVE_INTERVAL"
+  )
+  if [ -n "${HF_ENDPOINT:-}" ]; then
+    PRETRAIN_ARGS+=(--hf_endpoint "$HF_ENDPOINT")
+  fi
+  if [ -n "$PRETRAIN_MAX_STEPS" ]; then
+    PRETRAIN_ARGS+=(--max_steps "$PRETRAIN_MAX_STEPS")
+  fi
+  if [ -n "$PRETRAIN_RESUME" ]; then
+    PRETRAIN_ARGS+=(--resume "$PRETRAIN_RESUME")
+  fi
+  if [ "${#TRAIN_EXTRA_ARGS[@]}" -gt 0 ]; then
+    PRETRAIN_ARGS+=("${TRAIN_EXTRA_ARGS[@]}")
+  fi
+  run_stage "pretrain" "${PRETRAIN_ARGS[@]}"
+fi
+
+if [ "$SKIP_SFT" -eq 0 ]; then
+  SFT_RESUME=$(latest_ckpt "$SFT_OUT")
+  if [ "$SMOKE_TEST" -eq 1 ] && [ -n "$SFT_MAX_STEPS" ]; then
+    SFT_MAX_STEPS=$(smoke_bump_max_steps "$SFT_RESUME" "$SFT_MAX_STEPS" "${SMOKE_EXTRA_STEPS:-5}")
+  fi
+  INIT_FROM=${MLX_INIT_FROM:-}
+  if [ -z "$INIT_FROM" ]; then
+    INIT_FROM=$(latest_ckpt "$PRETRAIN_OUT")
+  fi
+
+  SFT_ARGS=(
+    --task sft
+    --preset "$PRESET"
+    --dtype "$DTYPE"
+    --data_path "$( [ "$SMOKE_TEST" -eq 1 ] && echo minimind:smoke || echo minimind:sft_mini_512.jsonl )"
+    --data_dir "$DATA_DIR"
+    --max_download_mb "$MAX_DOWNLOAD_MB"
+    --out_dir "$SFT_OUT"
+    --keep_last_checkpoints "$KEEP_LAST_CHECKPOINTS"
+    --seq_len "$SFT_SEQ_LEN"
+    --batch_size "$SFT_BATCH_SIZE"
+    --accum_steps "$SFT_ACCUM_STEPS"
+    --epochs "$SFT_EPOCHS"
+    --log_interval "$LOG_INTERVAL"
+    --save_interval "$SAVE_INTERVAL"
+  )
+  if [ -n "${HF_ENDPOINT:-}" ]; then
+    SFT_ARGS+=(--hf_endpoint "$HF_ENDPOINT")
+  fi
+  if [ -n "$SFT_MAX_STEPS" ]; then
+    SFT_ARGS+=(--max_steps "$SFT_MAX_STEPS")
+  fi
+
+  if [ -n "$SFT_RESUME" ]; then
+    SFT_ARGS+=(--resume "$SFT_RESUME")
+  else
+    if [ -z "$INIT_FROM" ]; then
+      echo "[error] No pretrain checkpoint found for SFT init; run without --skip-pretrain or set MLX_INIT_FROM" >&2
+      exit 1
+    fi
+    SFT_ARGS+=(--init_from "$INIT_FROM")
+  fi
+
+  if [ "${#TRAIN_EXTRA_ARGS[@]}" -gt 0 ]; then
+    SFT_ARGS+=("${TRAIN_EXTRA_ARGS[@]}")
+  fi
+  run_stage "sft" "${SFT_ARGS[@]}"
+fi
+
+if [ "$SKIP_INFER" -eq 0 ]; then
+  INFER_CKPT=$(latest_ckpt "$SFT_OUT")
+  if [ -z "$INFER_CKPT" ]; then
+    INFER_CKPT=$(latest_ckpt "$PRETRAIN_OUT")
+  fi
+
+  if [ -n "$INFER_CKPT" ]; then
+    INFER_PROMPT=${INFER_PROMPT:-hi}
+    INFER_MAX_NEW_TOKENS=${INFER_MAX_NEW_TOKENS:-64}
+    INFER_MIN_NEW_TOKENS=${INFER_MIN_NEW_TOKENS:-1}
+    INFER_TEMPERATURE=${INFER_TEMPERATURE:-0}
+    INFER_TOP_P=${INFER_TOP_P:-1.0}
+    echo
+    echo "[stage] infer"
+    echo "$PY -m mlx_train.infer --checkpoint $INFER_CKPT --prompt \"${INFER_PROMPT}\""
+    "$PY" -m mlx_train.infer \
+      --checkpoint "$INFER_CKPT" \
+      --prompt "$INFER_PROMPT" \
+      --max_new_tokens "$INFER_MAX_NEW_TOKENS" \
+      --min_new_tokens "$INFER_MIN_NEW_TOKENS" \
+      --temperature "$INFER_TEMPERATURE" \
+      --top_p "$INFER_TOP_P"
+  else
+    echo "[infer] No checkpoint found under $OUT_DIR"
+  fi
+fi
+
+if [ "$SMOKE_TEST" -eq 1 ] && [ "$CLEANUP_SMOKE" = "1" ] && [ "$OUT_DIR_WAS_SET" -eq 0 ]; then
+  echo
+  echo "[cleanup] Removing smoke outputs: $OUT_DIR"
+  safe_rm_rf "$OUT_DIR"
+fi
+
+echo
+echo "[done] MLX pipeline finished."
+echo "[note] DPO training is not implemented in mlx_train yet; dataset was downloaded as dpo.jsonl."
