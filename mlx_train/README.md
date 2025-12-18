@@ -68,6 +68,7 @@ python3 -m mlx_train.train \
 - `minimind:smoke`：极小数据（`lora_identity.jsonl`，约 23KB）
 - DPO 数据：`minimind:dpo.jsonl`；兼容别名 `minimind:dpo_pairs.jsonl`（会在本地生成同名文件）
 - 默认下载保护：`--max_download_mb=2048`（超过会报错，需显式放开）
+- `scripts/run_mlx.sh` 默认不会下载 DPO（MLX 还未实现 DPO 训练），如需预先下载可设置 `DOWNLOAD_DPO=1`。
 
 如果本地访问 HuggingFace 较慢/不可用，可设置镜像端点：
 
@@ -117,6 +118,94 @@ python3 -m mlx_train.train \
   - `config.json` / `state.json`
 - 恢复训练：`--resume <out_dir>/checkpoints/step_XXXXXXXX`
 - 默认只保留最近 3 个 checkpoint：`--keep_last_checkpoints 3`（设为 `0` 可关闭清理）
+
+## 推理 / 效果查看
+
+```bash
+TRANSFORMERS_VERBOSITY=error python3 -m mlx_train.infer \
+  --checkpoint out/mlx/pretrain/checkpoints/step_XXXXXXXX \
+  --prompt "请介绍一下自己。" \
+  --temperature 0.7 --top_p 0.9 --max_new_tokens 200
+```
+
+## 一键查看模型参数量 / FLOPs / 设备峰值
+
+```bash
+# 自动选 out/mlx 下最新 checkpoint（优先 sft，其次 pretrain）
+bash scripts/stats_mlx.sh
+
+# 指定 checkpoint 并估算利用率（从训练日志里抄 tok/s 过来）
+bash scripts/stats_mlx.sh \
+  --checkpoint out/mlx/sft/checkpoints/step_XXXXXXXX \
+  --batch_size 1 --seq_len 1024 --accum_steps 8 \
+  --tok_s 3747
+```
+
+## Bench（与本地 Ollama Qwen3 对比）
+
+需要本机已安装并启动 `ollama serve`，且本地有 `qwen3:0.6b`（默认对比模型）：
+
+```bash
+# 默认：多维度 synthetic bench（math_mcq/qa/logic/knowledge/sort/json/copy），并展示进度
+bash scripts/bench_mlx.sh --checkpoint out/mlx/sft/checkpoints/step_XXXXXXXX
+
+# 只跑数学四则选择题
+bash scripts/bench_mlx.sh --suite math_mcq --checkpoint out/mlx/sft/checkpoints/step_XXXXXXXX
+
+# 指定对比模型
+bash scripts/bench_mlx.sh --ollama_model qwen3:8b
+```
+
+## 蒸馏（Ollama Qwen3:0.6b 合成数据 -> MLX SFT）
+
+目标：用本机 `ollama` 的 `qwen3:0.6b` 生成偏 **知识问答 / 逻辑推理 / 数学计算** 的合成 SFT 数据，并在生成的同时启动 MLX 训练（先冷启动生成一部分数据再开训）。
+
+前置：
+
+```bash
+ollama serve
+ollama pull qwen3:0.6b
+```
+
+一键运行（默认：先生成 512 条，再并行生成 + 训练）：
+
+```bash
+bash scripts/run_mlx_distill_ollama.sh
+```
+
+常用环境变量（可按需覆盖）：
+
+- `OLLAMA_URL`（默认 `http://127.0.0.1:11434`）
+- `OLLAMA_MODEL`（默认 `qwen3:0.6b`）
+- `COLD_SAMPLES`（默认 `512`，冷启动生成 N 条再开训）
+- `TOTAL_SAMPLES`（默认 `20000`，目标总样本数；设为 `0` 表示持续生成）
+- `GEN_WORKERS`（默认 `8`，并行推理 worker 数）
+- `DATA_JSONL`（默认 `out/distill_ollama_qwen3_0.6b/synth.jsonl`）
+- `OUT_DIR`（默认 `out/mlx_distill/qwen3_0.6b_sft`）
+- `INIT_FROM`（可选：从某个 checkpoint 初始化 SFT，例如 `out/mlx/pretrain/checkpoints/step_XXXXXXXX`）
+- `MAX_STEPS` / `SEQ_LEN` / `BATCH_SIZE` / `ACCUM_STEPS` / `DTYPE` / `PRESET`（训练超参）
+
+数据生成器也可单独使用：
+
+```bash
+python3 -m mlx_train.distill_data_ollama --help
+```
+
+## 简单评测（loss / perplexity）
+
+对一小段数据做 forward-only 的平均 loss / ppl（建议先用 `--max_batches` 小跑对比不同 checkpoint）：
+
+```bash
+TRANSFORMERS_VERBOSITY=error python3 -m mlx_train.eval \
+  --checkpoint out/mlx/pretrain/checkpoints/step_XXXXXXXX \
+  --task pretrain \
+  --data_path minimind:pretrain_hq.jsonl \
+  --data_dir dataset/minimind \
+  --seq_len 1024 \
+  --batch_size 1 \
+  --max_batches 100 \
+  --compile
+```
 
 ## 性能 / 瓶颈定位
 

@@ -7,7 +7,7 @@ import os
 import re
 import shutil
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -51,6 +51,143 @@ def save_optimizer_state(optimizer: optim.Optimizer, path: str) -> None:
 def load_optimizer_state(optimizer: optim.Optimizer, path: str) -> None:
     flat = dict(mx.load(path))
     optimizer.state = mlx_utils.tree_unflatten(flat)
+
+
+class AdamWKeepParamDtype(optim.AdamW):
+    """AdamW with float32 optimizer state while keeping model parameters' dtype."""
+
+    def init_single(self, parameter: mx.array, state: dict):
+        state["m"] = mx.zeros(parameter.shape, dtype=mx.float32)
+        state["v"] = mx.zeros(parameter.shape, dtype=mx.float32)
+
+    def apply_single(self, gradient: mx.array, parameter: mx.array, state: dict):
+        param_dtype = parameter.dtype
+        if "m" in state and isinstance(state["m"], mx.array) and state["m"].dtype != mx.float32:
+            state["m"] = state["m"].astype(mx.float32)
+        if "v" in state and isinstance(state["v"], mx.array) and state["v"].dtype != mx.float32:
+            state["v"] = state["v"].astype(mx.float32)
+
+        updated = super().apply_single(
+            gradient.astype(mx.float32),
+            parameter.astype(mx.float32),
+            state,
+        )
+        return updated.astype(param_dtype)
+
+
+def compile_value_and_grad(
+    fn: Callable[..., Tuple[mx.array, Any]],
+    *,
+    model: nn.Module,
+    batch_size: int,
+    seq_len: int,
+) -> Callable[..., Tuple[mx.array, Any]]:
+    compiled = mx.compile(
+        fn,
+        inputs={"model": model, "rng": mx.random.state},
+        outputs={"rng": mx.random.state},
+    )
+
+    # Warm up compilation and then restore parameters. `nn.value_and_grad` uses
+    # `model.update()` with tracer arrays during compilation; without restoring,
+    # the model would be left in a non-evaluable state for the Python training loop.
+    params_backup = model.parameters()
+    x0 = mx.zeros((batch_size, seq_len), dtype=mx.int32)
+    y0 = mx.zeros((batch_size, seq_len), dtype=mx.int32)
+    m0 = mx.ones((batch_size, seq_len), dtype=mx.float32)
+    try:
+        loss0, grads0 = compiled(x0, y0, m0)
+        mx.eval(loss0, grads0)
+    finally:
+        model.update(params_backup)
+
+    return compiled
+
+
+def compile_optimizer_step(
+    fn: Callable[..., mx.array],
+    *,
+    model: nn.Module,
+    optimizer: optim.Optimizer,
+) -> Callable[..., mx.array]:
+    optimizer.init(model.trainable_parameters())
+    compiled = mx.compile(
+        fn,
+        inputs={"model": model, "opt": optimizer.state},
+        outputs={"model": model, "opt": optimizer.state},
+    )
+
+    params_backup = model.parameters()
+    opt_backup = mlx_utils.tree_map(lambda x: x, optimizer.state)
+    dummy_grads = mlx_utils.tree_map(
+        lambda p: mx.zeros_like(p), model.trainable_parameters()
+    )
+    try:
+        out0 = compiled(dummy_grads)
+        mx.eval(out0)
+    finally:
+        model.update(params_backup)
+        optimizer.state = opt_backup
+        optimizer.init(model.trainable_parameters())
+
+    return compiled
+
+
+def compile_train_step(
+    *,
+    model: nn.Module,
+    optimizer: optim.Optimizer,
+    value_and_grad: Callable[[mx.array, mx.array, mx.array], Tuple[mx.array, Any]],
+    batch_size: int,
+    seq_len: int,
+    accum_steps: int,
+    grad_clip: float,
+) -> Callable[..., Tuple[mx.array, mx.array]]:
+    if accum_steps <= 0:
+        raise ValueError("accum_steps must be > 0")
+
+    optimizer.init(model.trainable_parameters())
+
+    def train_step(xs: mx.array, ys: mx.array, ms: mx.array, micro_batches: mx.array) -> Tuple[mx.array, mx.array]:
+        loss_sum = mx.array(0.0, dtype=mx.float32)
+        grad_accum: Any = mlx_utils.tree_map(lambda p: mx.zeros_like(p), model.trainable_parameters())
+        for i in range(accum_steps):
+            loss, grads = value_and_grad(xs[i], ys[i], ms[i])
+            loss_sum = loss_sum + loss.astype(mx.float32)
+            grad_accum = mlx_utils.tree_map(lambda a, b: a + b, grad_accum, grads)
+
+        denom = mx.maximum(micro_batches.astype(mx.float32), mx.array(1.0, dtype=mx.float32))
+        grad_accum = mlx_utils.tree_map(lambda g: g / denom, grad_accum)
+
+        if grad_clip > 0:
+            grad_accum, grad_norm = optim.clip_grad_norm(grad_accum, max_norm=grad_clip)
+        else:
+            grad_norm = mx.array(0.0, dtype=mx.float32)
+
+        optimizer.update(model, grad_accum)
+        return loss_sum, grad_norm
+
+    compiled = mx.compile(
+        train_step,
+        inputs={"model": model, "opt": optimizer.state, "rng": mx.random.state},
+        outputs={"model": model, "opt": optimizer.state, "rng": mx.random.state},
+    )
+
+    params_backup = model.parameters()
+    opt_backup = mlx_utils.tree_map(lambda x: x, optimizer.state)
+    x0 = mx.zeros((accum_steps, batch_size, seq_len), dtype=mx.int32)
+    y0 = mx.zeros((accum_steps, batch_size, seq_len), dtype=mx.int32)
+    m0 = mx.ones((accum_steps, batch_size, seq_len), dtype=mx.float32)
+    micro0 = mx.array(float(accum_steps), dtype=mx.float32)
+    try:
+        loss0, grad_norm0 = compiled(x0, y0, m0, micro0)
+        mx.eval(loss0, grad_norm0)
+    finally:
+        model.update(params_backup)
+        optimizer.state = opt_backup
+        optimizer.init(model.trainable_parameters())
+
+    return compiled
 
 
 def loss_fn(
@@ -223,6 +360,18 @@ def main() -> None:
         help="Ignore the first N steps for timing stats when --profile_timing is enabled.",
     )
     parser.add_argument(
+        "--compile",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use mx.compile to speed up forward+backward (recommended).",
+    )
+    parser.add_argument(
+        "--compile_optimizer",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use mx.compile to fuse grad clipping + optimizer update (recommended).",
+    )
+    parser.add_argument(
         "--metal_capture",
         type=str,
         default=None,
@@ -291,12 +440,24 @@ def main() -> None:
         state_path = os.path.join(args.resume, "state.json")
         if not os.path.isfile(model_path):
             raise FileNotFoundError(model_path)
-        model.load_weights(model_path)
+        model_size = os.path.getsize(model_path)
+        if model_size < 8:
+            raise RuntimeError(
+                f"Checkpoint appears incomplete/corrupted: {model_path} ({model_size} bytes). "
+                "Try resuming from the previous checkpoint and/or delete this directory."
+            )
+        try:
+            model.load_weights(model_path)
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load weights from checkpoint: {model_path}. "
+                "The checkpoint may be corrupted; try resuming from an earlier step."
+            ) from e
         if os.path.isfile(state_path):
             with open(state_path, "r", encoding="utf-8") as f:
                 state = json.load(f)
             start_step = int(state.get("step", 0))
-        if os.path.isfile(opt_path):
+        if os.path.isfile(opt_path) and os.path.getsize(opt_path) > 0:
             resume_optimizer_path = opt_path
         print(f"[resume] step={start_step} from {args.resume}")
     elif args.init_from:
@@ -319,7 +480,7 @@ def main() -> None:
         f"[model] params={n_params / 1e6:.2f}M | approx_size={n_bytes / 1024 / 1024:.1f} MiB | dtype={args.dtype}"
     )
 
-    optimizer = optim.AdamW(
+    optimizer = AdamWKeepParamDtype(
         learning_rate=args.learning_rate, weight_decay=args.weight_decay
     )
     if resume_optimizer_path is not None:
@@ -330,8 +491,44 @@ def main() -> None:
         args.max_steps if args.max_steps is not None else (args.epochs * 10**9)
     )
 
-    value_and_grad = nn.value_and_grad(model, loss_fn)
     model.train()
+    loss_fn_wrapped = lambda x, y, m: loss_fn(model, x, y, m)
+    value_and_grad = nn.value_and_grad(model, loss_fn_wrapped)
+    compiled_train_step: Optional[Callable[..., Tuple[mx.array, mx.array]]] = None
+    compiled_opt_step: Optional[Callable[..., mx.array]] = None
+
+    if args.compile and args.compile_optimizer:
+        compiled_train_step = compile_train_step(
+            model=model,
+            optimizer=optimizer,
+            value_and_grad=value_and_grad,
+            batch_size=int(args.batch_size),
+            seq_len=int(args.seq_len),
+            accum_steps=int(args.accum_steps),
+            grad_clip=float(args.grad_clip),
+        )
+    elif args.compile:
+        value_and_grad = compile_value_and_grad(
+            value_and_grad,
+            model=model,
+            batch_size=int(args.batch_size),
+            seq_len=int(args.seq_len),
+        )
+
+    if compiled_train_step is None and args.compile_optimizer:
+        def opt_step(grads: Any) -> mx.array:
+            if args.grad_clip > 0:
+                grads, grad_norm = optim.clip_grad_norm(grads, max_norm=args.grad_clip)
+            else:
+                grad_norm = mx.array(0.0, dtype=mx.float32)
+            optimizer.update(model, grads)
+            return grad_norm
+
+        compiled_opt_step = compile_optimizer_step(
+            opt_step,
+            model=model,
+            optimizer=optimizer,
+        )
 
     global_step = start_step
     t0 = time.time()
@@ -365,17 +562,34 @@ def main() -> None:
     def save_checkpoint(step: int) -> str:
         path = os.path.join(ckpt_dir, f"step_{step:08d}")
         os.makedirs(path, exist_ok=True)
-        model.save_weights(os.path.join(path, "model.safetensors"))
-        save_optimizer_state(optimizer, os.path.join(path, "optimizer.npz"))
-        with open(os.path.join(path, "config.json"), "w", encoding="utf-8") as f:
+
+        model_path = os.path.join(path, "model.safetensors")
+        model_tmp = model_path + ".tmp.safetensors"
+        model.save_weights(model_tmp)
+        os.replace(model_tmp, model_path)
+
+        opt_path = os.path.join(path, "optimizer.npz")
+        opt_tmp = opt_path + ".tmp.npz"
+        save_optimizer_state(optimizer, opt_tmp)
+        os.replace(opt_tmp, opt_path)
+
+        config_path = os.path.join(path, "config.json")
+        config_tmp = config_path + ".tmp"
+        with open(config_tmp, "w", encoding="utf-8") as f:
             json.dump(cfg.to_dict(), f, ensure_ascii=False, indent=2)
-        with open(os.path.join(path, "state.json"), "w", encoding="utf-8") as f:
+        os.replace(config_tmp, config_path)
+
+        state_path = os.path.join(path, "state.json")
+        state_tmp = state_path + ".tmp"
+        with open(state_tmp, "w", encoding="utf-8") as f:
             json.dump(
                 {"step": step, "seen_tokens": seen_tokens, "args": vars(args)},
                 f,
                 ensure_ascii=False,
                 indent=2,
             )
+        os.replace(state_tmp, state_path)
+
         prune_checkpoints(ckpt_dir, keep_last=args.keep_last_checkpoints)
         return path
 
@@ -424,52 +638,28 @@ def main() -> None:
                 loss_accum = mx.array(0.0, dtype=mx.float32)
                 micro_batches = 0
 
+                xs = []
+                ys = []
+                ms = []
+                last_batch = None
                 for _ in range(args.accum_steps):
                     try:
                         data_t0 = time.perf_counter() if profile_timing else 0.0
                         batch = next(batch_iter)
+                        last_batch = batch
                         if profile_timing:
                             timing_data_s += time.perf_counter() - data_t0
                     except StopIteration:
                         break
-
-                    to_mx_t0 = time.perf_counter() if profile_timing else 0.0
-                    x = mx.array(batch.x, dtype=mx.int32)
-                    y = mx.array(batch.y, dtype=mx.int32)
-                    m = mx.array(batch.loss_mask, dtype=mx.float32)
-                    if profile_timing:
-                        mx.eval(x, y, m)
-                        timing_to_mx_s += time.perf_counter() - to_mx_t0
-
-                    fwd_bwd_t0 = time.perf_counter() if profile_timing else 0.0
-                    loss, grads = value_and_grad(model, x, y, m)
-                    if profile_timing:
-                        mx.eval(loss, grads)
-                        timing_fwd_bwd_s += time.perf_counter() - fwd_bwd_t0
-                    loss_accum = loss_accum + loss.astype(mx.float32)
+                    xs.append(batch.x)
+                    ys.append(batch.y)
+                    ms.append(batch.loss_mask)
                     micro_batches += 1
-
-                    if grad_accum is None:
-                        grad_accum = grads
-                    else:
-                        grad_accum = mlx_utils.tree_map(
-                            lambda a, b: a + b, grad_accum, grads
-                        )
 
                 if micro_batches == 0:
                     break  # finished this epoch
 
-                assert grad_accum is not None
-                grad_accum = mlx_utils.tree_map(lambda g: g / micro_batches, grad_accum)
-                grad_norm: Optional[mx.array] = None
-                if args.grad_clip > 0:
-                    clip_t0 = time.perf_counter() if profile_timing else 0.0
-                    grad_accum, grad_norm = optim.clip_grad_norm(
-                        grad_accum, max_norm=args.grad_clip
-                    )
-                    if profile_timing:
-                        mx.eval(grad_accum, grad_norm)
-                        timing_clip_s += time.perf_counter() - clip_t0
+                grad_norm = mx.array(0.0, dtype=mx.float32)
 
                 lr = cosine_lr(
                     global_step,
@@ -477,10 +667,59 @@ def main() -> None:
                     args.learning_rate,
                     warmup_steps=args.warmup_steps,
                 )
-                opt_t0 = time.perf_counter() if profile_timing else 0.0
                 optimizer.learning_rate = lr
-                optimizer.update(model, grad_accum)
-                mx.eval(model.parameters(), optimizer.state, loss_accum)
+                to_mx_t0 = time.perf_counter() if profile_timing else 0.0
+                if micro_batches < args.accum_steps and last_batch is not None:
+                    pad_m = [[0] * int(args.seq_len) for _ in range(int(args.batch_size))]
+                    while len(xs) < int(args.accum_steps):
+                        xs.append(last_batch.x)
+                        ys.append(last_batch.y)
+                        ms.append(pad_m)
+
+                x = mx.array(xs, dtype=mx.int32)
+                y = mx.array(ys, dtype=mx.int32)
+                m = mx.array(ms, dtype=mx.float32)
+                micro = mx.array(float(micro_batches), dtype=mx.float32)
+                if profile_timing:
+                    mx.eval(x, y, m, micro)
+                    timing_to_mx_s += time.perf_counter() - to_mx_t0
+
+                opt_t0 = time.perf_counter() if profile_timing else 0.0
+                if compiled_train_step is not None:
+                    loss_accum, grad_norm = compiled_train_step(x, y, m, micro)
+                else:
+                    # Fallback: run `value_and_grad` micro-batches in Python.
+                    grad_accum = None
+                    loss_accum = mx.array(0.0, dtype=mx.float32)
+                    for i in range(micro_batches):
+                        fwd_bwd_t0 = time.perf_counter() if profile_timing else 0.0
+                        loss, grads = value_and_grad(x[i], y[i], m[i])
+                        if profile_timing:
+                            mx.eval(loss, grads)
+                            timing_fwd_bwd_s += time.perf_counter() - fwd_bwd_t0
+                        loss_accum = loss_accum + loss.astype(mx.float32)
+                        if grad_accum is None:
+                            grad_accum = grads
+                        else:
+                            grad_accum = mlx_utils.tree_map(lambda a, b: a + b, grad_accum, grads)
+
+                    assert grad_accum is not None
+                    grad_accum = mlx_utils.tree_map(lambda g: g / micro_batches, grad_accum)
+
+                    if compiled_opt_step is None and args.grad_clip > 0:
+                        clip_t0 = time.perf_counter() if profile_timing else 0.0
+                        grad_accum, grad_norm = optim.clip_grad_norm(
+                            grad_accum, max_norm=args.grad_clip
+                        )
+                        if profile_timing:
+                            mx.eval(grad_accum, grad_norm)
+                            timing_clip_s += time.perf_counter() - clip_t0
+
+                    if compiled_opt_step is None:
+                        optimizer.update(model, grad_accum)
+                    else:
+                        grad_norm = compiled_opt_step(grad_accum)
+                mx.eval(model.parameters(), optimizer.state, loss_accum, grad_norm)
                 if profile_timing:
                     timing_opt_s += time.perf_counter() - opt_t0
 
