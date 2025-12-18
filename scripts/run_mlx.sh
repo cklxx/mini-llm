@@ -31,6 +31,7 @@ Environment overrides (common):
   DATA_DIR           Dataset cache dir (default: dataset/minimind)
   HF_ENDPOINT        Optional HuggingFace mirror endpoint (e.g. https://hf-mirror.com)
   MAX_DOWNLOAD_MB    Per-file download guard in MB (default: 2048; set 0 to disable)
+  DOWNLOAD_DPO       Download DPO dataset too (default: 0; MLX DPO training not implemented)
   KEEP_LAST_CHECKPOINTS  Keep last N checkpoints per stage (default: 3)
   CLEANUP_SMOKE      Auto-delete smoke-test outputs (default: 1)
 
@@ -91,6 +92,7 @@ export TRANSFORMERS_VERBOSITY=${TRANSFORMERS_VERBOSITY:-error}
 VENV_DIR=${VENV_DIR:-.venv_mlx}
 DATA_DIR=${DATA_DIR:-dataset/minimind}
 MAX_DOWNLOAD_MB=${MAX_DOWNLOAD_MB:-2048}
+DOWNLOAD_DPO=${DOWNLOAD_DPO:-0}
 KEEP_LAST_CHECKPOINTS=${KEEP_LAST_CHECKPOINTS:-3}
 if [ "$SMOKE_TEST" -eq 1 ]; then
   OUT_DIR=${OUT_DIR:-out/mlx_smoke}
@@ -206,9 +208,15 @@ if [ "$SMOKE_TEST" -eq 1 ]; then
 else
   export DATA_DIR MAX_DOWNLOAD_MB HF_ENDPOINT
   echo "[data] Download required datasets"
-  download_minimind "minimind:pretrain_hq.jsonl" "pretrain"
-  download_minimind "minimind:sft_mini_512.jsonl" "sft"
-  download_minimind "minimind:dpo_pairs.jsonl" "sft"
+  if [ "$SKIP_PRETRAIN" -eq 0 ]; then
+    download_minimind "minimind:pretrain_hq.jsonl" "pretrain"
+  fi
+  if [ "$SKIP_SFT" -eq 0 ]; then
+    download_minimind "minimind:sft_mini_512.jsonl" "sft"
+  fi
+  if [ "$DOWNLOAD_DPO" = "1" ]; then
+    download_minimind "minimind:dpo.jsonl" "sft"
+  fi
 fi
 
 if [ "$DOWNLOAD_ONLY" -eq 1 ]; then
@@ -220,7 +228,29 @@ mkdir -p "$OUT_DIR"
 
 latest_ckpt() {
   local stage_dir=$1
-  ls -dt "$stage_dir"/checkpoints/step_* 2>/dev/null | head -n 1 || true
+  local ckpt
+  while IFS= read -r ckpt; do
+    [ -z "$ckpt" ] && continue
+    if is_valid_ckpt "$ckpt"; then
+      echo "$ckpt"
+      return 0
+    fi
+    echo "[warn] Skipping invalid checkpoint: $ckpt" >&2
+  done < <(ls -dt "$stage_dir"/checkpoints/step_* 2>/dev/null || true)
+  return 0
+}
+
+is_valid_ckpt() {
+  local ckpt_path=$1
+  [ -f "$ckpt_path/model.safetensors" ] || return 1
+  [ -s "$ckpt_path/model.safetensors" ] || return 1
+  [ -f "$ckpt_path/optimizer.npz" ] || return 1
+  [ -s "$ckpt_path/optimizer.npz" ] || return 1
+  [ -f "$ckpt_path/config.json" ] || return 1
+  [ -s "$ckpt_path/config.json" ] || return 1
+  [ -f "$ckpt_path/state.json" ] || return 1
+  [ -s "$ckpt_path/state.json" ] || return 1
+  return 0
 }
 
 ckpt_step_num() {
@@ -426,4 +456,4 @@ fi
 
 echo
 echo "[done] MLX pipeline finished."
-echo "[note] DPO training is not implemented in mlx_train yet; dataset was downloaded as dpo.jsonl."
+echo "[note] DPO training is not implemented in mlx_train yet; set DOWNLOAD_DPO=1 if you still want to download dpo.jsonl."
