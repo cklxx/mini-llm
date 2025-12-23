@@ -191,6 +191,18 @@ bash scripts/run_mlx_distill_ollama.sh
 python3 -m mlx_train.distill_data_ollama --help
 ```
 
+## GSM8K 强化学习（rollout/buffer/train）
+
+实现放在独立目录：`mlx_train/rl_gsm8k/`（含 `README.md`）。
+
+一键脚本（rollout -> train 循环；每轮用最新权重继续 rollout）：
+
+```bash
+CHECKPOINT=out/mlx/sft/checkpoints/step_XXXXXXXX bash scripts/run_mlx_rl_gsm8k.sh
+```
+
+脚本默认 `DOWNLOAD=auto`：如果本地没有数据会自动下载；在非 root 环境会自动使用 `dataset/gsm8k`（可用 `DATASET_DIR` 覆盖）。默认还会先做一小段 GSM8K 的 SFT warmup（`WARMUP_STEPS=200`；设 `WARMUP_STEPS=0` 可关闭；如需从头跑可设 `RESET_OUT=1` 或换 `OUT_DIR`）。Loop 参数：`ITERS` / `MAX_STEPS` / `STEPS_PER_ITER` / `NUM_ROLLOUTS` / `SAMPLES_PER_PROMPT`。训练结束后默认会追加跑 GSM8K `test`（`GSM8K_EVAL_NUM`）与 `mlx_train.bench`（`BENCH_SUITE`；`RUN_EVAL=0` / `RUN_BENCH=0` 可关闭）。
+
 ## 简单评测（loss / perplexity）
 
 对一小段数据做 forward-only 的平均 loss / ppl（建议先用 `--max_batches` 小跑对比不同 checkpoint）：

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -61,6 +61,66 @@ class Attention(nn.Module):
         out = self.o_proj(out)
         return self.resid_dropout(out)
 
+    def forward_with_cache(
+        self,
+        x: mx.array,
+        *,
+        start_pos: int,
+        cache: "LayerKVCache",
+        attention_mask: Optional[mx.array] = None,
+    ) -> Tuple[mx.array, "LayerKVCache"]:
+        """
+        KV-cached attention for inference.
+
+        - Prefill: call with `start_pos=0` and `x` containing the whole prompt.
+        - Decode: call with `x` being the last generated token (T=1) and `start_pos` equal to its absolute position.
+        """
+
+        bsz, seq_len, _ = x.shape
+        q = self.q_proj(x).reshape(bsz, seq_len, self.n_heads, self.head_dim).transpose(0, 2, 1, 3)
+        k = self.k_proj(x).reshape(bsz, seq_len, self.n_kv_heads, self.head_dim).transpose(0, 2, 1, 3)
+        v = self.v_proj(x).reshape(bsz, seq_len, self.n_kv_heads, self.head_dim).transpose(0, 2, 1, 3)
+
+        q = self.rope(q, offset=int(start_pos))
+        k = self.rope(k, offset=int(start_pos))
+
+        if start_pos < 0:
+            raise ValueError(f"start_pos must be >= 0, got: {start_pos}")
+        if int(start_pos) + int(seq_len) > int(cache.k.shape[2]):
+            raise ValueError(
+                f"KV cache too small: need {int(start_pos) + int(seq_len)} "
+                f"but cache_len={int(cache.k.shape[2])}"
+            )
+
+        k_cache = mx.slice_update(cache.k, k, start_indices=mx.array([int(start_pos)]), axes=(2,))
+        v_cache = mx.slice_update(cache.v, v, start_indices=mx.array([int(start_pos)]), axes=(2,))
+
+        total = int(start_pos) + int(seq_len)
+        _, _, _, head_dim = k_cache.shape
+        k_full = mx.slice(
+            k_cache,
+            start_indices=mx.array([0]),
+            axes=(2,),
+            slice_size=(int(bsz), int(self.n_kv_heads), int(total), int(head_dim)),
+        )
+        v_full = mx.slice(
+            v_cache,
+            start_indices=mx.array([0]),
+            axes=(2,),
+            slice_size=(int(bsz), int(self.n_kv_heads), int(total), int(head_dim)),
+        )
+
+        if attention_mask is None and int(start_pos) > 0:
+            # For decode (T=1), the query token is the last position; attending to all cached keys is safe.
+            mask: Optional[mx.array | str] = None
+        else:
+            mask = "causal" if attention_mask is None else attention_mask
+
+        out = mx.fast.scaled_dot_product_attention(q, k_full, v_full, scale=self.scale, mask=mask)
+        out = out.transpose(0, 2, 1, 3).reshape(bsz, seq_len, self.n_heads * self.head_dim)
+        out = self.o_proj(out)
+        return self.resid_dropout(out), LayerKVCache(k=k_cache, v=v_cache)
+
 
 class FeedForward(nn.Module):
     def __init__(self, config: MiniLLMConfig):
@@ -98,6 +158,21 @@ class MiniLLMBlock(nn.Module):
         x = x + self.mlp(self.post_attention_layernorm(x))
         return x
 
+    def forward_with_cache(
+        self,
+        x: mx.array,
+        *,
+        start_pos: int,
+        cache: "LayerKVCache",
+        attention_mask: Optional[mx.array] = None,
+    ) -> Tuple[mx.array, "LayerKVCache"]:
+        h, cache = self.self_attn.forward_with_cache(
+            self.input_layernorm(x), start_pos=int(start_pos), cache=cache, attention_mask=attention_mask
+        )
+        x = x + h
+        x = x + self.mlp(self.post_attention_layernorm(x))
+        return x, cache
+
 
 class MiniLLMModel(nn.Module):
     def __init__(self, config: MiniLLMConfig):
@@ -117,6 +192,27 @@ class MiniLLMModel(nn.Module):
             h = layer(h, start_pos=start_pos, attention_mask=attention_mask)
         return self.norm(h)
 
+    def forward_with_cache(
+        self,
+        input_ids: mx.array,
+        *,
+        start_pos: int,
+        cache: List["LayerKVCache"],
+        attention_mask: Optional[mx.array] = None,
+    ) -> Tuple[mx.array, List["LayerKVCache"]]:
+        if len(cache) != len(self.layers):
+            raise ValueError(f"KV cache layers mismatch: got {len(cache)} want {len(self.layers)}")
+
+        h = self.embed_tokens(input_ids)
+        h = self.dropout(h)
+        new_cache: List[LayerKVCache] = []
+        for layer, layer_cache in zip(self.layers, cache):
+            h, layer_cache = layer.forward_with_cache(
+                h, start_pos=int(start_pos), cache=layer_cache, attention_mask=attention_mask
+            )
+            new_cache.append(layer_cache)
+        return self.norm(h), new_cache
+
 
 class MiniLLMForCausalLM(nn.Module):
     def __init__(self, config: Optional[MiniLLMConfig] = None):
@@ -129,6 +225,50 @@ class MiniLLMForCausalLM(nn.Module):
         # Weight tying: lm_head.weight == embed_tokens.weight
         logits = h @ self.model.embed_tokens.weight.transpose()  # [B, T, V]
         return logits
+
+    def forward_with_cache(
+        self,
+        input_ids: mx.array,
+        *,
+        start_pos: int,
+        cache: List["LayerKVCache"],
+        attention_mask: Optional[mx.array] = None,
+    ) -> Tuple[mx.array, List["LayerKVCache"]]:
+        h, cache = self.model.forward_with_cache(
+            input_ids, start_pos=int(start_pos), cache=cache, attention_mask=attention_mask
+        )
+        logits = h @ self.model.embed_tokens.weight.transpose()
+        return logits, cache
+
+    def allocate_kv_cache(self, *, batch_size: int, max_seq_len: int) -> List["LayerKVCache"]:
+        dtype = self.model.embed_tokens.weight.dtype
+        return allocate_kv_cache(self.config, batch_size=batch_size, max_seq_len=max_seq_len, dtype=dtype)
+
+
+@dataclass(frozen=True)
+class LayerKVCache:
+    # [B, n_kv_heads, max_seq_len, head_dim]
+    k: mx.array
+    v: mx.array
+
+
+def allocate_kv_cache(
+    config: MiniLLMConfig, *, batch_size: int, max_seq_len: int, dtype: mx.Dtype
+) -> List[LayerKVCache]:
+    cfg = config.finalize()
+    head_dim = cfg.hidden_size // cfg.num_attention_heads
+    n_kv = cfg.num_key_value_heads if cfg.num_key_value_heads is not None else cfg.num_attention_heads
+    if batch_size <= 0:
+        raise ValueError("batch_size must be > 0")
+    if max_seq_len <= 0:
+        raise ValueError("max_seq_len must be > 0")
+
+    caches: List[LayerKVCache] = []
+    for _ in range(cfg.num_hidden_layers):
+        k = mx.zeros((int(batch_size), int(n_kv), int(max_seq_len), int(head_dim)), dtype=dtype)
+        v = mx.zeros((int(batch_size), int(n_kv), int(max_seq_len), int(head_dim)), dtype=dtype)
+        caches.append(LayerKVCache(k=k, v=v))
+    return caches
 
 
 def count_parameters(params: Dict[str, Any]) -> int:

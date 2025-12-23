@@ -10,7 +10,7 @@ import mlx.core as mx
 from transformers import AutoTokenizer
 
 from .config import MiniLLMConfig
-from .model import MiniLLMForCausalLM
+from .model import MiniLLMForCausalLM, LayerKVCache
 
 
 def load_config(checkpoint_dir: Path) -> MiniLLMConfig:
@@ -66,13 +66,27 @@ def generate(
     max_seq_len: Optional[int],
 ) -> List[int]:
     ids = list(input_ids)
-    for _ in range(max_new_tokens):
-        if max_seq_len is not None and len(ids) >= max_seq_len:
+    if max_new_tokens <= 0:
+        return ids
+    if max_seq_len is not None and len(ids) >= int(max_seq_len):
+        return ids
+    if not ids:
+        raise ValueError("input_ids is empty; need at least 1 token for generation")
+
+    cache_len = int(max_seq_len) if max_seq_len is not None else (len(ids) + int(max_new_tokens) + 1)
+    cache: List[LayerKVCache] = model.allocate_kv_cache(batch_size=1, max_seq_len=cache_len)
+
+    # Prefill: run the whole prompt once and populate KV cache.
+    x0 = mx.array([ids], dtype=mx.int32)
+    logits0, cache = model.forward_with_cache(x0, start_pos=0, cache=cache)
+    logits = logits0[0, -1, :]
+
+    produced = 0
+    for _ in range(int(max_new_tokens)):
+        if max_seq_len is not None and len(ids) >= int(max_seq_len):
             break
-        x = mx.array([ids], dtype=mx.int32)
-        logits = model(x)[0, -1, :]
-        produced = len(ids) - len(input_ids)
-        if produced < min_new_tokens and banned_token_ids:
+
+        if produced < int(min_new_tokens) and banned_token_ids:
             vocab = int(logits.shape[0])
             idx = mx.arange(vocab)
             mask = mx.zeros((vocab,), dtype=mx.bool_)
@@ -82,10 +96,19 @@ def generate(
             logits = mx.where(mask, mx.array(-1e9, dtype=logits.dtype), logits)
 
         next_token = sample_next_token(logits, temperature=temperature, top_p=top_p)
-        ids.append(next_token)
+        ids.append(int(next_token))
         produced += 1
-        if eos_token_id is not None and produced >= min_new_tokens and next_token == eos_token_id:
+        if eos_token_id is not None and produced >= int(min_new_tokens) and int(next_token) == int(eos_token_id):
             break
+        if max_seq_len is not None and len(ids) >= int(max_seq_len):
+            break
+
+        # Decode: feed only the last generated token; KV cache makes it O(1) per step.
+        pos = len(ids) - 1  # absolute position of the token we just appended
+        x = mx.array([[int(next_token)]], dtype=mx.int32)
+        logits1, cache = model.forward_with_cache(x, start_pos=int(pos), cache=cache)
+        logits = logits1[0, -1, :]
+
     return ids
 
 

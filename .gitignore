@@ -61,6 +61,7 @@ results/
 eval_results.jsonl
 *.jsonl
 !dataset/*.jsonl
+dataset/gsm8k/
 
 # System files
 .env
