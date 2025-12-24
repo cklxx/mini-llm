@@ -18,6 +18,9 @@ Runs a one-click MLX pipeline (pretrain -> SFT -> infer) aligned with MiniMind d
 Options:
   --smoke-test       Tiny fast run (downloads minimind:smoke, runs infer).
   --download-only    Only download datasets, then exit.
+  --infer-only       Skip training; run inference using the latest checkpoint (OUT_DIR/, or OUT_DIR/{sft,pretrain}/).
+  --infer-checkpoint PATH
+                    Skip training; run inference using the specified checkpoint dir (or model.safetensors file).
   --skip-pretrain    Skip pretrain stage (requires existing checkpoint or MLX_INIT_FROM).
   --skip-sft         Skip SFT stage.
   --skip-infer       Skip final inference.
@@ -54,6 +57,8 @@ USAGE
 
 SMOKE_TEST=0
 DOWNLOAD_ONLY=0
+INFER_ONLY=0
+INFER_CHECKPOINT=""
 SKIP_PRETRAIN=0
 SKIP_SFT=0
 SKIP_INFER=0
@@ -67,6 +72,18 @@ while (($#)); do
   case "$1" in
     --smoke-test) SMOKE_TEST=1; shift ;;
     --download-only) DOWNLOAD_ONLY=1; shift ;;
+    --infer-only) INFER_ONLY=1; SKIP_PRETRAIN=1; SKIP_SFT=1; shift ;;
+    --infer-checkpoint)
+      if [ $# -lt 2 ]; then
+        echo "[error] --infer-checkpoint requires a path" >&2
+        exit 2
+      fi
+      INFER_ONLY=1
+      INFER_CHECKPOINT=$2
+      SKIP_PRETRAIN=1
+      SKIP_SFT=1
+      shift 2
+      ;;
     --skip-pretrain) SKIP_PRETRAIN=1; shift ;;
     --skip-sft) SKIP_SFT=1; shift ;;
     --skip-infer) SKIP_INFER=1; shift ;;
@@ -201,7 +218,9 @@ fi
 
 mkdir -p "$DATA_DIR"
 
-if [ "$SMOKE_TEST" -eq 1 ]; then
+if [ "$INFER_ONLY" -eq 1 ]; then
+  echo "[data] Skipping dataset download (--infer-only)"
+elif [ "$SMOKE_TEST" -eq 1 ]; then
   export DATA_DIR MAX_DOWNLOAD_MB HF_ENDPOINT
   echo "[data] Download smoke dataset"
   download_minimind "minimind:smoke" "sft"
@@ -422,9 +441,34 @@ if [ "$SKIP_SFT" -eq 0 ]; then
 fi
 
 if [ "$SKIP_INFER" -eq 0 ]; then
-  INFER_CKPT=$(latest_ckpt "$SFT_OUT")
-  if [ -z "$INFER_CKPT" ]; then
-    INFER_CKPT=$(latest_ckpt "$PRETRAIN_OUT")
+  if [ -n "$INFER_CHECKPOINT" ]; then
+    INFER_CKPT=$INFER_CHECKPOINT
+    if [ -f "$INFER_CKPT" ] && [[ "$INFER_CKPT" == *.safetensors ]]; then
+      INFER_CKPT=$(dirname "$INFER_CKPT")
+    fi
+    if [ ! -d "$INFER_CKPT" ]; then
+      echo "[infer] Invalid --infer-checkpoint: $INFER_CHECKPOINT (resolved: $INFER_CKPT)" >&2
+      exit 1
+    fi
+    if [ ! -s "$INFER_CKPT/model.safetensors" ] || [ ! -s "$INFER_CKPT/config.json" ]; then
+      echo "[infer] Checkpoint dir must contain model.safetensors + config.json: $INFER_CKPT" >&2
+      exit 1
+    fi
+  else
+    INFER_CKPT=""
+    # Allow OUT_DIR to directly be a training output dir (OUT_DIR/checkpoints/step_*)
+    # or a single checkpoint dir (OUT_DIR/model.safetensors + config.json).
+    if [ -s "$OUT_DIR/model.safetensors" ] && [ -s "$OUT_DIR/config.json" ]; then
+      INFER_CKPT=$OUT_DIR
+    else
+      INFER_CKPT=$(latest_ckpt "$OUT_DIR")
+      if [ -z "$INFER_CKPT" ]; then
+        INFER_CKPT=$(latest_ckpt "$SFT_OUT")
+      fi
+      if [ -z "$INFER_CKPT" ]; then
+        INFER_CKPT=$(latest_ckpt "$PRETRAIN_OUT")
+      fi
+    fi
   fi
 
   if [ -n "$INFER_CKPT" ]; then
