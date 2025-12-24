@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from typing import Any, Dict, Optional
 
 
@@ -22,6 +22,15 @@ class MiniLLMConfig:
     rope_theta: float = 1_000_000.0
     inference_rope_scaling: bool = False
     flash_attn: bool = True
+
+    # Custom Metal fused kernels (MLX path)
+    use_metal_kernels: bool = True
+
+    # LoRA (MLX path)
+    lora_r: int = 0
+    lora_alpha: float = 16.0
+    lora_dropout: float = 0.0
+    lora_targets: str = "q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj"
     # MoE (not implemented in MLX path for now)
     use_moe: bool = False
     num_experts_per_tok: int = 2
@@ -46,6 +55,18 @@ class MiniLLMConfig:
             self.intermediate_size = 64 * ((intermediate + 64 - 1) // 64)
         return self
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "MiniLLMConfig":
+        """
+        Construct a config from a dict while ignoring unknown keys.
+
+        This makes checkpoint `config.json` forward/backward compatible across
+        versions (newer keys won't break older code and vice versa).
+        """
+        allowed = {f.name for f in fields(cls)}
+        filtered = {k: v for k, v in dict(data).items() if k in allowed}
+        return cls(**filtered).finalize()
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
@@ -67,4 +88,3 @@ def minillm_200mb() -> MiniLLMConfig:
         dropout=0.0,
         use_moe=False,
     ).finalize()
-

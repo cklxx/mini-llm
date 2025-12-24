@@ -21,7 +21,7 @@ from transformers import AutoTokenizer
 from ..config import MiniLLMConfig
 from ..infer import load_config
 from ..model import MiniLLMForCausalLM
-from ..train import AdamWKeepParamDtype
+from ..optim import make_optimizer
 from .buffer import JsonlRolloutBuffer
 
 
@@ -246,7 +246,12 @@ def main() -> None:
     model.apply(lambda p: p.astype(dtype_map[str(args.dtype)]))
     model.train()
 
-    optimizer = AdamWKeepParamDtype(learning_rate=float(args.learning_rate), weight_decay=float(args.weight_decay))
+    optimizer = make_optimizer(
+        name="adamw",
+        learning_rate=float(args.learning_rate),
+        weight_decay=float(args.weight_decay),
+        state_dtype="float32",
+    )
     if resume_dir is not None:
         opt_path = resume_dir / "optimizer.npz"
         if opt_path.exists() and opt_path.stat().st_size > 0:

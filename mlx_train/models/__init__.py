@@ -1,6 +1,6 @@
-"""Backwards-compatible imports for the MiniLLM MLX model."""
+"""MLX model components for MiniLLM."""
 
-from .models.minillm import (  # noqa: F401
+from .minillm import (  # noqa: F401
     Attention,
     FeedForward,
     LayerKVCache,

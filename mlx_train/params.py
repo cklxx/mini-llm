@@ -28,7 +28,9 @@ def _load_config(checkpoint_dir: Path) -> MiniLLMConfig:
         raise FileNotFoundError(f"Missing config.json in checkpoint dir: {checkpoint_dir}")
     with open(config_path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    return MiniLLMConfig(**data).finalize()
+    if not isinstance(data, dict):
+        raise ValueError(f"config.json must be an object, got: {type(data).__name__}")
+    return MiniLLMConfig.from_dict(data)
 
 
 def _is_valid_checkpoint_dir(path: Path) -> bool:

@@ -1,5 +1,5 @@
-mlx
-transformers
-huggingface_hub
+mlx>=0.30.0
+transformers>=4.57.0,<5
+huggingface_hub>=0.34.0,<1.0
 requests
 jinja2

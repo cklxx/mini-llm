@@ -45,6 +45,43 @@ python3 -m mlx_train.train \
   --out_dir out/mlx_smoke
 ```
 
+## 省显存/提速开关（MLX 版 Unsloth 思路）
+
+以下参数都在 `mlx_train.train` 里实现：
+
+- LoRA（非全参训练）：`--lora_r 8 --lora_alpha 16 --lora_targets q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj`
+- Gradient checkpointing：`--checkpoint_every_n 1`（每 N 层重算一次，显著省激活显存）
+- Chunked logits CE：`--logits_chunk_size 128`（避免一次性保留完整 `[B,T,V]` logits）
+- Sparse gathered loss（SFT 常见）：`--sparse_loss`（只在 `loss_mask==1` 的位置算 CE；可配合 `--label_bucket_sizes 32,64,128,256`）
+- Bucketing（动态 padding）：`--bucket_sizes 256,512,1024,2048`（按样本长度选最小 bucket）
+- Optimizer（全参训练的“大头”）：`--optimizer adafactor`（显著减少优化器状态显存）；AdamW 也可用 `--optim_state_dtype param` 降显存
+- 预分词（数据管线大头）：JSONL 行里如果有 `ids: List[int]` 字段会自动跳过 `tokenizer.encode`
+- 编译提速：`--compile --compile_optimizer`（默认开启；关闭：`--no-compile --no-compile_optimizer`）
+
+> 模型内部默认会优先走自定义 Metal fused kernel（RMSNorm / SiLU*mul），如果编译失败会自动 fallback 到普通实现。
+
+### 预分词（把 tokenizer 开销移出训练循环）
+
+对大数据集，`transformers` tokenizer 往往是训练端到端 tok/s 的瓶颈。可以先把样本转换成 `ids`：
+
+```bash
+python3 -m mlx_train.pretokenize \
+  --data_path minimind:auto \
+  --task pretrain \
+  --seq_len 1024 \
+  --out_path out/minimind_auto_ids.jsonl
+```
+
+然后直接用输出的 JSONL 训练（训练脚本会自动优先读取 `ids` 字段）：
+
+```bash
+python3 -m mlx_train.train \
+  --data_path out/minimind_auto_ids.jsonl \
+  --task pretrain \
+  --preset 200mb \
+  --seq_len 1024
+```
+
 ## 自动下载训练数据（MiniMind 数据集）
 
 脚本支持在 `--data_path` 里直接写 `minimind:*`，会自动从 HuggingFace 的 `jingyaogong/minimind_dataset` 下载到 `--data_dir`（默认 `./dataset`）。
@@ -139,6 +176,27 @@ bash scripts/stats_mlx.sh \
   --checkpoint out/mlx/sft/checkpoints/step_XXXXXXXX \
   --batch_size 1 --seq_len 1024 --accum_steps 8 \
   --tok_s 3747
+```
+
+## 训练/推理速度对比（基准）
+
+使用合成数据跑一小段，输出 step_ms / tok/s / active_mem / peak_mem（可用 `--runs 2` 连跑两次取均值）：
+
+```bash
+# 200MB 预设，默认 head_dim=64；可按需改 seq_len
+python3 -m mlx_train.speed --preset 200mb --seq_len 1024 --steps 2 --warmup_steps 1
+
+# 全参 baseline/optimized（可对比）：关/开 Metal fused kernel
+python3 -m mlx_train.speed --preset 200mb --seq_len 1024 --steps 5 --warmup_steps 2 --no-metal_kernels
+python3 -m mlx_train.speed --preset 200mb --seq_len 1024 --steps 5 --warmup_steps 2 --metal_kernels
+
+# 全参“大优化”：Adafactor 显著省优化器状态显存（训练速度通常接近 AdamW）
+python3 -m mlx_train.speed --preset 200mb --seq_len 1024 --steps 5 --warmup_steps 2 --optimizer adamw --optim_state_dtype float32
+python3 -m mlx_train.speed --preset 200mb --seq_len 1024 --steps 5 --warmup_steps 2 --optimizer adafactor
+
+# 模拟 SFT 的稀疏 loss mask（只影响 loss 计算；Transformer 仍跑完整 seq_len）
+python3 -m mlx_train.speed --preset 200mb --seq_len 1024 --steps 5 --warmup_steps 2 --mask_density 0.25
+python3 -m mlx_train.speed --preset 200mb --seq_len 1024 --steps 5 --warmup_steps 2 --sparse_loss --mask_density 0.25
 ```
 
 ## Bench（与本地 Ollama Qwen3 对比）
