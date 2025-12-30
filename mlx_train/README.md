@@ -1,4 +1,4 @@
-# MLX 训练 MiniLLM（≈200MB 预设）
+# MLX 训练 MiniLLM（≈200M params 预设）
 
 本目录提供一个 **MLX** 版本的 MiniLLM（架构对齐 `model/model_minillm.py` 的 LLaMA-style：RMSNorm + RoPE + (GQA/MQA) Attention + SwiGLU FFN，权重绑定 lm_head/embedding）。
 
@@ -113,7 +113,7 @@ python3 -m mlx_train.train \
 export HF_ENDPOINT=https://hf-mirror.com
 ```
 
-## 训练 200MB（≈100M params）预设
+## 训练 200MB（≈200M params）预设
 
 ```bash
 python3 -m mlx_train.train \
@@ -125,6 +125,14 @@ python3 -m mlx_train.train \
   --accum_steps 8 \
   --dtype bfloat16 \
   --out_dir out/mlx_200mb
+```
+
+### 可选：Gated Attention（实验）
+
+训练时可以开启 attention 残差分支的标量 gate（`x <- x + sigmoid(gate)*attn_out`），用于做结构对比实验：
+
+```bash
+ATTN_GATE=1 bash scripts/run_mlx.sh
 ```
 
 完成预训练后，可用 `--init_from` 将权重带入 SFT：
@@ -165,6 +173,35 @@ TRANSFORMERS_VERBOSITY=error python3 -m mlx_train.infer \
   --temperature 0.7 --top_p 0.9 --max_new_tokens 200
 ```
 
+也可以用一键脚本在 `--infer-only` 下跑一组“代表性能力展示”样例（默认：知识问答风格，不是做题）：
+
+```bash
+bash scripts/run_mlx.sh --infer-only
+```
+
+如需切换回合成做题/打分风格（bench 模式）：
+
+```bash
+INFER_DEMO_MODE=bench bash scripts/run_mlx.sh --infer-only
+```
+
+### 推理激活追踪（逐 token 可视化）
+
+> Dense Transformer 的“参数参与计算”基本是全量；这里追踪的是推理时各层关键位置的 **activation RMS**（并可选记录 MLP 中间层 top-k 激活）。
+
+```bash
+python3 -m mlx_train.infer \
+  --checkpoint out/mlx/pretrain/checkpoints/step_XXXXXXXX \
+  --prompt "请介绍一下自己。" \
+  --temperature 0.7 --top_p 0.9 --max_new_tokens 200 \
+  --trace_out out/mlx_trace_run \
+  --trace_qkv \
+  --trace_attn --trace_attn_topk 16 \
+  --trace_mlp_topk 8
+```
+
+打开 `out/mlx_trace_run/trace.html` 查看热力图（layer × token）。
+
 ## 一键查看模型参数量 / FLOPs / 设备峰值
 
 ```bash
@@ -183,7 +220,7 @@ bash scripts/stats_mlx.sh \
 使用合成数据跑一小段，输出 step_ms / tok/s / active_mem / peak_mem（可用 `--runs 2` 连跑两次取均值）：
 
 ```bash
-# 200MB 预设，默认 head_dim=64；可按需改 seq_len
+# 200MB 预设（≈200M params），默认 head_dim=64；可按需改 seq_len
 python3 -m mlx_train.speed --preset 200mb --seq_len 1024 --steps 2 --warmup_steps 1
 
 # 全参 baseline/optimized（可对比）：关/开 Metal fused kernel
@@ -310,4 +347,4 @@ python3 -m mlx_train.train \
 ## 说明
 
 - 当前 MLX 路径 **未实现 MoE**（`use_moe=True` 会报错）。
-- 200MB 预设指 fp16/bf16 权重大致占用（训练时显存/内存还会包含优化器状态与激活）。
+- 200MB 预设指 **≈200M 参数量**（fp16/bf16 权重大约 400MB 级别；训练时显存/内存还会包含优化器状态与激活）。

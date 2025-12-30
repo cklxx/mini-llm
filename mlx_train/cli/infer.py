@@ -11,6 +11,7 @@ import mlx.core as mx
 from ..config import MiniLLMConfig
 from ..models import MiniLLMForCausalLM, LayerKVCache
 from ..nn.lora import merge_lora
+from ..trace import ActivationTracer, TraceConfig, write_trace_outputs
 
 
 def load_config(checkpoint_dir: Path) -> MiniLLMConfig:
@@ -66,6 +67,7 @@ def generate(
     temperature: float,
     top_p: float,
     max_seq_len: Optional[int],
+    trace: Optional[ActivationTracer] = None,
 ) -> List[int]:
     ids = list(input_ids)
     if max_new_tokens <= 0:
@@ -80,7 +82,7 @@ def generate(
 
     # Prefill: run the whole prompt once and populate KV cache.
     x0 = mx.array([ids], dtype=mx.int32)
-    logits0, cache = model.forward_with_cache(x0, start_pos=0, cache=cache)
+    logits0, cache = model.forward_with_cache(x0, start_pos=0, cache=cache, trace=trace)
     logits = logits0[0, -1, :]
 
     produced = 0
@@ -108,7 +110,7 @@ def generate(
         # Decode: feed only the last generated token; KV cache makes it O(1) per step.
         pos = len(ids) - 1  # absolute position of the token we just appended
         x = mx.array([[int(next_token)]], dtype=mx.int32)
-        logits1, cache = model.forward_with_cache(x, start_pos=int(pos), cache=cache)
+        logits1, cache = model.forward_with_cache(x, start_pos=int(pos), cache=cache, trace=trace)
         logits = logits1[0, -1, :]
 
     return ids
@@ -130,6 +132,36 @@ def main() -> None:
     parser.add_argument("--top_p", type=float, default=1.0, help="Nucleus sampling threshold (only if temperature>0).")
     parser.add_argument("--seed", type=int, default=1337)
     parser.add_argument("--max_seq_len", type=int, default=None)
+    parser.add_argument(
+        "--trace_out",
+        type=str,
+        default=None,
+        help="Write per-token activation trace to a directory (trace.json/trace.html) or to a .json path.",
+    )
+    parser.add_argument("--trace_qkv", action="store_true", help="Record per-token Q/K/V RMS (mean over heads).")
+    parser.add_argument(
+        "--trace_qkv_per_head",
+        action="store_true",
+        help="Record per-head Q/K/V RMS (can be large; currently only saved in JSON).",
+    )
+    parser.add_argument(
+        "--trace_mlp_topk",
+        type=int,
+        default=0,
+        help="Record top-k MLP intermediate activations per token (indices + values).",
+    )
+    parser.add_argument("--trace_attn", action="store_true", help="Record attention pattern as top-k keys per head.")
+    parser.add_argument(
+        "--trace_attn_topk",
+        type=int,
+        default=16,
+        help="Top-k keys to keep per head when --trace_attn is enabled.",
+    )
+    parser.add_argument(
+        "--trace_attn_all_queries",
+        action="store_true",
+        help="Also trace attention for all prompt tokens during prefill (can be expensive).",
+    )
 
     args = parser.parse_args()
 
@@ -159,6 +191,20 @@ def main() -> None:
     prompt_text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     prompt_ids: List[int] = tokenizer.encode(prompt_text, add_special_tokens=False)
 
+    tracer: Optional[ActivationTracer] = None
+    if args.trace_out:
+        tracer = ActivationTracer(
+            num_layers=int(cfg.num_hidden_layers),
+            cfg=TraceConfig(
+                record_qkv=bool(args.trace_qkv or args.trace_qkv_per_head),
+                record_qkv_per_head=bool(args.trace_qkv_per_head),
+                mlp_topk=int(args.trace_mlp_topk),
+                record_attn=bool(args.trace_attn),
+                record_attn_all_queries=bool(args.trace_attn_all_queries),
+                attn_topk=int(args.trace_attn_topk),
+            ),
+        )
+
     output_ids = generate(
         model,
         input_ids=prompt_ids,
@@ -169,6 +215,7 @@ def main() -> None:
         temperature=args.temperature,
         top_p=args.top_p,
         max_seq_len=args.max_seq_len,
+        trace=tracer,
     )
 
     response_ids = output_ids[len(prompt_ids) :]
@@ -178,6 +225,20 @@ def main() -> None:
         print(text)
     else:
         print("[infer] empty response (try --temperature 0.7 --top_p 1.0 or set --min_new_tokens)")
+
+    if tracer is not None and args.trace_out:
+        trace = tracer.to_dict(
+            tokenizer=tokenizer,
+            meta={
+                "checkpoint": os.fspath(ckpt),
+                "prompt": args.prompt,
+                "prompt_tokens": int(len(prompt_ids)),
+                "total_tokens": int(len(output_ids)),
+            },
+        )
+        json_path, html_path = write_trace_outputs(out_path=args.trace_out, trace=trace)
+        print(f"[trace] wrote {json_path}")
+        print(f"[trace] wrote {html_path}")
 
 
 if __name__ == "__main__":

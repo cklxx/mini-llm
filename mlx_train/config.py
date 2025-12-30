@@ -26,6 +26,13 @@ class MiniLLMConfig:
     # Custom Metal fused kernels (MLX path)
     use_metal_kernels: bool = True
 
+    # Gated attention (MLX path)
+    # Qwen-Next-like "gated attention" is ambiguous across implementations; here we expose
+    # a simple, stable variant: a learnable scalar gate on the attention residual branch:
+    #   x <- x + sigmoid(attn_gate_logit) * attn_out
+    use_attn_gate: bool = False
+    attn_gate_init: float = 4.0  # logit; sigmoid(4) ~= 0.982
+
     # LoRA (MLX path)
     lora_r: int = 0
     lora_alpha: float = 16.0
@@ -73,18 +80,21 @@ class MiniLLMConfig:
 
 def minillm_200mb() -> MiniLLMConfig:
     """
-    ~200MB weights in fp16 (≈100M params), aligned with MiniLLM (LLaMA-style).
-    Roughly: hidden=768, layers=15, heads=12, kv_heads=3, vocab=6400.
+    ~200M params preset (aligned with MiniLLM / LLaMA-style).
+
+    Note: fp16/bf16 weight size will be ~400MB (order of magnitude).
     """
 
     return MiniLLMConfig(
-        hidden_size=768,
-        num_hidden_layers=15,
-        num_attention_heads=12,
-        num_key_value_heads=3,
+        hidden_size=1152,
+        num_hidden_layers=14,
+        num_attention_heads=18,
+        num_key_value_heads=6,
         vocab_size=6400,
         max_position_embeddings=32768,
         rope_theta=1_000_000.0,
         dropout=0.0,
         use_moe=False,
+        use_attn_gate=True,
+        attn_gate_init=4.0,
     ).finalize()

@@ -66,7 +66,7 @@ scripts/run.sh --skip-pretrain
 scripts/run.sh --smoke-test
 ```
 
-### 3.1 MLX 一键训练（≈200MB 预设）
+### 3.1 MLX 一键训练（≈200M params 预设）
 
 如果你使用 Apple Silicon 并希望用 **MLX** 跑通训练/推理流程，可使用：
 

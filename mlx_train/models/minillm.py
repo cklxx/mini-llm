@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -10,6 +10,9 @@ import mlx.nn as nn
 from ..config import MiniLLMConfig
 from ..nn.lora import LoRAConfig, apply_lora
 from ..ops import metal as metal_ops
+
+if TYPE_CHECKING:
+    from ..trace import ActivationTracer
 
 
 class RMSNorm(nn.Module):
@@ -76,6 +79,8 @@ class Attention(nn.Module):
         start_pos: int,
         cache: "LayerKVCache",
         attention_mask: Optional[mx.array] = None,
+        trace: Optional["ActivationTracer"] = None,
+        layer_id: Optional[int] = None,
     ) -> Tuple[mx.array, "LayerKVCache"]:
         """
         KV-cached attention for inference.
@@ -92,6 +97,8 @@ class Attention(nn.Module):
 
         q = self.rope(q, offset=int(start_pos))
         k = self.rope(k, offset=int(start_pos))
+        if trace is not None and layer_id is not None:
+            trace.record_qkv(layer_id=int(layer_id), start_pos=int(start_pos), q=q, k=k, v=v)
 
         if start_pos < 0:
             raise ValueError(f"start_pos must be >= 0, got: {start_pos}")
@@ -125,6 +132,39 @@ class Attention(nn.Module):
         else:
             mask = "causal" if attention_mask is None else attention_mask
 
+        if trace is not None and getattr(trace, "cfg", None) is not None and bool(trace.cfg.record_attn):
+            # Record attention weights (top-k keys per head) for interpretability.
+            # This is an extra compute path and is only enabled when tracing.
+            rep = int(self.n_heads // self.n_kv_heads)
+            k_rep = mx.repeat(k_full, repeats=rep, axis=1)
+            q_for_trace = q
+            if not bool(trace.cfg.record_attn_all_queries):
+                q_for_trace = q[:, :, -1:, :]
+                query_positions = [int(start_pos) + int(seq_len) - 1]
+            else:
+                query_positions = list(range(int(start_pos), int(start_pos) + int(seq_len)))
+
+            scores = mx.matmul(
+                q_for_trace.astype(mx.float32),
+                k_rep.astype(mx.float32).transpose(0, 1, 3, 2),
+            )
+            scores = scores * float(self.scale)
+            if attention_mask is None and int(seq_len) > 1:
+                # Causal mask for multi-token prefill: key_pos <= query_pos (absolute positions).
+                key_pos = mx.arange(int(total))[None, :]
+                qpos = mx.array([int(p) for p in query_positions], dtype=mx.int32)[:, None]
+                allow = key_pos <= qpos
+                neg_inf = mx.array(-1e9, dtype=scores.dtype)
+                scores = mx.where(allow[None, None, :, :], scores, neg_inf)
+            attn_w = mx.softmax(scores, axis=-1)
+            if trace is not None and layer_id is not None:
+                trace.record_attn(
+                    layer_id=int(layer_id),
+                    start_pos=int(start_pos),
+                    attn=attn_w,
+                    query_positions=query_positions,
+                )
+
         out = mx.fast.scaled_dot_product_attention(q, k_full, v_full, scale=self.scale, mask=mask)
         out = out.transpose(0, 2, 1, 3).reshape(bsz, seq_len, self.n_heads * self.head_dim)
         out = self.o_proj(out)
@@ -146,7 +186,14 @@ class FeedForward(nn.Module):
         if config.hidden_act != "silu":
             raise ValueError(f"Only silu is supported right now, got: {config.hidden_act}")
 
-    def __call__(self, x: mx.array) -> mx.array:
+    def __call__(
+        self,
+        x: mx.array,
+        *,
+        trace: Optional["ActivationTracer"] = None,
+        layer_id: Optional[int] = None,
+        start_pos: int = 0,
+    ) -> mx.array:
         gate = self.gate_proj(x)
         up = self.up_proj(x)
         if metal_ops.enabled():
@@ -156,6 +203,8 @@ class FeedForward(nn.Module):
                 act = nn.silu(gate) * up
         else:
             act = nn.silu(gate) * up
+        if trace is not None and layer_id is not None:
+            trace.record_mlp_act(layer_id=int(layer_id), start_pos=int(start_pos), act=act)
         return self.dropout(self.down_proj(act))
 
 
@@ -166,13 +215,21 @@ class MiniLLMBlock(nn.Module):
         self.self_attn = Attention(config)
         self.input_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.use_attn_gate = bool(config.use_attn_gate)
+        self.attn_gate_logit = (
+            mx.array(float(config.attn_gate_init), dtype=mx.float32) if bool(config.use_attn_gate) else None
+        )
         if config.use_moe:
             raise NotImplementedError("MoE is not implemented for the MLX path yet.")
         self.mlp = FeedForward(config)
 
     def __call__(self, x: mx.array, *, start_pos: int = 0, attention_mask: Optional[mx.array] = None) -> mx.array:
         h = self.self_attn(self.input_layernorm(x), start_pos=start_pos, attention_mask=attention_mask)
-        x = x + h
+        if self.attn_gate_logit is not None:
+            gate = mx.sigmoid(self.attn_gate_logit).astype(x.dtype)
+            x = x + gate * h
+        else:
+            x = x + h
         x = x + self.mlp(self.post_attention_layernorm(x))
         return x
 
@@ -183,12 +240,48 @@ class MiniLLMBlock(nn.Module):
         start_pos: int,
         cache: "LayerKVCache",
         attention_mask: Optional[mx.array] = None,
+        trace: Optional["ActivationTracer"] = None,
     ) -> Tuple[mx.array, "LayerKVCache"]:
+        if trace is not None:
+            trace.record_hidden(layer_id=int(self.layer_id), name="x_in_rms", start_pos=int(start_pos), x=x)
+
+        x_attn_in = self.input_layernorm(x)
+        if trace is not None:
+            trace.record_hidden(
+                layer_id=int(self.layer_id), name="attn_in_rms", start_pos=int(start_pos), x=x_attn_in
+            )
+
         h, cache = self.self_attn.forward_with_cache(
-            self.input_layernorm(x), start_pos=int(start_pos), cache=cache, attention_mask=attention_mask
+            x_attn_in,
+            start_pos=int(start_pos),
+            cache=cache,
+            attention_mask=attention_mask,
+            trace=trace,
+            layer_id=int(self.layer_id),
         )
-        x = x + h
-        x = x + self.mlp(self.post_attention_layernorm(x))
+        if trace is not None:
+            trace.record_hidden(layer_id=int(self.layer_id), name="attn_out_rms", start_pos=int(start_pos), x=h)
+
+        if self.attn_gate_logit is not None:
+            gate = mx.sigmoid(self.attn_gate_logit).astype(x.dtype)
+            x = x + gate * h
+        else:
+            x = x + h
+        if trace is not None:
+            trace.record_hidden(layer_id=int(self.layer_id), name="x_mid_rms", start_pos=int(start_pos), x=x)
+
+        x_mlp_in = self.post_attention_layernorm(x)
+        if trace is not None:
+            trace.record_hidden(layer_id=int(self.layer_id), name="mlp_in_rms", start_pos=int(start_pos), x=x_mlp_in)
+
+        mlp_out = self.mlp(x_mlp_in, trace=trace, layer_id=int(self.layer_id), start_pos=int(start_pos))
+        if trace is not None:
+            trace.record_hidden(layer_id=int(self.layer_id), name="mlp_out_rms", start_pos=int(start_pos), x=mlp_out)
+
+        x = x + mlp_out
+        if trace is not None:
+            trace.record_hidden(layer_id=int(self.layer_id), name="x_out_rms", start_pos=int(start_pos), x=x)
+
         return x, cache
 
 
@@ -223,16 +316,20 @@ class MiniLLMModel(nn.Module):
         start_pos: int,
         cache: List["LayerKVCache"],
         attention_mask: Optional[mx.array] = None,
+        trace: Optional["ActivationTracer"] = None,
     ) -> Tuple[mx.array, List["LayerKVCache"]]:
         if len(cache) != len(self.layers):
             raise ValueError(f"KV cache layers mismatch: got {len(cache)} want {len(self.layers)}")
+
+        if trace is not None:
+            trace.on_input_ids(start_pos=int(start_pos), input_ids=input_ids)
 
         h = self.embed_tokens(input_ids)
         h = self.dropout(h)
         new_cache: List[LayerKVCache] = []
         for layer, layer_cache in zip(self.layers, cache):
             h, layer_cache = layer.forward_with_cache(
-                h, start_pos=int(start_pos), cache=layer_cache, attention_mask=attention_mask
+                h, start_pos=int(start_pos), cache=layer_cache, attention_mask=attention_mask, trace=trace
             )
             new_cache.append(layer_cache)
         return self.norm(h), new_cache
@@ -272,9 +369,10 @@ class MiniLLMForCausalLM(nn.Module):
         start_pos: int,
         cache: List["LayerKVCache"],
         attention_mask: Optional[mx.array] = None,
+        trace: Optional["ActivationTracer"] = None,
     ) -> Tuple[mx.array, List["LayerKVCache"]]:
         h, cache = self.model.forward_with_cache(
-            input_ids, start_pos=int(start_pos), cache=cache, attention_mask=attention_mask
+            input_ids, start_pos=int(start_pos), cache=cache, attention_mask=attention_mask, trace=trace
         )
         logits = h @ self.model.embed_tokens.weight.transpose()
         return logits, cache

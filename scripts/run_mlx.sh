@@ -19,6 +19,7 @@ Options:
   --smoke-test       Tiny fast run (downloads minimind:smoke, runs infer).
   --download-only    Only download datasets, then exit.
   --infer-only       Skip training; run inference using the latest checkpoint (OUT_DIR/, or OUT_DIR/{sft,pretrain}/).
+  --infer-demo       Alias of `--infer-only` (kept for backward compatibility).
   --infer-checkpoint PATH
                     Skip training; run inference using the specified checkpoint dir (or model.safetensors file).
   --skip-pretrain    Skip pretrain stage (requires existing checkpoint or MLX_INIT_FROM).
@@ -47,17 +48,24 @@ Model/training overrides:
 
 Advanced:
   MLX_INIT_FROM      Checkpoint dir or model.safetensors to init SFT from (overrides auto-detect).
-  INFER_PROMPT       Prompt used by smoke-test inference (default: hi)
+  INFER_PROMPT       Prompt used by non-demo inference (default: hi)
   INFER_MAX_NEW_TOKENS  Max new tokens for smoke-test inference (default: 64)
   INFER_MIN_NEW_TOKENS  Force at least N new tokens (default: 1)
   INFER_TEMPERATURE  0 for greedy; >0 for sampling (default: 0)
   INFER_TOP_P        Nucleus sampling threshold (default: 1.0)
+  INFER_DEMO_MODE     Demo mode for --infer-only (default: knowledge; other: bench)
+  INFER_DEMO_SUITES   [bench mode] Suites (default: copy,json,sort,math_mcq,logic,qa,knowledge)
+  INFER_DEMO_N        [bench mode] Examples per suite (default: 2)
+  INFER_DEMO_NO_CHAT  [bench mode] Set to 1 to skip the open-ended chat prompt (default: 0)
+  ATTN_GATE          Enable gated attention in training (1=on,0=off; default: unset/preset).
+  ATTN_GATE_INIT     Gate init logit for training (default: 4.0; sigmoid(init) is multiplier).
 USAGE
 }
 
 SMOKE_TEST=0
 DOWNLOAD_ONLY=0
 INFER_ONLY=0
+INFER_DEMO=0
 INFER_CHECKPOINT=""
 SKIP_PRETRAIN=0
 SKIP_SFT=0
@@ -72,7 +80,8 @@ while (($#)); do
   case "$1" in
     --smoke-test) SMOKE_TEST=1; shift ;;
     --download-only) DOWNLOAD_ONLY=1; shift ;;
-    --infer-only) INFER_ONLY=1; SKIP_PRETRAIN=1; SKIP_SFT=1; shift ;;
+    --infer-only) INFER_ONLY=1; INFER_DEMO=1; SKIP_PRETRAIN=1; SKIP_SFT=1; shift ;;
+    --infer-demo) INFER_ONLY=1; INFER_DEMO=1; SKIP_PRETRAIN=1; SKIP_SFT=1; shift ;;
     --infer-checkpoint)
       if [ $# -lt 2 ]; then
         echo "[error] --infer-checkpoint requires a path" >&2
@@ -263,8 +272,6 @@ is_valid_ckpt() {
   local ckpt_path=$1
   [ -f "$ckpt_path/model.safetensors" ] || return 1
   [ -s "$ckpt_path/model.safetensors" ] || return 1
-  [ -f "$ckpt_path/optimizer.npz" ] || return 1
-  [ -s "$ckpt_path/optimizer.npz" ] || return 1
   [ -f "$ckpt_path/config.json" ] || return 1
   [ -s "$ckpt_path/config.json" ] || return 1
   [ -f "$ckpt_path/state.json" ] || return 1
@@ -379,6 +386,18 @@ if [ "$SKIP_PRETRAIN" -eq 0 ]; then
   if [ -n "${HF_ENDPOINT:-}" ]; then
     PRETRAIN_ARGS+=(--hf_endpoint "$HF_ENDPOINT")
   fi
+  if [ -n "${ATTN_GATE:-}" ]; then
+    if [ "$ATTN_GATE" = "1" ]; then
+      PRETRAIN_ARGS+=(--attn_gate)
+    elif [ "$ATTN_GATE" = "0" ]; then
+      PRETRAIN_ARGS+=(--no-attn_gate)
+    else
+      echo "[warn] Unknown ATTN_GATE=$ATTN_GATE (expected 1 or 0); ignoring." >&2
+    fi
+    if [ -n "${ATTN_GATE_INIT:-}" ]; then
+      PRETRAIN_ARGS+=(--attn_gate_init "$ATTN_GATE_INIT")
+    fi
+  fi
   if [ -n "$PRETRAIN_MAX_STEPS" ]; then
     PRETRAIN_ARGS+=(--max_steps "$PRETRAIN_MAX_STEPS")
   fi
@@ -419,6 +438,18 @@ if [ "$SKIP_SFT" -eq 0 ]; then
   )
   if [ -n "${HF_ENDPOINT:-}" ]; then
     SFT_ARGS+=(--hf_endpoint "$HF_ENDPOINT")
+  fi
+  if [ -n "${ATTN_GATE:-}" ]; then
+    if [ "$ATTN_GATE" = "1" ]; then
+      SFT_ARGS+=(--attn_gate)
+    elif [ "$ATTN_GATE" = "0" ]; then
+      SFT_ARGS+=(--no-attn_gate)
+    else
+      echo "[warn] Unknown ATTN_GATE=$ATTN_GATE (expected 1 or 0); ignoring." >&2
+    fi
+    if [ -n "${ATTN_GATE_INIT:-}" ]; then
+      SFT_ARGS+=(--attn_gate_init "$ATTN_GATE_INIT")
+    fi
   fi
   if [ -n "$SFT_MAX_STEPS" ]; then
     SFT_ARGS+=(--max_steps "$SFT_MAX_STEPS")
@@ -479,14 +510,31 @@ if [ "$SKIP_INFER" -eq 0 ]; then
     INFER_TOP_P=${INFER_TOP_P:-1.0}
     echo
     echo "[stage] infer"
-    echo "$PY -m mlx_train.infer --checkpoint $INFER_CKPT --prompt \"${INFER_PROMPT}\""
-    "$PY" -m mlx_train.infer \
-      --checkpoint "$INFER_CKPT" \
-      --prompt "$INFER_PROMPT" \
-      --max_new_tokens "$INFER_MAX_NEW_TOKENS" \
-      --min_new_tokens "$INFER_MIN_NEW_TOKENS" \
-      --temperature "$INFER_TEMPERATURE" \
-      --top_p "$INFER_TOP_P"
+    if [ "$INFER_DEMO" -eq 1 ]; then
+      INFER_DEMO_MODE=${INFER_DEMO_MODE:-knowledge}
+      INFER_DEMO_SUITES=${INFER_DEMO_SUITES:-copy,json,sort,math_mcq,logic,qa,knowledge}
+      INFER_DEMO_N=${INFER_DEMO_N:-2}
+      INFER_DEMO_NO_CHAT=${INFER_DEMO_NO_CHAT:-0}
+      DEMO_ARGS=(--checkpoint "$INFER_CKPT" --mode "$INFER_DEMO_MODE" --max_new_tokens "$INFER_MAX_NEW_TOKENS")
+      if [ "$INFER_DEMO_MODE" = "bench" ]; then
+        DEMO_ARGS+=(--suite "$INFER_DEMO_SUITES" --n "$INFER_DEMO_N")
+        if [ "$INFER_DEMO_NO_CHAT" = "1" ]; then
+          DEMO_ARGS+=(--no_chat)
+        fi
+      fi
+      echo "$PY -m mlx_train.demo ${DEMO_ARGS[*]}"
+      "$PY" -m mlx_train.demo \
+        "${DEMO_ARGS[@]}"
+    else
+      echo "$PY -m mlx_train.infer --checkpoint $INFER_CKPT --prompt \"${INFER_PROMPT}\""
+      "$PY" -m mlx_train.infer \
+        --checkpoint "$INFER_CKPT" \
+        --prompt "$INFER_PROMPT" \
+        --max_new_tokens "$INFER_MAX_NEW_TOKENS" \
+        --min_new_tokens "$INFER_MIN_NEW_TOKENS" \
+        --temperature "$INFER_TEMPERATURE" \
+        --top_p "$INFER_TOP_P"
+    fi
   else
     echo "[infer] No checkpoint found under $OUT_DIR"
   fi

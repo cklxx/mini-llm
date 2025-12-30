@@ -306,6 +306,11 @@ def make_config(args, tokenizer) -> MiniLLMConfig:
     cfg.lora_dropout = float(args.lora_dropout)
     cfg.lora_targets = str(args.lora_targets)
 
+    if args.attn_gate is not None:
+        cfg.use_attn_gate = bool(args.attn_gate)
+    if bool(cfg.use_attn_gate):
+        cfg.attn_gate_init = float(args.attn_gate_init)
+
     return cfg
 
 
@@ -411,6 +416,18 @@ def main() -> None:
     parser.add_argument("--max_position_embeddings", type=int, default=32768)
     parser.add_argument("--rope_theta", type=float, default=1_000_000.0)
     parser.add_argument("--dropout", type=float, default=0.0)
+    parser.add_argument(
+        "--attn_gate",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable a learnable scalar gate on the attention residual branch (default: preset-dependent).",
+    )
+    parser.add_argument(
+        "--attn_gate_init",
+        type=float,
+        default=4.0,
+        help="Initial logit for attention gate when enabled (sigmoid(init) is the initial multiplier).",
+    )
 
     parser.add_argument("--seq_len", type=int, default=512)
     parser.add_argument("--batch_size", type=int, default=4)
