@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MiniLLM 实验看板</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0e13;
+      --card: #11161f;
+      --muted: #9ca3af;
+      --accent: #d1d5db;
+      --border: #1c222c;
+      --ink: #e5e7eb;
+      --shadow: rgba(0, 0, 0, 0.35);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: radial-gradient(circle at 20% 20%, rgba(209, 213, 219, 0.08), transparent 30%),
+                  radial-gradient(circle at 85% 10%, rgba(148, 163, 184, 0.08), transparent 28%),
+                  var(--bg);
+      color: var(--ink);
+      min-height: 100vh;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 26px;
+      letter-spacing: 0.3px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--accent);
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-weight: 600;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .card {
+      background: linear-gradient(145deg, rgba(17, 22, 31, 0.95), rgba(13, 16, 23, 0.92));
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 12px 40px var(--shadow);
+    }
+
+    .card h3 {
+      margin: 0 0 6px;
+      font-size: 16px;
+    }
+
+    .muted { color: var(--muted); font-size: 13px; }
+
+    .stat {
+      font-size: 30px;
+      font-weight: 700;
+      margin: 6px 0;
+      color: var(--ink);
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--ink);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 32px 0 12px;
+      font-size: 18px;
+      letter-spacing: 0.2px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    tr:hover td { background: rgba(56, 189, 248, 0.05); }
+
+    input[type="checkbox"] { accent-color: #d1d5db; }
+
+    .btn {
+      background: linear-gradient(120deg, #d1d5db, #9ca3af);
+      color: #0c0f15;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+      transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+    }
+
+    .btn:hover { transform: translateY(-1px); box-shadow: 0 12px 40px rgba(0,0,0,0.25); filter: brightness(1.03); }
+
+    .stack { display: flex; flex-direction: column; gap: 8px; }
+
+    .run-card { display: grid; grid-template-columns: 1fr 320px; gap: 14px; align-items: center; }
+
+    @media (max-width: 960px) {
+      .run-card { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <div class="pill">实验管线 · 可视化</div>
+      <h1>MiniLLM Dashboard</h1>
+      <p class="muted">管理配置、数据集与训练日志，灵感来自 llm-madness</p>
+    </div>
+    <div class="tag" id="latest-run-tag">最近运行：加载中...</div>
+  </header>
+
+  <section class="grid" id="overview"></section>
+
+  <div class="section-title">📚 数据集</div>
+  <div class="card">
+    <div style="display:flex; align-items:center; gap: 12px; margin-bottom: 12px;">
+      <input id="snapshot-name" type="text" placeholder="snapshot name" style="flex:1; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: #0b1221; color: #e2e8f0;">
+      <button class="btn" id="build-snapshot">生成快照</button>
+    </div>
+    <div class="muted" style="margin-bottom: 8px;">选择数据文件并一键合并为 out/datasets/*/combined.jsonl</div>
+    <div style="overflow:auto;">
+      <table id="dataset-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>路径</th>
+            <th>行数</th>
+            <th>大小</th>
+            <th>预览</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="section-title">⚙️ 配置模板</div>
+  <div class="grid" id="config-grid"></div>
+
+  <div class="section-title">📈 训练运行</div>
+  <div class="stack" id="runs"></div>
+
+  <script src="{{ url_for('static_assets', filename='dashboard.js') }}"></script>
+</body>
+</html>

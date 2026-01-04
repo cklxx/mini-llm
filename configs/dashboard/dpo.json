@@ -1,0 +1,27 @@
+{
+  "meta": {
+    "name": "DPO 对齐配置",
+    "version": "v1",
+    "stage": "dpo",
+    "description": "使用仓库内置偏好数据进行最小化 DPO 训练，便于在仪表盘中快速对比。"
+  },
+  "args": {
+    "out_dir": "out/dpo_dashboard",
+    "epochs": 1,
+    "batch_size": 8,
+    "learning_rate": 0.0000005,
+    "device": "auto",
+    "dtype": "bfloat16",
+    "accumulation_steps": 1,
+    "grad_clip": 1.0,
+    "log_interval": 20,
+    "save_interval": 100,
+    "hidden_size": 512,
+    "num_hidden_layers": 8,
+    "max_seq_len": 512,
+    "use_moe": false,
+    "data_path": "dataset/preference_cn_sample.jsonl",
+    "tensorboard_dir": "out/logs/dashboard/dpo",
+    "pretrained_path": "out/sft_dashboard/full_sft_512.pth"
+  }
+}

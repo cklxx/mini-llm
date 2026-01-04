@@ -94,6 +94,14 @@ bash scripts/run_mlx.sh --smoke-test
 - 训练默认集成 [SwanLab](https://swanlab.cn) 与 [Weights & Biases](https://wandb.ai)；
 - 可通过环境变量 `MINILLM_USE_SWANLAB` / `WANDB_API_KEY` 控制启用；
 - 日志与配置保存在 `out/logs/`，便于二次分析。
+- 新增 `scripts/dashboard/` 仪表盘（灵感来自 [llm-madness](https://github.com/MaxHastings/llm-madness)），一站式查看配置模板、数据集与 `out/` 内的运行记录：
+  ```bash
+  python -m scripts.dashboard.app --host 0.0.0.0 --port 8008
+  ```
+  打开页面后可以：
+  - 浏览 `configs/dashboard/*.json` 中的预设管线/训练配置；
+  - 勾选数据文件并合并成 `out/datasets/<name>/combined.jsonl` 快照，自动写入 manifest；
+  - 聚合 `out/` 目录下的 checkpoint、TensorBoard 标量并绘制曲线，便于快速比对训练状态。
 
 ---
 

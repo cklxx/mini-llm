@@ -1,0 +1,29 @@
+{
+  "meta": {
+    "name": "预训练默认配置",
+    "version": "v1",
+    "stage": "pretrain",
+    "description": "与 trainer/train_pretrain.py 参数一致的小型 GPU 预训练配置。"
+  },
+  "args": {
+    "out_dir": "out/pretrain_dashboard",
+    "epochs": 1,
+    "batch_size": 32,
+    "learning_rate": 0.0005,
+    "device": "auto",
+    "dtype": "bfloat16",
+    "use_wandb": false,
+    "num_workers": 2,
+    "ddp": false,
+    "accumulation_steps": 8,
+    "grad_clip": 1.0,
+    "log_interval": 50,
+    "save_interval": 200,
+    "hidden_size": 512,
+    "num_hidden_layers": 8,
+    "max_seq_len": 512,
+    "use_moe": false,
+    "data_path": "dataset/identity_cn_sample.jsonl",
+    "tensorboard_dir": "out/logs/dashboard/pretrain"
+  }
+}
