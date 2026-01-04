@@ -1,0 +1,27 @@
+{
+  "meta": {
+    "name": "指令微调默认配置",
+    "version": "v1",
+    "stage": "sft",
+    "description": "与 trainer/train_full_sft.py 对齐的指令微调参数，支持直接引用预训练 checkpoint。"
+  },
+  "args": {
+    "out_dir": "out/sft_dashboard",
+    "epochs": 2,
+    "batch_size": 16,
+    "learning_rate": 0.0000005,
+    "device": "auto",
+    "dtype": "bfloat16",
+    "accumulation_steps": 1,
+    "grad_clip": 1.0,
+    "log_interval": 50,
+    "save_interval": 200,
+    "hidden_size": 512,
+    "num_hidden_layers": 8,
+    "max_seq_len": 512,
+    "use_moe": false,
+    "data_path": "data/chinese/identity_conversations.jsonl",
+    "tensorboard_dir": "out/logs/dashboard/sft",
+    "pretrained_path": "out/pretrain_dashboard/pretrain_512.pth"
+  }
+}

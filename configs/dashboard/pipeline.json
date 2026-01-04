@@ -1,0 +1,40 @@
+{
+  "meta": {
+    "name": "默认三阶段流水线",
+    "version": "v1",
+    "stage": "pipeline",
+    "description": "以仓库内置中文数据跑通预训练→SFT→DPO 的标准流程，并写入 out/logs 下的 TensorBoard 轨迹。"
+  },
+  "paths": {
+    "pretrain_data": "dataset/identity_cn_sample.jsonl",
+    "sft_data": "data/chinese/identity_conversations.jsonl",
+    "dpo_data": "dataset/preference_cn_sample.jsonl",
+    "tensorboard_root": "out/logs/dashboard"
+  },
+  "stages": {
+    "pretrain": {
+      "script": "trainer/train_pretrain.py",
+      "hidden_size": 512,
+      "num_hidden_layers": 8,
+      "batch_size": 32,
+      "max_seq_len": 512,
+      "learning_rate": 0.0005,
+      "epochs": 1,
+      "tensorboard_dir": "out/logs/dashboard/pretrain"
+    },
+    "sft": {
+      "script": "trainer/train_full_sft.py",
+      "batch_size": 16,
+      "learning_rate": 0.0000005,
+      "epochs": 2,
+      "tensorboard_dir": "out/logs/dashboard/sft"
+    },
+    "dpo": {
+      "script": "trainer/train_dpo.py",
+      "batch_size": 8,
+      "learning_rate": 0.0000005,
+      "epochs": 1,
+      "tensorboard_dir": "out/logs/dashboard/dpo"
+    }
+  }
+}
